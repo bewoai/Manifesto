@@ -78,3 +78,12 @@ tests/                 MRZ + country_map + golden pair
 
 > Vision katmanı, MRZ satırlarını çıkarmak için Claude (en güncel vision modeli) kullanacak;
 > **checksum doğrulaması kodda** (`app/mrz`) deterministik yapılır — model yalnızca OCR eder.
+
+## Son Güncellemeler (23.06.2026)
+
+- **Aetheria Tasarım Dili (Tailwind CSS):** Vanilla CSS'ten (`style.css` - 1700 satır) tamamen modern **Tailwind CSS v3** altyapısına geçildi. Yeni "Sıcak Kehribar (Warm Amber) & Gün Batımı" renk paleti (Material Design 3) entegre edildi. Bütün sayfalar (`dashboard`, `planning`, `passport`, `manifest`, `weather`, `lists`, `settings`) "glass-panel" bileşenleri, `Material Symbols Outlined` ikonları ve akıcı animasyonlarla baştan aşağı yenilendi.
+- **Hata Çözümleri & İşlevsellik:**
+  - Planlama (planning.js/planning.py) ekranında aynı rezervasyona ait birden fazla pasaportun kaydedilememesi/görünmemesi (Excel okuma `read_only=True` sınırları kaynaklı) sorunu çözüldü (`read_only=False`).
+  - Pasaport yükleme ekranında PAX sayısının, kaydedilen yolcu sayısı kadar otomatik artırılması sağlandı.
+  - Hava durumu (weather.js) kartlarındaki saat aralığı, yerel operasyonel gereksinimlere uyacak şekilde **her gün 03:30 - 07:30** arası uçuş slotlarını içerecek biçimde daraltıldı.
+- **Build & Yayın:** Vite üzerinden frontend build optimizasyonu (`dist` kütüphanesi güncellendi) yapıldı. Desktop versiyonu olan `BalonManifesto.exe`, PyInstaller kullanılarak başarılı bir şekilde güncellendi. Tüm değişiklikler GitHub repository'sine eklendi.

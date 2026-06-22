@@ -1,0 +1,537 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ═══════════════════════════════════════════════════════════════════
+   Balon Manifesto — Aetheria Flights Design System
+   Material Design 3 Dark Theme + Warm Amber Palette
+   ═══════════════════════════════════════════════════════════════════ */
+
+@layer base {
+  body {
+    background-color: #121411;
+    color: #e3e3de;
+    overflow-x: hidden;
+  }
+
+  .material-symbols-outlined {
+    font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  }
+}
+
+@layer components {
+  /* ─── Glass Panel ─── */
+  .glass-panel {
+    @apply bg-surface-container-lowest/70 backdrop-blur-2xl border border-white/10 shadow-xl;
+  }
+
+  /* ─── Liquid Background Blobs ─── */
+  .liquid-bg {
+    filter: blur(80px);
+    opacity: 0.35;
+    pointer-events: none;
+  }
+
+  .blob-shape {
+    border-radius: 42% 58% 70% 30% / 45% 45% 55% 55%;
+    animation: morph 20s ease-in-out infinite;
+  }
+
+  @keyframes morph {
+    0% { border-radius: 42% 58% 70% 30% / 45% 45% 55% 55%; }
+    50% { border-radius: 70% 30% 46% 54% / 30% 29% 71% 70%; }
+    100% { border-radius: 42% 58% 70% 30% / 45% 45% 55% 55%; }
+  }
+
+  /* ─── Custom Scrollbar ─── */
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 4px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.05);
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #ffb68d;
+    border-radius: 10px;
+  }
+
+  /* ─── Buttons ─── */
+  .btn-primary {
+    @apply px-6 py-3 bg-primary-container text-on-primary-container rounded-full font-medium
+           hover:brightness-110 active:scale-95 transition-all shadow-lg shadow-primary-container/20;
+  }
+
+  .btn-secondary {
+    @apply px-6 py-3 border border-white/10 text-on-surface-variant rounded-full font-medium
+           hover:bg-white/5 active:scale-95 transition-all;
+  }
+
+  .btn-success {
+    @apply px-6 py-3 bg-green-600 text-white rounded-full font-medium
+           hover:bg-green-500 active:scale-95 transition-all;
+  }
+
+  .btn-danger {
+    @apply px-6 py-3 bg-error-container text-on-error-container rounded-full font-medium
+           hover:brightness-110 active:scale-95 transition-all;
+  }
+
+  .btn-ghost {
+    @apply p-2 rounded-full text-on-surface-variant hover:bg-white/5 transition-all;
+  }
+
+  .btn-icon {
+    @apply w-10 h-10 flex items-center justify-center;
+  }
+
+  /* ─── Forms ─── */
+  .form-input {
+    @apply w-full bg-surface-container-low border border-white/10 rounded-xl px-4 py-3
+           text-on-surface placeholder-on-surface-variant/50
+           focus:ring-2 focus:ring-primary/50 focus:border-primary/30 transition-all;
+  }
+
+  .form-select {
+    @apply w-full bg-surface-container-low border border-white/10 rounded-xl px-4 py-3
+           text-on-surface focus:ring-2 focus:ring-primary/50 focus:border-primary/30 transition-all;
+  }
+
+  .form-label {
+    @apply block text-sm font-medium text-on-surface-variant mb-1.5;
+  }
+
+  .form-help {
+    @apply text-xs text-on-surface-variant/60 mt-1;
+  }
+
+  /* ─── Cards ─── */
+  .card {
+    @apply glass-panel rounded-3xl p-6;
+  }
+
+  .card-header {
+    @apply flex justify-between items-center mb-6;
+  }
+
+  .card-title {
+    @apply font-headline text-headline-sm text-primary flex items-center gap-3;
+  }
+
+  /* ─── Badges ─── */
+  .badge {
+    @apply inline-flex items-center px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider;
+  }
+
+  .badge-green {
+    @apply bg-green-500/15 text-green-400;
+  }
+
+  .badge-yellow {
+    @apply bg-yellow-500/15 text-yellow-400;
+  }
+
+  .badge-red {
+    @apply bg-red-500/15 text-red-400;
+  }
+
+  .badge-blue {
+    @apply bg-primary/15 text-primary;
+  }
+
+  .badge-amber {
+    @apply bg-secondary-container/20 text-secondary-container;
+  }
+
+  /* ─── Toast ─── */
+  .toast {
+    @apply pointer-events-auto flex items-start gap-3 glass-panel rounded-2xl px-5 py-4
+           min-w-[320px] max-w-[420px] animate-slide-in relative overflow-hidden;
+  }
+
+  .toast.success { @apply border-l-4 border-l-green-500; }
+  .toast.error   { @apply border-l-4 border-l-red-500; }
+  .toast.warning  { @apply border-l-4 border-l-yellow-500; }
+  .toast.info     { @apply border-l-4 border-l-primary; }
+
+  .toast-icon {
+    @apply text-lg mt-0.5 flex-shrink-0;
+  }
+  .toast.success .toast-icon { @apply text-green-400; }
+  .toast.error .toast-icon   { @apply text-red-400; }
+  .toast.warning .toast-icon  { @apply text-yellow-400; }
+  .toast.info .toast-icon     { @apply text-primary; }
+
+  .toast-title {
+    @apply font-semibold text-on-surface text-sm;
+  }
+
+  .toast-message {
+    @apply text-on-surface-variant text-xs mt-0.5;
+  }
+
+  .toast-close {
+    @apply ml-auto text-on-surface-variant/40 hover:text-on-surface transition-colors cursor-pointer text-sm;
+  }
+
+  .toast-progress {
+    @apply absolute bottom-0 left-0 h-0.5 bg-white/20 w-full;
+    animation: toast-shrink linear forwards;
+  }
+
+  .toast.leaving {
+    @apply opacity-0 translate-x-8 transition-all duration-200;
+  }
+
+  @keyframes slide-in {
+    from { opacity: 0; transform: translateX(100px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+
+  @keyframes toast-shrink {
+    from { width: 100%; }
+    to { width: 0%; }
+  }
+
+  /* ─── Modal ─── */
+  .modal-overlay {
+    @apply fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm
+           flex items-center justify-center p-4 animate-fade-in;
+  }
+
+  .modal {
+    @apply glass-panel rounded-3xl w-full max-w-lg max-h-[90vh] overflow-auto;
+  }
+
+  .modal-header {
+    @apply flex justify-between items-center p-6 pb-4 border-b border-white/5;
+  }
+
+  .modal-header h3 {
+    @apply font-headline text-headline-sm text-primary;
+  }
+
+  .modal-body {
+    @apply p-6;
+  }
+
+  .modal-footer {
+    @apply flex justify-end gap-3 p-6 pt-4 border-t border-white/5;
+  }
+
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  /* ─── Dropzone ─── */
+  .dropzone {
+    @apply glass-panel rounded-3xl p-12 text-center cursor-pointer
+           border-2 border-dashed border-white/10 hover:border-primary/30
+           transition-all hover:bg-white/5;
+  }
+
+  .dropzone.drag-over {
+    @apply border-primary/50 bg-primary/5 scale-[1.01];
+  }
+
+  .drop-icon {
+    @apply text-5xl mb-4;
+  }
+
+  .drop-text {
+    @apply text-on-surface mb-2;
+  }
+
+  .drop-hint {
+    @apply text-on-surface-variant text-sm;
+  }
+
+  /* ─── Passport Control Cards ─── */
+  .passport-card {
+    @apply glass-panel rounded-3xl p-5 grid gap-4
+           transition-all;
+    grid-template-columns: 160px 1fr auto;
+  }
+
+  .passport-card.green {
+    @apply border-l-4 border-l-green-500;
+  }
+
+  .passport-card.yellow {
+    @apply border-l-4 border-l-yellow-500;
+  }
+
+  .passport-card .thumb {
+    @apply w-40 h-32 object-cover rounded-2xl;
+  }
+
+  .passport-card .thumb-placeholder {
+    @apply w-40 h-32 flex items-center justify-center text-center text-sm
+           text-on-surface-variant bg-surface-container rounded-2xl;
+  }
+
+  .passport-fields {
+    @apply grid grid-cols-2 gap-3 content-start;
+  }
+
+  .passport-status {
+    @apply flex flex-col items-end justify-start gap-2 min-w-[100px];
+  }
+
+  .status-label {
+    @apply text-sm font-bold;
+  }
+
+  .flags {
+    @apply text-xs text-on-surface-variant;
+  }
+
+  /* ─── Block List (Planning) ─── */
+  .block-item {
+    @apply flex items-center gap-4 p-5 rounded-3xl bg-white/5 hover:bg-white/10
+           transition-all border border-transparent hover:border-white/10 cursor-pointer;
+  }
+
+  .block-item.selected {
+    @apply border-primary/30 bg-primary/5;
+  }
+
+  .block-pax {
+    @apply w-16 h-16 flex items-center justify-center rounded-2xl
+           bg-primary-container/20 text-primary font-bold text-sm;
+  }
+
+  .block-main {
+    @apply flex-1 min-w-0;
+  }
+
+  .block-info {
+    @apply flex flex-wrap gap-3 text-sm text-on-surface-variant;
+  }
+
+  .block-passengers {
+    @apply flex flex-wrap gap-2 mt-2;
+  }
+
+  .block-passenger {
+    @apply text-xs px-2 py-1 rounded-lg bg-white/5 text-on-surface;
+  }
+
+  .block-passenger.empty {
+    @apply text-on-surface-variant/40 italic;
+  }
+
+  .block-balloon {
+    @apply px-3 py-1 rounded-full bg-secondary-container/20 text-secondary-container
+           text-xs font-bold;
+  }
+
+  /* ─── Combobox ─── */
+  .cb-panel {
+    @apply fixed z-[250] glass-panel rounded-2xl py-2 min-w-[200px] max-h-[240px]
+           overflow-y-auto shadow-2xl;
+  }
+
+  .cb-item {
+    @apply px-4 py-2 text-sm text-on-surface cursor-pointer hover:bg-white/10
+           transition-colors;
+  }
+
+  .cb-item.active {
+    @apply bg-primary/15 text-primary;
+  }
+
+  /* ─── Checkbox ─── */
+  .checkbox-label {
+    @apply flex items-center gap-2 text-sm text-on-surface-variant cursor-pointer;
+  }
+
+  .checkbox-label input[type="checkbox"] {
+    @apply w-4 h-4 rounded bg-surface-container border-white/20 text-primary
+           focus:ring-primary/50;
+  }
+
+  /* ─── Progress Bar ─── */
+  .progress-bar {
+    @apply w-full bg-white/5 h-1.5 rounded-full overflow-hidden;
+  }
+
+  .progress-fill {
+    @apply h-full bg-primary rounded-full transition-all duration-500
+           shadow-[0_0_8px_rgba(255,182,141,0.5)];
+  }
+
+  /* ─── Empty State ─── */
+  .empty-state {
+    @apply py-16 text-center;
+  }
+
+  .empty-icon {
+    @apply text-5xl mb-4;
+  }
+
+  .empty-title {
+    @apply text-lg font-semibold text-on-surface mb-2;
+  }
+
+  .empty-desc {
+    @apply text-sm text-on-surface-variant;
+  }
+
+  /* ─── Skeleton ─── */
+  .skeleton {
+    @apply bg-white/5 rounded-2xl animate-pulse;
+  }
+
+  .skeleton-title {
+    @apply h-8 w-48;
+  }
+
+  .skeleton-text {
+    @apply h-4 w-32 mt-2;
+  }
+
+  .skeleton-card {
+    @apply h-32;
+  }
+
+  /* ─── Weather Slots ─── */
+  .weather-slot {
+    @apply p-3 rounded-xl border border-white/5 bg-white/[.035];
+  }
+
+  .weather-slot.low { @apply border-green-500/40; }
+  .weather-slot.medium { @apply border-yellow-500/50; }
+  .weather-slot.high { @apply border-red-500/50; }
+
+  .slot-time {
+    @apply font-extrabold text-on-surface text-sm;
+  }
+
+  .slot-status {
+    @apply mt-1 text-secondary text-xs font-bold;
+  }
+
+  .slot-values {
+    @apply text-on-surface-variant text-xs;
+  }
+
+  .calendar-day-label {
+    @apply font-bold text-sm text-primary py-1 border-b border-white/10 mt-3 first:mt-0;
+  }
+
+  .calendar-day-slots {
+    @apply grid grid-cols-[repeat(auto-fill,minmax(100px,1fr))] gap-2;
+  }
+
+  /* ─── History Row ─── */
+  .history-row {
+    @apply grid grid-cols-3 gap-3 py-2 text-sm items-center;
+  }
+
+  .history-row span {
+    @apply text-on-surface-variant;
+  }
+
+  .history-row strong {
+    @apply text-secondary;
+  }
+
+  /* ─── Weather Metrics ─── */
+  .weather-metric {
+    @apply glass-panel rounded-3xl p-5;
+  }
+
+  .weather-metric.risk-low { @apply border-l-4 border-l-green-500; }
+  .weather-metric.risk-medium { @apply border-l-4 border-l-yellow-500; }
+  .weather-metric.risk-high { @apply border-l-4 border-l-red-500; }
+  .weather-metric.risk-unknown { @apply border-l-4 border-l-white/10; }
+
+  .metric-label {
+    @apply text-xs font-bold uppercase tracking-wider text-on-surface-variant;
+  }
+
+  .metric-value {
+    @apply text-2xl font-bold text-on-surface mt-2;
+  }
+
+  .metric-sub {
+    @apply text-xs text-on-surface-variant/60;
+  }
+
+  /* ─── Section Header ─── */
+  .section-header {
+    @apply flex justify-between items-center mb-6;
+  }
+
+  .section-title {
+    @apply font-headline text-headline-sm text-primary;
+  }
+
+  /* ─── Btn Spinner ─── */
+  .btn-spinner {
+    @apply inline-block w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin;
+  }
+
+  /* ─── Form Row ─── */
+  .form-row {
+    @apply grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4;
+  }
+
+  .form-group {
+    @apply flex flex-col;
+  }
+
+  /* ─── Table ─── */
+  .data-table {
+    @apply w-full border-separate border-spacing-y-2;
+  }
+
+  .data-table thead tr {
+    @apply text-left text-on-surface-variant/60 text-label-md;
+  }
+
+  .data-table thead th {
+    @apply px-5 py-2;
+  }
+
+  .data-table tbody tr {
+    @apply bg-white/5 hover:bg-white/10 transition-colors cursor-pointer;
+  }
+
+  .data-table tbody td {
+    @apply px-5 py-4;
+  }
+
+  .data-table tbody td:first-child {
+    @apply rounded-l-2xl;
+  }
+
+  .data-table tbody td:last-child {
+    @apply rounded-r-2xl;
+  }
+
+  /* ─── Weather Hero ─── */
+  .weather-hero {
+    @apply glass-panel rounded-[40px] p-8 flex justify-between items-start;
+  }
+
+  .weather-hero.risk-low { @apply border-l-4 border-l-green-500; }
+  .weather-hero.risk-medium { @apply border-l-4 border-l-yellow-500; }
+  .weather-hero.risk-high { @apply border-l-4 border-l-red-500; }
+  .weather-hero.risk-unknown { @apply border-l-4 border-l-white/10; }
+}
+
+@layer utilities {
+  .animate-slide-in {
+    animation: slide-in 0.3s ease-out;
+  }
+
+  .animate-fade-in {
+    animation: fade-in 0.2s ease-out;
+  }
+
+  .font-mono {
+    font-family: 'JetBrains Mono', monospace;
+  }
+}

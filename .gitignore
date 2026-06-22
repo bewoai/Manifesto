@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+*.spec
+
+# Veri / PII — gerçek planlama ve manifesto dosyaları repo'ya konmaz (KVKK, brief §10)
+*.xlsx
+*.xlsm
+!data/manifest_template.xlsx   # PII'siz şablon hariç tutulabilir
+data/*.db
+data/incoming/
+
+# Ortam
+.env
+node_modules/
+dist/
+build/
+

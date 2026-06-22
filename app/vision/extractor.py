@@ -1,0 +1,161 @@
+"""Vision katmanı — pasaport/kimlik fotoğrafından MRZ okuma (Claude).
+
+Akış: görsel -> Claude Vision (yalnızca MRZ satırlarını JSON döndürür)
+      -> app.mrz.parser (TD3/TD1 + ICAO 9303 checksum, DETERMİNİSTİK)
+      -> app.validation.flags (yeşil/sarı).
+
+Model SADECE OCR eder; checksum ve alan doğrulaması kodda yapılır. Böylece
+model hatası checksum'a takılır (brief §6).
+"""
+from __future__ import annotations
+
+import base64
+import datetime as _dt
+import json
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Optional
+
+from app import settings as settings_mod
+from app.mrz.parser import MRZResult, parse_td1, parse_td3
+from app.validation.flags import Flag, ValidationOutcome, validate_mrz
+
+# Claude'a sadece MRZ satırlarını çıkarttırıyoruz; geri kalan her şey kodda.
+SYSTEM_PROMPT = (
+    "You are a passport/ID machine-readable-zone (MRZ) reader. "
+    "The MRZ is the block of monospaced text with '<' filler characters at the "
+    "bottom of a passport (2 lines, TD3) or the back of an ID card (3 lines, TD1). "
+    "Transcribe the MRZ lines EXACTLY as printed: keep every '<', do not insert "
+    "spaces, do not correct or guess characters, do not translate. Each TD3 line is "
+    "44 characters; each TD1 line is 30. If you cannot find a valid MRZ, return "
+    'format "NONE" with an empty lines array. Output only the requested JSON.'
+)
+
+OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "format": {"type": "string", "enum": ["TD3", "TD1", "NONE"]},
+        "lines": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["format", "lines"],
+    "additionalProperties": False,
+}
+
+_MEDIA_TYPES = {
+    ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+    ".webp": "image/webp", ".gif": "image/gif",
+}
+
+
+def media_type_for(path: Path) -> str:
+    return _MEDIA_TYPES.get(Path(path).suffix.lower(), "image/jpeg")
+
+
+@dataclass
+class PassportRecord:
+    """Kontrol ekranı + planlamaya yazma için tek pasaportun tüm çıktısı."""
+    source: str                       # görsel dosya yolu / id
+    mrz: Optional[MRZResult]
+    outcome: ValidationOutcome
+    error: Optional[str] = None
+
+    @property
+    def is_green(self) -> bool:
+        return self.mrz is not None and self.outcome.is_green
+
+    @property
+    def flags(self) -> list[Flag]:
+        return self.outcome.flags
+
+    def to_fields(self) -> dict:
+        """Kontrol ekranının sağ panelindeki 4 alan + meta."""
+        if self.mrz is None:
+            return {"nationality": "", "sex": "", "name": "", "passport_no": "",
+                    "green": False, "flags": [f.value for f in self.flags],
+                    "error": self.error, "source": self.source}
+        return {
+            "nationality": self.mrz.nationality,     # alpha-3 -> planlama col 2
+            "sex": self.mrz.sex,                      # M/F -> planlama col 3
+            "name": self.mrz.name,                    # -> planlama col 4
+            "passport_no": self.mrz.document_number,  # -> planlama col 20
+            "birth_date": self.mrz.birth_date.isoformat() if self.mrz.birth_date else None,
+            "expiry_date": self.mrz.expiry_date.isoformat() if self.mrz.expiry_date else None,
+            "green": self.is_green,
+            "flags": [f.value for f in self.flags],
+            "checks": self.mrz.checks,
+            "error": None,
+            "source": self.source,
+        }
+
+
+def _make_client(api_key: Optional[str] = None):
+    import anthropic  # geç import: paket yoksa sadece bu yol patlar
+    return anthropic.Anthropic(api_key=api_key) if api_key else anthropic.Anthropic()
+
+
+def extract_mrz_lines(image_bytes: bytes, media_type: str, *, client=None,
+                      model: Optional[str] = None) -> tuple[str, list[str]]:
+    """Claude Vision -> (format, lines). Yalnızca OCR; doğrulama yapmaz."""
+    client = client or _make_client()
+    model = model or settings_mod.DEFAULT_MODEL
+    b64 = base64.standard_b64encode(image_bytes).decode("utf-8")
+    resp = client.messages.create(
+        model=model,
+        max_tokens=1024,
+        system=SYSTEM_PROMPT,
+        messages=[{
+            "role": "user",
+            "content": [
+                {"type": "image", "source": {"type": "base64",
+                                             "media_type": media_type, "data": b64}},
+                {"type": "text", "text": "Extract the MRZ lines."},
+            ],
+        }],
+        output_config={"format": {"type": "json_schema", "schema": OUTPUT_SCHEMA}},
+    )
+    text = next((b.text for b in resp.content if getattr(b, "type", None) == "text"), "")
+    data = json.loads(text)
+    return data.get("format", "NONE"), [str(x) for x in data.get("lines", [])]
+
+
+def process_image(
+    image_bytes: bytes,
+    *,
+    source: str = "",
+    media_type: str = "image/jpeg",
+    client=None,
+    model: Optional[str] = None,
+    seen_document_numbers: Optional[set[str]] = None,
+    today: Optional[_dt.date] = None,
+) -> PassportRecord:
+    """Uçtan uca: görsel -> MRZ -> parse + checksum -> flag'ler -> PassportRecord."""
+    try:
+        fmt, lines = extract_mrz_lines(image_bytes, media_type, client=client, model=model)
+    except Exception as e:  # ağ/parse/SDK hatası -> okunamadı say, akış durmaz
+        return PassportRecord(source=source, mrz=None,
+                              outcome=ValidationOutcome(flags=[Flag.UNREADABLE]),
+                              error=f"{type(e).__name__}: {e}")
+
+    lines = [ln for ln in lines if ln.strip()]
+    try:
+        if fmt == "TD3" and len(lines) >= 2:
+            mrz = parse_td3(lines[0], lines[1], today=today)
+        elif fmt == "TD1" and len(lines) >= 3:
+            mrz = parse_td1(lines[0], lines[1], lines[2], today=today)
+        else:
+            return PassportRecord(source=source, mrz=None,
+                                  outcome=ValidationOutcome(flags=[Flag.UNREADABLE]),
+                                  error="MRZ bulunamadı/okunamadı")
+    except Exception as e:
+        return PassportRecord(source=source, mrz=None,
+                              outcome=ValidationOutcome(flags=[Flag.UNREADABLE]),
+                              error=f"parse: {e}")
+
+    outcome = validate_mrz(mrz, seen_document_numbers=seen_document_numbers, today=today)
+    return PassportRecord(source=source, mrz=mrz, outcome=outcome)
+
+
+def process_file(path: str | Path, **kwargs) -> PassportRecord:
+    p = Path(path)
+    return process_image(p.read_bytes(), source=str(p),
+                         media_type=media_type_for(p), **kwargs)

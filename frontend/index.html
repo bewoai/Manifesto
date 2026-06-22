@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html class="dark" lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Balon Manifesto — Uçuş Planlama Sistemi</title>
+  <meta name="description" content="Kapadokya balon uçuş planlama ve manifesto yönetim sistemi" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Sora:wght@400;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body class="bg-surface text-on-surface font-body selection:bg-primary-container/30">
+  <div class="flex h-screen overflow-hidden" id="app-root">
+    <!-- Sidebar -->
+    <aside class="hidden md:flex fixed left-0 top-0 h-full w-72 z-40 bg-surface-container-lowest/80 backdrop-blur-2xl border-r border-white/5 flex-col py-8 gap-8" id="sidebar"></aside>
+
+    <!-- Main Content -->
+    <main class="flex-1 md:ml-72 overflow-y-auto custom-scrollbar relative">
+      <!-- Top Bar -->
+      <header class="fixed top-0 left-0 md:left-72 right-0 z-50 bg-surface/70 backdrop-blur-xl border-b border-white/10 flex justify-between items-center px-gutter py-4" id="page-header"></header>
+
+      <!-- Page Body -->
+      <div class="pt-24 pb-12 px-gutter" id="page-body"></div>
+    </main>
+  </div>
+
+  <!-- Toast Container -->
+  <div class="fixed top-20 right-6 z-[300] flex flex-col gap-3 pointer-events-none" id="toast-container"></div>
+
+  <!-- Modal Root -->
+  <div id="modal-root"></div>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

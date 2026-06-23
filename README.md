@@ -86,4 +86,4 @@ tests/                 MRZ + country_map + golden pair
   - Planlama (planning.js/planning.py) ekranında aynı rezervasyona ait birden fazla pasaportun kaydedilememesi/görünmemesi (Excel okuma `read_only=True` sınırları kaynaklı) sorunu çözüldü (`read_only=False`).
   - Pasaport yükleme ekranında PAX sayısının, kaydedilen yolcu sayısı kadar otomatik artırılması sağlandı.
   - Hava durumu (weather.js) kartlarındaki saat aralığı, yerel operasyonel gereksinimlere uyacak şekilde **her gün 03:30 - 07:30** arası uçuş slotlarını içerecek biçimde daraltıldı.
-- **Build & Yayın:** Vite üzerinden frontend build optimizasyonu (`dist` kütüphanesi güncellendi) yapıldı. Desktop versiyonu olan `BalonManifesto.exe`, PyInstaller kullanılarak başarılı bir şekilde güncellendi. Tüm değişiklikler GitHub repository'sine eklendi.
+- **Build & Yayın:** Vite üzerinden frontend build optimizasyonu (`dist` kütüphanesi güncellendi) yapıldı. Desktop versiyonu olan `Irtifa.exe`, PyInstaller kullanılarak başarılı bir şekilde güncellendi. Tüm değişiklikler GitHub repository'sine eklendi.

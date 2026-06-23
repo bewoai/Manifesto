@@ -334,6 +334,69 @@ def delete_reservation(planning_xlsx: Path, sheet: str, rows: list[int],
     return target
 
 
+def delete_passenger_from_reservation(
+    planning_xlsx: Path,
+    sheet: str,
+    *,
+    lead_row: int,
+    rows: list[int],
+    target_row: int,
+    out_path: Optional[Path] = None,
+) -> dict:
+    """Rezervasyon içinden tek yolcu siler, operasyon alanlarını korur.
+
+    Lider yolcu silinirse alttaki ilk dolu kimlik lider satıra taşınır. Böylece
+    PAX/otel/acente gibi lider satırdaki operasyon bilgileri kaybolmaz.
+    """
+    if target_row not in rows:
+        raise ValueError("Silinecek yolcu bu rezervasyon bloğunda değil.")
+    if len(rows) <= 1:
+        delete_reservation(planning_xlsx, sheet, rows, out_path=out_path)
+        return {"deleted_block": True, "pax": 0}
+
+    wb = openpyxl.load_workbook(planning_xlsx)
+    ws = wb[sheet]
+    lo, hi = min(rows), max(rows)
+
+    for rng in list(ws.merged_cells.ranges):
+        if not (rng.max_row < lo or rng.min_row > hi):
+            ws.unmerge_cells(str(rng))
+
+    identity_cols = (config.COL_UYRUK, config.COL_MF, config.COL_NAME, config.COL_PASSPORT_NO)
+
+    def has_identity(row: int) -> bool:
+        return any(_cell(ws, row, col) for col in identity_cols)
+
+    clear_row = target_row
+    if target_row == lead_row:
+        replacement = next((r for r in rows if r != lead_row and has_identity(r)), None)
+        if replacement is not None:
+            for col in identity_cols:
+                ws.cell(lead_row, col).value = ws.cell(replacement, col).value
+            clear_row = replacement
+        else:
+            for col in identity_cols:
+                ws.cell(lead_row, col).value = None
+            clear_row = None
+
+    if clear_row is not None:
+        for col in range(1, config.COL_PASSPORT_NO + 1):
+            ws.cell(clear_row, col).value = None
+
+    pax_raw = _cell(ws, lead_row, config.COL_PAX)
+    try:
+        pax = int(float(pax_raw)) if pax_raw else len(rows)
+    except ValueError:
+        pax = len(rows)
+    pax = max(1, pax - 1)
+    ws.cell(lead_row, config.COL_PAX).value = pax
+
+    target = out_path or planning_xlsx
+    wb.save(target)
+    wb.close()
+    return {"deleted_block": False, "pax": pax, "cleared_row": clear_row}
+
+
 def write_identity(planning_xlsx: Path, sheet: str, updates: dict[int, dict],
                    out_path: Optional[Path] = None) -> Path:
     """Belirli satırların yalnız kimlik kolonlarını günceller, biçimi korur.

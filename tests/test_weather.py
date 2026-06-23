@@ -7,7 +7,9 @@ from app.weather import (
     STATUS_NO_GO,
     WeatherPoint,
     assess_weather,
+    decide_next_days,
     decide_today,
+    empty_next_days,
 )
 import datetime as dt
 
@@ -57,7 +59,7 @@ def test_assess_weather_caution_on_borderline_gust():
 
     assert risk == RISK_MEDIUM
     assert status == STATUS_CAUTION
-    assert "ruzgar" in summary.lower()
+    assert "rüzgar" in summary.lower()
 
 
 def test_assess_weather_no_go_on_poor_visibility_and_rain():
@@ -71,7 +73,7 @@ def test_assess_weather_no_go_on_poor_visibility_and_rain():
 
     assert risk == RISK_HIGH
     assert status == STATUS_NO_GO
-    assert "gorus" in summary.lower()
+    assert "görüş" in summary.lower()
 
 
 def test_decide_today_uses_next_morning_after_flight_window():
@@ -82,4 +84,31 @@ def test_decide_today_uses_next_morning_after_flight_window():
     result = decide_today([_future_point(offset, 5)])
 
     assert result["flight_status"] == STATUS_FLYABLE
-    assert "ucus yapilabilir" in result["title"]
+    assert "uçuş yapılabilir" in result["title"]
+
+
+def test_decide_next_days_returns_seven_upcoming_flight_windows():
+    from app import weather
+
+    now = weather._now()
+    start_offset = 0 if now.time() <= dt.time(7, 30) else 1
+    points = [_future_point(start_offset + offset, 5) for offset in range(7)]
+    points.append(_future_point(start_offset, 12, risk=RISK_HIGH, status=STATUS_NO_GO))
+
+    result = decide_next_days(points)
+
+    assert len(result) == 7
+    assert result[0]["points_count"] == 1
+    assert result[0]["flight_status"] == STATUS_FLYABLE
+    assert result[0]["window_start"] == "03:30"
+    assert result[0]["window_end"] == "07:30"
+
+
+def test_empty_next_days_returns_seven_pending_windows():
+    result = empty_next_days()
+
+    assert len(result) == 7
+    assert result[0]["flight_status"] == "unknown"
+    assert result[0]["points_count"] == 0
+    assert result[0]["window_start"] == "03:30"
+    assert result[0]["window_end"] == "07:30"

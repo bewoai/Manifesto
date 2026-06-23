@@ -59,18 +59,6 @@ export async function render(container) {
       <div class="flex flex-col gap-3" id="blocks-list"></div>
     </div>
 
-    <!-- 3) Operasyon Bilgileri -->
-    <div class="card mb-6 animate-in" id="operation-section" style="display:none">
-      <div class="card-header">
-        <div class="card-title">
-          <span class="material-symbols-outlined">edit</span> Operasyon Bilgileri
-        </div>
-        <button class="btn-success flex items-center gap-2" onclick="window.__saveOperation()">
-          <span class="material-symbols-outlined text-sm">save</span> Kaydet
-        </button>
-      </div>
-      <div class="form-row" id="operation-form"></div>
-    </div>
   `;
 
   loadSheets();
@@ -102,8 +90,13 @@ window.__loadDay = async function() {
   btn.innerHTML = '<span class="btn-spinner mr-2"></span> Yükleniyor...';
 
   try {
+    const selectedLead = state.selectedBlock !== null ? state.blocks[state.selectedBlock]?.lead_row : null;
     const data = await api.get(`/api/planning/load?sheet=${encodeURIComponent(sheet)}`);
     state.blocks = data.blocks || [];
+    state.selectedBlock = selectedLead
+      ? state.blocks.findIndex(b => b.lead_row === selectedLead)
+      : state.selectedBlock;
+    if (state.selectedBlock < 0) state.selectedBlock = null;
     state.balloons = data.balloon_codes || [];
     state.balloonLoad = data.balloon_load || {};
     state.capacity = data.capacity || 28;
@@ -148,9 +141,11 @@ function renderBlocks() {
       return `<span class="${cls}">${idx + 1}. ${escHtml(name)}${escHtml(sex)}</span>`;
     }).join('');
     
+    const detail = state.selectedBlock === i ? renderBlockDetails(b, i) : '';
     return `
+    <div class="block-shell ${state.selectedBlock === i ? 'selected' : ''}" id="block-${i}">
     <div class="block-item ${state.selectedBlock === i ? 'selected' : ''}"
-         onclick="window.__selectBlock(${i})" id="block-${i}">
+         onclick="window.__selectBlock(${i})">
       <div class="block-pax">PAX ${b.pax ?? '?'}</div>
       <div class="block-main">
         <div class="block-info">
@@ -183,6 +178,8 @@ function renderBlocks() {
         </button>
       </div>
     </div>
+    ${detail}
+    </div>
   `; }).join('');
 }
 
@@ -200,17 +197,11 @@ function renderBalloonLoad() {
 }
 
 window.__selectBlock = function(index) {
-  state.selectedBlock = index;
+  state.selectedBlock = state.selectedBlock === index ? null : index;
   renderBlocks();
-  renderOperationForm(state.blocks[index]);
 };
 
-function renderOperationForm(block) {
-  const section = document.getElementById('operation-section');
-  const form = document.getElementById('operation-form');
-  if (!section || !form) return;
-  section.style.display = '';
-
+function renderBlockDetails(block, index) {
   const fields = [
     { key: 'pax', label: 'PAX', value: block.pax ?? '', type: 'number', width: '80px' },
     { key: 'room', label: 'Oda / İrtibat', value: block.room || '' },
@@ -226,7 +217,7 @@ function renderOperationForm(block) {
     { key: 'note', label: 'Not', value: block.note || '' },
   ];
 
-  form.innerHTML = fields.map(f => `
+  const formHtml = fields.map(f => `
     <div class="form-group">
       <label class="form-label">${f.label}</label>
       <input class="form-input" id="op-${f.key}" type="${f.type || 'text'}"
@@ -235,7 +226,51 @@ function renderOperationForm(block) {
     </div>
   `).join('');
 
-  // Kayıtlı liste önerileri (combobox)
+  const passengerHtml = (block.passengers || []).map((p, idx) => {
+    const display = p.name || p.passport_no || 'Kimlik boş';
+    const meta = [p.nationality, p.sex, p.passport_no, `Satır ${p.row}`].filter(Boolean).join(' · ');
+    return `
+      <div class="passenger-row ${p.name || p.passport_no ? '' : 'empty'}">
+        <div class="min-w-0">
+          <strong>${idx + 1}. ${escHtml(display)}</strong>
+          <span>${escHtml(meta)}</span>
+        </div>
+        <button class="btn-ghost btn-icon danger" title="Yolcuyu sil"
+                onclick="event.stopPropagation(); window.__deletePassenger(${index}, ${p.row})">
+          <span class="material-symbols-outlined">person_remove</span>
+        </button>
+      </div>
+    `;
+  }).join('');
+
+  setTimeout(() => attachOperationComboboxes(), 0);
+  return `
+    <div class="block-details animate-fade-in" onclick="event.stopPropagation()">
+      <div class="detail-panel">
+        <div class="detail-header">
+          <div class="card-title">
+            <span class="material-symbols-outlined">edit</span> Operasyon Bilgileri
+          </div>
+          <button class="btn-success flex items-center gap-2" onclick="window.__saveOperation()">
+            <span class="material-symbols-outlined text-sm">save</span> Kaydet
+          </button>
+        </div>
+        <div class="form-row">${formHtml}</div>
+      </div>
+      <div class="detail-panel">
+        <div class="detail-header">
+          <div class="card-title">
+            <span class="material-symbols-outlined">groups</span> Yolcular
+          </div>
+          <span class="badge badge-blue">${block.passengers?.length || 0} kişi</span>
+        </div>
+        <div class="passenger-list">${passengerHtml || '<div class="empty-desc">Yolcu yok.</div>'}</div>
+      </div>
+    </div>
+  `;
+}
+
+function attachOperationComboboxes() {
   const L = state.lists || {};
   const sources = {
     balloon: () => state.balloons || [],
@@ -272,7 +307,6 @@ window.__saveOperation = async function() {
       fields,
     });
     toast.success('Kaydedildi', 'Operasyon bilgileri planlamaya yazıldı');
-    // Refresh blocks
     window.__loadDay();
   } catch (err) {
     toast.error('Kaydetme hatası', err.message);
@@ -288,10 +322,29 @@ window.__deleteBlock = async function(index) {
     await api.post('/api/planning/delete-block', { sheet: state.currentSheet, rows: block.rows });
     toast.info('Silindi', `${who} rezervasyonu kaldırıldı`);
     state.selectedBlock = null;
-    document.getElementById('operation-section').style.display = 'none';
     window.__loadDay();
   } catch (err) {
     toast.error('Silme hatası', err.message);
+  }
+};
+
+window.__deletePassenger = async function(index, row) {
+  const block = state.blocks[index];
+  if (!block) return;
+  const passenger = (block.passengers || []).find(p => Number(p.row) === Number(row));
+  const who = passenger?.name || passenger?.passport_no || `Satır ${row}`;
+  if (!confirm(`"${who}" bu PAX içinden silinsin mi?`)) return;
+  try {
+    await api.post('/api/planning/delete-passenger', {
+      sheet: state.currentSheet,
+      lead_row: block.lead_row,
+      rows: block.rows,
+      row,
+    });
+    toast.info('Yolcu silindi', `${who} rezervasyondan çıkarıldı`);
+    window.__loadDay();
+  } catch (err) {
+    toast.error('Yolcu silinemedi', err.message);
   }
 };
 

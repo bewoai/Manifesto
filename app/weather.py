@@ -28,6 +28,32 @@ RISK_MEDIUM = "medium"
 RISK_HIGH = "high"
 RISK_UNKNOWN = "unknown"
 
+FLIGHT_WINDOW_START = dt.time(3, 30)
+FLIGHT_WINDOW_END = dt.time(7, 30)
+VISIBLE_FORECAST_DAYS = 7
+FETCH_FORECAST_DAYS = 8
+WEEKDAY_NAMES = ("Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar")
+
+WEATHER_TEXT_REPLACEMENTS = {
+    "Ruzgar yuksek": "Rüzgar yüksek",
+    "Ruzgar sinira yakin": "Rüzgar sınıra yakın",
+    "Ani ruzgar cok yuksek": "Ani rüzgar çok yüksek",
+    "Ani ruzgar takip edilmeli": "Ani rüzgar takip edilmeli",
+    "Gorus dusuk": "Görüş düşük",
+    "Gorus orta": "Görüş orta",
+    "Yagis var": "Yağış var",
+    "Hafif yagis ihtimali": "Hafif yağış ihtimali",
+    "Bulutluluk yuksek": "Bulutluluk yüksek",
+    "Kosullar uygun gorunuyor": "Koşullar uygun görünüyor",
+    "Bugun ucus riskli": "Bugün uçuş riskli",
+    "Bugun ucus yapilabilir gorunuyor": "Bugün uçuş yapılabilir görünüyor",
+    "Yarin sabah ucus riskli": "Yarın sabah uçuş riskli",
+    "Yarin sabah ucus yapilabilir gorunuyor": "Yarın sabah uçuş yapılabilir görünüyor",
+    "Bir sonraki sabah ucus penceresi icin yeterli hava verisi yok.": (
+        "Bir sonraki sabah uçuş penceresi için yeterli hava verisi yok."
+    ),
+}
+
 
 @dataclass
 class WeatherPoint:
@@ -74,6 +100,23 @@ def _safe_int(value: Any) -> int | None:
         return None
 
 
+def _normalize_weather_text(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    normalized = value
+    for old, new in WEATHER_TEXT_REPLACEMENTS.items():
+        normalized = normalized.replace(old, new)
+    return normalized
+
+
+def _normalize_weather_row(row: dict[str, Any]) -> dict[str, Any]:
+    if row.get("summary"):
+        row["summary"] = _normalize_weather_text(row["summary"])
+    if row.get("title"):
+        row["title"] = _normalize_weather_text(row["title"])
+    return row
+
+
 def _hourly_value(hourly: dict[str, Any], key: str, index: int) -> Any:
     values = hourly.get(key) or []
     if index >= len(values):
@@ -99,33 +142,33 @@ def assess_weather(
     cloud = cloud_cover_pct or 0
 
     if wind >= 22:
-        blockers.append("Ruzgar yuksek")
+        blockers.append("Rüzgar yüksek")
     elif wind >= 14:
-        reasons.append("Ruzgar sinira yakin")
+        reasons.append("Rüzgar sınıra yakın")
 
     if gust >= 30:
-        blockers.append("Ani ruzgar cok yuksek")
+        blockers.append("Ani rüzgar çok yüksek")
     elif gust >= 22:
-        reasons.append("Ani ruzgar takip edilmeli")
+        reasons.append("Ani rüzgar takip edilmeli")
 
     if visibility < 2500:
-        blockers.append("Gorus dusuk")
+        blockers.append("Görüş düşük")
     elif visibility < 5000:
-        reasons.append("Gorus orta")
+        reasons.append("Görüş orta")
 
     if rain >= 1:
-        blockers.append("Yagis var")
+        blockers.append("Yağış var")
     elif rain > 0:
-        reasons.append("Hafif yagis ihtimali")
+        reasons.append("Hafif yağış ihtimali")
 
     if cloud >= 85:
-        reasons.append("Bulutluluk yuksek")
+        reasons.append("Bulutluluk yüksek")
 
     if blockers:
         return RISK_HIGH, STATUS_NO_GO, "; ".join(blockers)
     if reasons:
         return RISK_MEDIUM, STATUS_CAUTION, "; ".join(reasons)
-    return RISK_LOW, STATUS_FLYABLE, "Kosullar uygun gorunuyor"
+    return RISK_LOW, STATUS_FLYABLE, "Koşullar uygun görünüyor"
 
 
 def _open_meteo_url(s: settings_mod.Settings) -> str:
@@ -133,7 +176,7 @@ def _open_meteo_url(s: settings_mod.Settings) -> str:
         "latitude": s.weather_latitude,
         "longitude": s.weather_longitude,
         "timezone": "Europe/Istanbul",
-        "forecast_days": 3,
+        "forecast_days": FETCH_FORECAST_DAYS,
         "current": ",".join([
             "temperature_2m",
             "wind_speed_10m",
@@ -162,7 +205,7 @@ def _fetch_json(s: settings_mod.Settings) -> dict[str, Any]:
         url = s.weather_api_url
     else:
         url = _open_meteo_url(s)
-    req = urllib.request.Request(url, headers={"User-Agent": "BalonManifesto/0.1"})
+    req = urllib.request.Request(url, headers={"User-Agent": "Irtifa/0.1"})
     if s.weather_api_key:
         req.add_header("Authorization", f"Bearer {s.weather_api_key}")
     with urllib.request.urlopen(req, timeout=15) as response:
@@ -230,7 +273,7 @@ def _nearest_current_point(data: dict[str, Any]) -> WeatherPoint | None:
     )
 
 
-def build_forecast(data: dict[str, Any], *, hours: int = 36) -> list[WeatherPoint]:
+def build_forecast(data: dict[str, Any], *, hours: int = FETCH_FORECAST_DAYS * 24) -> list[WeatherPoint]:
     hourly = data.get("hourly") or {}
     times = hourly.get("time") or []
     if not times:
@@ -249,15 +292,17 @@ def build_forecast(data: dict[str, Any], *, hours: int = 36) -> list[WeatherPoin
 
 def next_flight_window(points: list[WeatherPoint]) -> tuple[list[WeatherPoint], dt.date | None]:
     now = _now()
-    window_start = dt.time(3, 30)
-    window_end = dt.time(7, 30)
-    target_date = now.date() if now.time() <= window_end else now.date() + dt.timedelta(days=1)
+    target_date = now.date() if now.time() <= FLIGHT_WINDOW_END else now.date() + dt.timedelta(days=1)
+    return flight_window_for_date(points, target_date), target_date
+
+
+def flight_window_for_date(points: list[WeatherPoint], target_date: dt.date) -> list[WeatherPoint]:
     window: list[WeatherPoint] = []
     for p in points:
         t = _parse_time(p.measured_at)
-        if t.date() == target_date and window_start <= t.time() <= window_end:
+        if t.date() == target_date and FLIGHT_WINDOW_START <= t.time() <= FLIGHT_WINDOW_END:
             window.append(p)
-    return window, target_date
+    return window
 
 
 def flight_window(points: list[WeatherPoint]) -> list[WeatherPoint]:
@@ -265,20 +310,30 @@ def flight_window(points: list[WeatherPoint]) -> list[WeatherPoint]:
     return window
 
 
-def decide_today(points: list[WeatherPoint]) -> dict[str, Any]:
-    window, target_date = next_flight_window(points)
+def _day_prefix(target_date: dt.date | None) -> str:
+    today = _now().date()
+    if target_date == today:
+        return "Bugün"
+    if target_date == today + dt.timedelta(days=1):
+        return "Yarın sabah"
+    if target_date is None:
+        return "Sabah"
+    return f"{WEEKDAY_NAMES[target_date.weekday()]} sabahı"
+
+
+def decide_flight_window(window: list[WeatherPoint], target_date: dt.date | None) -> dict[str, Any]:
     if not window:
         return {
             "flight_status": STATUS_UNKNOWN,
             "risk_level": RISK_UNKNOWN,
             "title": "Tahmin bekleniyor",
-            "summary": "Bir sonraki sabah ucus penceresi icin yeterli hava verisi yok.",
+            "summary": "Sabah uçuş penceresi için yeterli hava verisi yok.",
         }
-    prefix = "Bugun" if target_date == _now().date() else "Yarin sabah"
+    prefix = _day_prefix(target_date)
     statuses = {p.flight_status for p in window}
     risks = {p.risk_level for p in window}
     if STATUS_NO_GO in statuses or RISK_HIGH in risks:
-        title = f"{prefix} ucus riskli"
+        title = f"{prefix} uçuş riskli"
         status = STATUS_NO_GO
         risk = RISK_HIGH
     elif STATUS_CAUTION in statuses or RISK_MEDIUM in risks:
@@ -286,7 +341,7 @@ def decide_today(points: list[WeatherPoint]) -> dict[str, Any]:
         status = STATUS_CAUTION
         risk = RISK_MEDIUM
     else:
-        title = f"{prefix} ucus yapilabilir gorunuyor"
+        title = f"{prefix} uçuş yapılabilir görünüyor"
         status = STATUS_FLYABLE
         risk = RISK_LOW
     worst = next((p for p in window if p.risk_level == risk), window[0])
@@ -296,6 +351,49 @@ def decide_today(points: list[WeatherPoint]) -> dict[str, Any]:
         "title": title,
         "summary": worst.summary,
     }
+
+
+def decide_today(points: list[WeatherPoint]) -> dict[str, Any]:
+    window, target_date = next_flight_window(points)
+    decision = decide_flight_window(window, target_date)
+    if not window:
+        decision["summary"] = "Bir sonraki sabah uçuş penceresi için yeterli hava verisi yok."
+    return decision
+
+
+def decide_next_days(points: list[WeatherPoint], *, days: int = VISIBLE_FORECAST_DAYS) -> list[dict[str, Any]]:
+    now = _now()
+    start_date = now.date() if now.time() <= FLIGHT_WINDOW_END else now.date() + dt.timedelta(days=1)
+    decisions: list[dict[str, Any]] = []
+    for offset in range(days):
+        target_date = start_date + dt.timedelta(days=offset)
+        window = flight_window_for_date(points, target_date)
+        decision = decide_flight_window(window, target_date)
+        decision.update({
+            "date": target_date.isoformat(),
+            "window_start": FLIGHT_WINDOW_START.strftime("%H:%M"),
+            "window_end": FLIGHT_WINDOW_END.strftime("%H:%M"),
+            "points_count": len(window),
+        })
+        decisions.append(decision)
+    return decisions
+
+
+def empty_next_days(*, days: int = VISIBLE_FORECAST_DAYS) -> list[dict[str, Any]]:
+    now = _now()
+    start_date = now.date() if now.time() <= FLIGHT_WINDOW_END else now.date() + dt.timedelta(days=1)
+    items: list[dict[str, Any]] = []
+    for offset in range(days):
+        target_date = start_date + dt.timedelta(days=offset)
+        decision = decide_flight_window([], target_date)
+        decision.update({
+            "date": target_date.isoformat(),
+            "window_start": FLIGHT_WINDOW_START.strftime("%H:%M"),
+            "window_end": FLIGHT_WINDOW_END.strftime("%H:%M"),
+            "points_count": 0,
+        })
+        items.append(decision)
+    return items
 
 
 def enrich_current_from_forecast(current: WeatherPoint | None, points: list[WeatherPoint]) -> WeatherPoint | None:
@@ -354,6 +452,22 @@ def _insert_measurement(s: settings_mod.Settings, point: WeatherPoint, payload: 
         conn.close()
 
 
+def normalize_stored_weather_texts() -> None:
+    conn = connect()
+    try:
+        rows = conn.execute("SELECT id, summary FROM weather_measurement").fetchall()
+        changed = [
+            (_normalize_weather_text(row["summary"]), row["id"])
+            for row in rows
+            if _normalize_weather_text(row["summary"]) != row["summary"]
+        ]
+        if changed:
+            conn.executemany("UPDATE weather_measurement SET summary = ? WHERE id = ?", changed)
+            conn.commit()
+    finally:
+        conn.close()
+
+
 def latest_measurements(limit: int = 24) -> list[dict[str, Any]]:
     conn = connect()
     try:
@@ -370,13 +484,13 @@ def latest_measurements(limit: int = 24) -> list[dict[str, Any]]:
         ).fetchall()
     finally:
         conn.close()
-    return [dict(row) for row in rows]
+    return [_normalize_weather_row(dict(row)) for row in rows]
 
 
 def refresh_weather(s: settings_mod.Settings | None = None) -> dict[str, Any]:
     s = (s or settings_mod.load()).normalized()
     if not s.weather_enabled:
-        raise RuntimeError("Weather monitor kapali.")
+        raise RuntimeError("Hava durumu takibi kapalı.")
     data = _fetch_json(s)
     points = build_forecast(data)
     current = _nearest_current_point(data) or (points[0] if points else None)
@@ -384,6 +498,12 @@ def refresh_weather(s: settings_mod.Settings | None = None) -> dict[str, Any]:
     if current:
         _insert_measurement(s, current, data)
     decision = decide_today(points)
+    decision["title"] = _normalize_weather_text(decision.get("title"))
+    decision["summary"] = _normalize_weather_text(decision.get("summary"))
+    daily_forecast = decide_next_days(points)
+    for item in daily_forecast:
+        item["title"] = _normalize_weather_text(item.get("title"))
+        item["summary"] = _normalize_weather_text(item.get("summary"))
     return {
         "location": {
             "name": s.weather_location_name,
@@ -394,6 +514,7 @@ def refresh_weather(s: settings_mod.Settings | None = None) -> dict[str, Any]:
         "updated_at": _now().isoformat(),
         "current": asdict(current) if current else None,
         "decision": decision,
+        "daily_forecast": daily_forecast,
         "forecast": [asdict(p) for p in points],
         "history": latest_measurements(24),
     }
@@ -410,9 +531,10 @@ def cached_weather() -> dict[str, Any]:
         "decision": {
             "flight_status": latest["flight_status"] if latest else STATUS_UNKNOWN,
             "risk_level": latest["risk_level"] if latest else RISK_UNKNOWN,
-            "title": "Son kayit" if latest else "Veri bekleniyor",
-            "summary": latest["summary"] if latest else "Henuz hava olcumu yok.",
+            "title": "Son kayıt" if latest else "Veri bekleniyor",
+            "summary": latest["summary"] if latest else "Henüz hava ölçümü yok.",
         },
+        "daily_forecast": empty_next_days(),
         "forecast": [],
         "history": history,
     }

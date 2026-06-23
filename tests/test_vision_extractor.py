@@ -11,6 +11,7 @@ from types import SimpleNamespace
 
 from app.validation.flags import Flag
 from app.vision.extractor import process_image
+from app.vision.ocr import mrz_lines_from_text
 
 TD3_L1 = "P<UTOERIKSSON<<ANNA<MARIA<<<<<<<<<<<<<<<<<<<"
 TD3_L2 = "L898902C36UTO7408122F1204159ZE184226B<<<<<10"
@@ -81,3 +82,15 @@ def test_api_error_does_not_crash():
     rec = process_image(b"x", client=Boom())
     assert Flag.UNREADABLE in rec.flags
     assert "network down" in (rec.error or "")
+
+
+def test_mrz_lines_from_noisy_ocr_text():
+    text = f"""
+    random passport text
+    {TD3_L1[:20]} {TD3_L1[20:]}
+    {TD3_L2[:18]} {TD3_L2[18:]}
+    extra line
+    """
+    fmt, lines = mrz_lines_from_text(text)
+    assert fmt == "TD3"
+    assert lines == [TD3_L1, TD3_L2]

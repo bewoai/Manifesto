@@ -1,7 +1,7 @@
 """Kullanıcı ayarları — masaüstü uygulaması için yerel, kalıcı JSON.
 
 API anahtarı ve yol override'ları burada saklanır (sahip bir kez girer, operatör
-uğraşmaz). Dosya: %APPDATA%/BalonManifesto/settings.json (Windows).
+uğraşmaz). Dosya: %APPDATA%/Irtifa/settings.json (Windows).
 config.py'deki sabitler varsayılan; buradakiler onları geçersiz kılar.
 """
 from __future__ import annotations
@@ -17,14 +17,24 @@ from app import config
 
 def _config_dir() -> Path:
     base = os.getenv("APPDATA") or os.path.expanduser("~/.config")
-    return Path(base) / "BalonManifesto"
+    return Path(base) / "Irtifa"
 
 
 SETTINGS_PATH = Path(os.getenv("MANIFESTO_SETTINGS", _config_dir() / "settings.json"))
+LEGACY_SETTINGS_PATH = Path(os.getenv("APPDATA") or os.path.expanduser("~/.config")) / "BalonManifesto" / "settings.json"
 
 VISION_MODE_MANUAL = "manual"
 VISION_MODE_CLAUDE = "claude"
-VISION_MODES = (VISION_MODE_MANUAL, VISION_MODE_CLAUDE)
+VISION_MODE_GOOGLE_VISION = "google_vision"
+VISION_MODE_TESSERACT = "tesseract"
+VISION_MODE_PADDLEOCR = "paddleocr"
+VISION_MODES = (
+    VISION_MODE_MANUAL,
+    VISION_MODE_CLAUDE,
+    VISION_MODE_GOOGLE_VISION,
+    VISION_MODE_TESSERACT,
+    VISION_MODE_PADDLEOCR,
+)
 
 DATA_SOURCE_EXCEL = "excel"
 DATA_SOURCE_GOOGLE_SHEETS = "google_sheets"
@@ -39,6 +49,8 @@ class Settings:
     data_source: str = DATA_SOURCE_EXCEL
     anthropic_api_key: str = ""
     model: str = DEFAULT_MODEL
+    google_vision_document_text: bool = False
+    tesseract_cmd: str = ""
     planning_xlsx: str = ""          # boşsa config.PLANNING_XLSX kullanılır
     output_dir: str = ""             # manifesto export klasörü
     manifest_template: str = ""      # boşsa config.MANIFEST_TEMPLATE_PATH
@@ -68,13 +80,25 @@ class Settings:
         if self.output_dir:
             return Path(self.output_dir)
         # .exe içinde BASE_DIR geçici klasördür; kalıcı bir yere yaz
-        return Path(os.path.expanduser("~")) / "Documents" / "BalonManifesto"
+        return Path(os.path.expanduser("~")) / "Documents" / "Irtifa"
 
     def has_api_key(self) -> bool:
         return bool(self.anthropic_api_key.strip() or os.getenv("ANTHROPIC_API_KEY"))
 
     def uses_claude(self) -> bool:
         return self.vision_mode == VISION_MODE_CLAUDE
+
+    def uses_google_vision(self) -> bool:
+        return self.vision_mode == VISION_MODE_GOOGLE_VISION
+
+    def uses_tesseract(self) -> bool:
+        return self.vision_mode == VISION_MODE_TESSERACT
+
+    def uses_paddleocr(self) -> bool:
+        return self.vision_mode == VISION_MODE_PADDLEOCR
+
+    def uses_automatic_vision(self) -> bool:
+        return self.vision_mode != VISION_MODE_MANUAL
 
     def uses_google_sheets(self) -> bool:
         return self.data_source == DATA_SOURCE_GOOGLE_SHEETS
@@ -137,6 +161,8 @@ class Settings:
 
 def load(path: Optional[Path] = None) -> Settings:
     p = Path(path) if path else SETTINGS_PATH
+    if path is None and not p.exists() and LEGACY_SETTINGS_PATH.exists():
+        p = LEGACY_SETTINGS_PATH
     if not p.exists():
         return Settings()
     try:

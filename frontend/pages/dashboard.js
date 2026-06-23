@@ -1,146 +1,63 @@
 import { api, toast, renderHeader } from '/app.js';
+import { icon3d } from '/icons.js';
 
 export async function render(container) {
-  renderHeader('Operations Dashboard', 'Ucus gunu durumu, hava riski ve hizli islemler');
+  renderHeader('Operasyon Paneli', 'Uçuş günü durumu, hava riski ve hızlı işlemler');
 
   container.innerHTML = `
-    <!-- Hero Section -->
-    <div class="relative w-full overflow-hidden rounded-[40px] p-8 md:p-12 mb-8 glass-panel min-h-[320px] flex flex-col justify-center shadow-2xl">
-      <div class="absolute inset-0 z-0 overflow-hidden rounded-[40px]">
-        <div class="absolute -top-24 -right-24 w-96 h-96 bg-primary/30 liquid-bg blob-shape"></div>
-        <div class="absolute -bottom-24 -left-24 w-96 h-96 bg-primary-container/20 liquid-bg blob-shape" style="animation-delay: -5s"></div>
-      </div>
-      
-      <div class="relative z-10">
-        <h2 id="ops-title" class="font-headline text-3xl md:text-5xl text-primary mb-4 drop-shadow-md">Operasyon durumu yukleniyor</h2>
-        <p id="ops-summary" class="text-on-surface-variant text-lg md:text-xl mb-8 max-w-2xl">Hava verisi ve sistem durumu kontrol ediliyor.</p>
-        
-        <div class="flex flex-wrap gap-4">
+    <!-- ░░ Hava Durumu Şeridi (sade + ikonlu + uçuş tahmini) ░░ -->
+    <div id="wx-strip" class="mb-6">${stripSkeleton()}</div>
+
+    <!-- ░░ Hero — Kapadokya balon illüstrasyonu ░░ -->
+    <div class="relative w-full overflow-hidden rounded-[40px] mb-8 glass-panel min-h-[300px] flex">
+      <div class="absolute inset-0 z-0">${heroIllustration()}</div>
+      <div class="absolute inset-0 z-[1]" style="background:linear-gradient(100deg,#181225 8%,rgba(24,18,37,.82) 42%,rgba(24,18,37,.15) 72%,transparent 100%)"></div>
+      <div class="relative z-10 p-8 md:p-12 max-w-2xl flex flex-col justify-center">
+        <span class="inline-flex w-fit items-center gap-2 text-xs font-semibold tracking-wider uppercase text-sunrise bg-sunrise/10 border border-sunrise/20 rounded-full px-3 py-1 mb-5">
+          <span class="material-symbols-outlined text-sm">location_on</span> Kapadokya • Göreme Vadisi
+        </span>
+        <h2 id="ops-title" class="font-headline text-3xl md:text-5xl text-on-surface mb-3 leading-tight drop-shadow-md">Operasyon durumu yükleniyor</h2>
+        <p id="ops-summary" class="text-on-surface-variant text-base md:text-lg mb-7 max-w-xl">Hava verisi ve sistem durumu kontrol ediliyor.</p>
+        <div class="flex flex-wrap gap-3">
           <a href="#/weather" class="btn-primary flex items-center gap-2">
-            <span class="material-symbols-outlined">calendar_month</span>
-            Hava Takvimi
+            <span class="material-symbols-outlined">calendar_month</span> Hava Takvimi
           </a>
           <button class="btn-secondary flex items-center gap-2" onclick="window.__dashRefresh()">
-            <span class="material-symbols-outlined">refresh</span>
-            Yenile
+            <span class="material-symbols-outlined">refresh</span> Yenile
           </button>
         </div>
       </div>
     </div>
 
-    <!-- Ticker -->
-    <div class="flex flex-wrap gap-3 mb-8" id="ops-ticker">
-      <div class="badge badge-amber text-sm px-4 py-2 flex items-center gap-2"><span class="material-symbols-outlined text-base">air</span>WIND STATUS: --</div>
-      <div class="badge badge-blue text-sm px-4 py-2 flex items-center gap-2"><span class="material-symbols-outlined text-base">location_on</span>GOREME VALLEY: --</div>
-      <div class="badge badge-green text-sm px-4 py-2 flex items-center gap-2"><span class="material-symbols-outlined text-base">update</span>NEXT CHECK: 30 DK</div>
+    <!-- ░░ Hızlı İşlemler ░░ -->
+    <h3 class="font-headline text-xl text-on-surface mb-4 px-1">Hızlı Uçuş İşlemleri</h3>
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-10">
+      ${actionCard('passport', 'Pasaport Tara', 'MRZ oku, kimlik doldur')}
+      ${actionCard('planning', 'Planlama Aç', 'Rezervasyon bloklarını yönet')}
+      ${actionCard('manifest', 'Manifesto Üret', 'Balon bazlı Excel export')}
+      ${actionCard('weather', 'Hava Takvimi', 'Risk takvimi ve ölçümler')}
     </div>
 
-    <!-- Metrics -->
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8" id="ops-metrics">
-      ${skeletonCards(4)}
-    </div>
+    <!-- ░░ Operasyon Metrikleri ░░ -->
+    <h3 class="font-headline text-xl text-on-surface mb-4 px-1">Güncel Hava Metrikleri</h3>
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-10" id="ops-metrics">${stripCards(4)}</div>
 
-    <!-- Layout -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-      
-      <!-- Hizli Ucus Islemleri -->
-      <div class="card flex flex-col animate-fade-in">
-        <div class="card-header">
-          <div class="card-title">
-            <span class="material-symbols-outlined">map</span>
-            Hizli Ucus Islemleri
-          </div>
-        </div>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 flex-1">
-          <a href="#/passport" class="glass-panel p-5 rounded-3xl hover:bg-white/5 border border-white/5 hover:border-primary/30 transition-all flex flex-col items-start gap-3 group">
-            <div class="w-12 h-12 rounded-2xl bg-primary/10 text-primary flex items-center justify-center group-hover:scale-110 transition-transform">
-              <span class="material-symbols-outlined text-2xl">document_scanner</span>
-            </div>
-            <div>
-              <strong class="text-on-surface block mb-1">Pasaport Tara</strong>
-              <span class="text-on-surface-variant text-xs">MRZ oku ve rezervasyon olustur</span>
-            </div>
-          </a>
-          <a href="#/planning" class="glass-panel p-5 rounded-3xl hover:bg-white/5 border border-white/5 hover:border-primary/30 transition-all flex flex-col items-start gap-3 group">
-            <div class="w-12 h-12 rounded-2xl bg-primary-container/10 text-primary-container flex items-center justify-center group-hover:scale-110 transition-transform">
-              <span class="material-symbols-outlined text-2xl">edit_calendar</span>
-            </div>
-            <div>
-              <strong class="text-on-surface block mb-1">Planlama Ac</strong>
-              <span class="text-on-surface-variant text-xs">Rezervasyon bloklarini yonet</span>
-            </div>
-          </a>
-          <a href="#/manifest" class="glass-panel p-5 rounded-3xl hover:bg-white/5 border border-white/5 hover:border-primary/30 transition-all flex flex-col items-start gap-3 group">
-            <div class="w-12 h-12 rounded-2xl bg-secondary-container/10 text-secondary-container flex items-center justify-center group-hover:scale-110 transition-transform">
-              <span class="material-symbols-outlined text-2xl">ios_share</span>
-            </div>
-            <div>
-              <strong class="text-on-surface block mb-1">Manifesto Uret</strong>
-              <span class="text-on-surface-variant text-xs">Balon bazli Excel export</span>
-            </div>
-          </a>
-          <a href="#/weather" class="glass-panel p-5 rounded-3xl hover:bg-white/5 border border-white/5 hover:border-primary/30 transition-all flex flex-col items-start gap-3 group">
-            <div class="w-12 h-12 rounded-2xl bg-blue-500/10 text-blue-400 flex items-center justify-center group-hover:scale-110 transition-transform">
-              <span class="material-symbols-outlined text-2xl">air</span>
-            </div>
-            <div>
-              <strong class="text-on-surface block mb-1">Weather Charts</strong>
-              <span class="text-on-surface-variant text-xs">Risk takvimi ve son olcumler</span>
-            </div>
-          </a>
-        </div>
-      </div>
-
-      <!-- Operational Safety -->
-      <div class="card flex flex-col animate-fade-in">
-        <div class="card-header">
-          <div class="card-title">
-            <span class="material-symbols-outlined">health_and_safety</span>
-            Operational Safety
-          </div>
-          <span class="badge badge-blue">LIVE</span>
-        </div>
-        <div class="grid gap-4 flex-1 content-start" id="safety-grid">
-          <div class="skeleton skeleton-card"></div>
-          <div class="skeleton skeleton-card"></div>
-        </div>
-      </div>
+    <!-- ░░ Sistem Durumu ░░ -->
+    <div class="flex items-center justify-between mb-4 px-1">
+      <h3 class="font-headline text-xl text-on-surface">Sistem Durumu</h3>
+      <a href="#/settings" class="btn-ghost text-sm flex items-center gap-1 px-3 w-auto rounded-full">
+        <span class="material-symbols-outlined text-sm">settings</span> Ayarlar
+      </a>
     </div>
-
-    <!-- Sistem Durumu -->
-    <div class="card mb-8 animate-fade-in">
-      <div class="card-header">
-        <div class="card-title">
-          <span class="material-symbols-outlined">memory</span>
-          Sistem Durumu
-        </div>
-        <a href="#/settings" class="btn-ghost text-sm flex items-center gap-1">
-          <span class="material-symbols-outlined text-sm">settings</span>
-          Ayarlar
-        </a>
-      </div>
-      <div id="system-status" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        ${skeletonCards(4)}
-      </div>
-    </div>
+    <div id="system-status" class="grid grid-cols-2 lg:grid-cols-4 gap-4">${stripCards(4)}</div>
   `;
 
   await loadDashboard();
 }
 
-window.__dashRefresh = function() {
-  loadDashboard(true);
-};
+window.__dashRefresh = function () { loadDashboard(true); };
 
-function skeletonCards(n) {
-  return Array(n).fill('').map(() => `
-    <div class="card flex flex-col gap-3 animate-pulse">
-      <div class="skeleton" style="width:42px;height:18px"></div>
-      <div class="skeleton skeleton-title mt-2"></div>
-      <div class="skeleton skeleton-text"></div>
-    </div>
-  `).join('');
-}
+// ═══════════════════════════ veri ═══════════════════════════
 
 async function loadDashboard(force = false) {
   try {
@@ -149,148 +66,175 @@ async function loadDashboard(force = false) {
       api.get('/api/settings'),
       force ? api.post('/api/weather/refresh', {}) : api.get('/api/weather/status'),
     ]);
-    renderWeather(weather);
+    renderStrip(weather);
+    renderHero(weather);
+    renderMetrics(weather);
     renderSystem(stats, settings);
-    if (weather.error) toast.warning('Hava verisi', 'Yeni veri alinamadi, son kayit gosteriliyor');
+    if (weather.error) toast.warning('Hava verisi', 'Yeni veri alınamadı, son kayıt gösteriliyor');
   } catch (err) {
-    toast.error('Dashboard yuklenemedi', err.message);
+    toast.error('Panel yüklenemedi', err.message);
   }
 }
 
-function renderWeather(data) {
-  const titleEl = document.getElementById('ops-title');
-  const summaryEl = document.getElementById('ops-summary');
-  const tickerEl = document.getElementById('ops-ticker');
-  const metrics = document.getElementById('ops-metrics');
-  const safety = document.getElementById('safety-grid');
-  if (!titleEl || !summaryEl || !tickerEl || !metrics || !safety) return;
-
-  const current = data.current || {};
-  const decision = data.decision || {};
-  const title = decision.title || 'Hava verisi bekleniyor';
-  const summary = decision.summary || 'Yarim saatlik olcum basladiginda karar burada gorunecek.';
-
-  titleEl.textContent = title;
-  summaryEl.textContent = summary;
-  tickerEl.innerHTML = `
-    <div class="badge badge-amber text-sm px-4 py-2 flex items-center gap-2">
-      <span class="material-symbols-outlined text-base">air</span>
-      WIND STATUS: ${kmh(current.wind_speed_kmh)}
-    </div>
-    <div class="badge badge-blue text-sm px-4 py-2 flex items-center gap-2">
-      <span class="material-symbols-outlined text-base">location_on</span>
-      GOREME VALLEY: ${statusLabel(decision.flight_status || current.flight_status)}
-    </div>
-    <div class="badge badge-green text-sm px-4 py-2 flex items-center gap-2">
-      <span class="material-symbols-outlined text-base">update</span>
-      LAST CHECK: ${data.updated_at ? fmtTime(data.updated_at) : '--'}
+function renderStrip(data) {
+  const el = document.getElementById('wx-strip');
+  if (!el) return;
+  const c = data.current || {};
+  const d = data.decision || {};
+  const cond = wmo(c.weather_code);
+  const status = d.flight_status || c.flight_status || 'unknown';
+  el.innerHTML = `
+    <div class="wx-strip">
+      <div class="wx-now">
+        ${icon3d(cond.icon, 46)}
+        <div>
+          <div class="wx-temp">${temp(c.temperature_c)}</div>
+          <div class="wx-cond">${cond.label} • Göreme</div>
+        </div>
+      </div>
+      <div class="wx-sep"></div>
+      <div class="wx-metric">${icon3d('wind', 30)}<div><div class="lbl">Rüzgar</div><div class="val">${kmh(c.wind_speed_kmh)}</div></div></div>
+      <div class="wx-metric">${icon3d('alert', 30)}<div><div class="lbl">Hamle</div><div class="val">${kmh(c.wind_gust_kmh)}</div></div></div>
+      <div class="wx-metric">${icon3d('visibility', 30)}<div><div class="lbl">Görüş</div><div class="val">${visibility(c.visibility_m)}</div></div></div>
+      <div class="wx-verdict ${status}">
+        ${icon3d(status === 'no_go' ? 'alert' : status === 'unknown' ? 'cloud' : 'balloon', 38)}
+        <div>
+          <div class="v-cap">Uçuş Tahmini</div>
+          <div class="v-status">${statusLabel(status)}</div>
+          <div class="v-window">Sabah penceresi 03:30–07:30</div>
+        </div>
+      </div>
     </div>
   `;
+}
 
-  metrics.innerHTML = [
-    metric('TODAY STATUS', statusLabel(decision.flight_status), decision.risk_level || 'unknown'),
-    metric('CURRENT WIND', kmh(current.wind_speed_kmh), '10m'),
-    metric('WIND GUST', kmh(current.wind_gust_kmh), 'gust'),
-    metric('VISIBILITY', visibility(current.visibility_m), 'valley'),
+function renderHero(data) {
+  const d = data.decision || {};
+  setText('ops-title', d.title || 'Hava verisi bekleniyor');
+  setText('ops-summary', d.summary || 'Yarım saatlik ölçüm başladığında karar burada görünecek.');
+}
+
+function renderMetrics(data) {
+  const el = document.getElementById('ops-metrics');
+  if (!el) return;
+  const c = data.current || {};
+  const d = data.decision || {};
+  el.innerHTML = [
+    metric('today', 'Bugün', statusLabel(d.flight_status), d.risk_level || '—'),
+    metric('wind', 'Rüzgar', kmh(c.wind_speed_kmh), '10m'),
+    metric('cloud', 'Yağış / Bulut', `${mm(c.precipitation_mm)} · ${pct(c.cloud_cover_pct)}`, 'tahmin'),
+    metric('visibility', 'Görüş', visibility(c.visibility_m), 'vadi'),
   ].join('');
-
-  safety.innerHTML = `
-    <div class="glass-panel rounded-3xl p-6 border-l-4 ${riskClass(decision.risk_level)} flex flex-col gap-2 relative overflow-hidden group">
-      <div class="absolute -right-4 -bottom-4 text-white/5 group-hover:scale-110 transition-transform">
-        <span class="material-symbols-outlined" style="font-size: 100px; font-variation-settings: 'FILL' 1;">
-          ${decision.flight_status === 'no_go' ? 'block' : 'flight_takeoff'}
-        </span>
-      </div>
-      <span class="text-xs font-bold text-on-surface-variant uppercase tracking-wider relative z-10">FLIGHT DECISION</span>
-      <strong class="text-3xl font-headline text-on-surface relative z-10">${statusLabel(decision.flight_status)}</strong>
-      <small class="text-sm text-on-surface-variant relative z-10">${summary}</small>
-    </div>
-    <div class="glass-panel rounded-3xl p-6 border-l-4 border-l-blue-500 flex flex-col gap-2 relative overflow-hidden group">
-      <div class="absolute -right-4 -bottom-4 text-white/5 group-hover:scale-110 transition-transform">
-        <span class="material-symbols-outlined" style="font-size: 100px; font-variation-settings: 'FILL' 1;">cloud</span>
-      </div>
-      <span class="text-xs font-bold text-on-surface-variant uppercase tracking-wider relative z-10">PRECIP / CLOUD</span>
-      <strong class="text-3xl font-headline text-on-surface relative z-10">${mm(current.precipitation_mm)} / ${pct(current.cloud_cover_pct)}</strong>
-      <small class="text-sm text-on-surface-variant relative z-10">Weather API forecast</small>
-    </div>
-  `;
 }
 
 function renderSystem(stats, settings) {
   const el = document.getElementById('system-status');
   if (!el) return;
-  el.innerHTML = `
-    <div class="glass-panel p-6 rounded-3xl border border-white/5 hover:border-white/10 transition-colors flex flex-col gap-2">
-      <span class="text-xs font-bold text-on-surface-variant uppercase tracking-wider flex items-center gap-2">
-        <span class="material-symbols-outlined text-base">today</span>
-        Ucus Gunu
-      </span>
-      <strong class="text-3xl font-headline text-on-surface">${stats.sheet_count || 0}</strong>
-    </div>
-    <div class="glass-panel p-6 rounded-3xl border border-white/5 hover:border-white/10 transition-colors flex flex-col gap-2">
-      <span class="text-xs font-bold text-on-surface-variant uppercase tracking-wider flex items-center gap-2">
-        <span class="material-symbols-outlined text-base">verified_user</span>
-        Onayli Pasaport
-      </span>
-      <strong class="text-3xl font-headline text-on-surface">${stats.extraction_by_status?.approved || 0}</strong>
-    </div>
-    <div class="glass-panel p-6 rounded-3xl border border-white/5 hover:border-white/10 transition-colors flex flex-col gap-2">
-      <span class="text-xs font-bold text-on-surface-variant uppercase tracking-wider flex items-center gap-2">
-        <span class="material-symbols-outlined text-base">database</span>
-        Veri Kaynagi
-      </span>
-      <strong class="text-xl font-headline text-on-surface mt-1">${settings.data_source === 'google_sheets' ? 'Google Sheets' : 'Excel'}</strong>
-    </div>
-    <div class="glass-panel p-6 rounded-3xl border border-white/5 hover:border-white/10 transition-colors flex flex-col gap-2">
-      <span class="text-xs font-bold text-on-surface-variant uppercase tracking-wider flex items-center gap-2">
-        <span class="material-symbols-outlined text-base">partly_cloudy_day</span>
-        Weather API
-      </span>
-      <strong class="text-xl font-headline text-on-surface mt-1">${settings.weather_enabled ? settings.weather_provider : 'Kapali'}</strong>
-    </div>
-  `;
+  el.innerHTML = [
+    metric('planning', 'Uçuş Günü', stats.sheet_count || 0, 'kayıtlı sayfa'),
+    metric('passport', 'Onaylı Pasaport', stats.extraction_by_status?.approved || 0, 'doğrulandı'),
+    metric('lists', 'Veri Kaynağı', settings.data_source === 'google_sheets' ? 'Sheets' : 'Excel', 'aktif'),
+    metric('weather', 'Hava API', settings.weather_enabled ? (settings.weather_provider || 'açık') : 'Kapalı', 'sağlayıcı'),
+  ].join('');
 }
 
-function metric(label, value, sub) {
-  let icon = 'bar_chart';
-  if (label.includes('STATUS')) icon = 'flight_takeoff';
-  if (label.includes('WIND')) icon = 'air';
-  if (label.includes('VISIBILITY')) icon = 'visibility';
+// ═══════════════════════════ parçalar ═══════════════════════════
 
+function actionCard(icon, title, sub) {
+  const route = { passport: 'passport', planning: 'planning', manifest: 'manifest', weather: 'weather' }[icon];
   return `
-    <div class="card relative overflow-hidden group">
-      <div class="absolute -right-4 -bottom-4 text-white/5 group-hover:scale-110 transition-transform">
-        <span class="material-symbols-outlined" style="font-size: 80px; font-variation-settings: 'FILL' 1;">
-          ${icon}
-        </span>
+    <a href="#/${route}" class="glass-panel rounded-[28px] p-5 flex flex-col gap-4 group hover:border-white/20 hover:-translate-y-1 transition-all">
+      <span class="block transition-transform group-hover:scale-110 group-hover:-rotate-3 w-fit">${icon3d(icon, 52)}</span>
+      <div>
+        <strong class="block text-on-surface text-[15px] mb-0.5">${title}</strong>
+        <span class="text-on-surface-variant/80 text-xs">${sub}</span>
       </div>
-      <div class="text-xs font-bold text-on-surface-variant uppercase tracking-wider mb-2 relative z-10">${label}</div>
-      <div class="text-3xl font-headline text-on-surface mb-1 relative z-10">${value || '--'}</div>
-      <div class="text-sm text-primary relative z-10">${sub || ''}</div>
-    </div>
-  `;
+    </a>`;
 }
 
-function statusLabel(status) {
-  return {
-    flyable: 'Uygun',
-    caution: 'Riskli',
-    no_go: 'Ucus Yok',
-    unknown: 'Beklemede',
-  }[status] || 'Beklemede';
+function metric(icon, label, value, sub) {
+  return `
+    <div class="glass-panel rounded-[28px] p-5 flex items-start gap-4">
+      <span class="block mt-0.5">${icon3d(icon, 40)}</span>
+      <div class="min-w-0">
+        <div class="text-[11px] font-semibold uppercase tracking-wider text-on-surface-variant/70 mb-1">${label}</div>
+        <div class="font-headline text-2xl text-on-surface leading-none truncate">${value ?? '--'}</div>
+        <div class="text-xs text-on-surface-variant/60 mt-1">${sub || ''}</div>
+      </div>
+    </div>`;
 }
 
-function riskClass(risk) {
-  return {
-    low: 'border-l-green-500',
-    medium: 'border-l-yellow-500',
-    high: 'border-l-red-500',
-  }[risk] || 'border-l-surface-variant';
+function stripSkeleton() {
+  return `<div class="glass-panel rounded-[28px] h-[88px] animate-pulse"></div>`;
+}
+function stripCards(n) {
+  return Array(n).fill('').map(() => `<div class="glass-panel rounded-[28px] h-[104px] animate-pulse"></div>`).join('');
 }
 
+// ═══════════════════════════ Kapadokya illüstrasyonu ═══════════════════════════
+
+function heroIllustration() {
+  const chimneys = [chimney(470, 300, 46, 150), chimney(560, 300, 64, 210), chimney(640, 300, 40, 130), chimney(710, 300, 56, 175)];
+  const balloons = [
+    balloon(520, 120, 2.2, '#FF6B6B', '#ffb3a0'),
+    balloon(630, 95, 2.7, '#FFC24B', '#ffe6ad'),
+    balloon(700, 150, 1.9, '#36D6C3', '#aef2e9'),
+    balloon(575, 185, 1.6, '#5BA8FF', '#bcd9ff'),
+    balloon(665, 210, 1.4, '#F074C0', '#fbc4e7'),
+    balloon(455, 150, 1.5, '#B493FF', '#ddccff'),
+    balloon(745, 95, 1.3, '#FF9F5A', '#ffd6b0'),
+  ];
+  return `<svg viewBox="0 0 760 300" preserveAspectRatio="xMidYMid slice" class="w-full h-full" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <defs>
+      <linearGradient id="hsky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#241a3a"/><stop offset=".5" stop-color="#6b3f63"/><stop offset="1" stop-color="#ffb070"/></linearGradient>
+      <radialGradient id="hsun" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#ffeac4"/><stop offset=".45" stop-color="#ffb066" stop-opacity=".75"/><stop offset="1" stop-color="#ffb066" stop-opacity="0"/></radialGradient>
+    </defs>
+    <rect width="760" height="300" fill="url(#hsky)"/>
+    <circle cx="600" cy="262" r="135" fill="url(#hsun)"/>
+    <circle cx="600" cy="270" r="40" fill="#ffe9c2" opacity=".95"/>
+    <g fill="#241326" opacity=".88">${chimneys.join('')}</g>
+    ${balloons.join('')}
+  </svg>`;
+}
+
+function chimney(x, baseY, w, h) {
+  const top = baseY - h;
+  return `<path d="M${x - w / 2},${baseY} C${x - w / 2.2},${baseY - h * 0.55} ${x - w / 6},${top + w * 0.5} ${x},${top + w * 0.5} C${x + w / 6},${top + w * 0.5} ${x + w / 2.2},${baseY - h * 0.55} ${x + w / 2},${baseY} Z"/>
+    <ellipse cx="${x}" cy="${top + w * 0.5}" rx="${w * 0.46}" ry="${w * 0.26}" fill="#3a2240"/>`;
+}
+
+function balloon(cx, cy, s, color, light) {
+  return `<g transform="translate(${cx} ${cy}) scale(${s})">
+    <line x1="-2.4" y1="27" x2="-2" y2="33" stroke="#fff" stroke-opacity=".5" stroke-width=".5"/>
+    <line x1="2.4" y1="27" x2="2" y2="33" stroke="#fff" stroke-opacity=".5" stroke-width=".5"/>
+    <path d="M-2.6,33 h5.2 l-.7,3.3 a.8 .8 0 0 1 -.8 .6 h-2.2 a.8 .8 0 0 1 -.8 -.6 z" fill="#5a3a26"/>
+    <path d="M0,-2 C-9,-2 -13.5,5 -13.5,12.6 C-13.5,20.6 -7,26.6 -2,28.7 L2,28.7 C7,26.6 13.5,20.6 13.5,12.6 C13.5,5 9,-2 0,-2 Z" fill="${color}"/>
+    <path d="M0,-2 C-5,-2 -8.4,3 -9.4,9.2 C-7,4 -3,1 0.4,1 Z" fill="${light}" opacity=".55"/>
+    <g stroke="#000" stroke-opacity=".13" stroke-width=".7" fill="none"><path d="M0,-1.6 V28.5"/><path d="M-6.2,-.4 C-9.4,6 -9.4,21 -5.2,27.7"/><path d="M6.2,-.4 C9.4,6 9.4,21 5.2,27.7"/></g>
+  </g>`;
+}
+
+// ═══════════════════════════ yardımcılar ═══════════════════════════
+
+function wmo(code) {
+  if (code == null) return { label: 'Bilinmiyor', icon: 'cloud' };
+  if (code === 0) return { label: 'Açık', icon: 'weather' };
+  if (code <= 3) return { label: 'Parçalı bulutlu', icon: 'weather' };
+  if (code === 45 || code === 48) return { label: 'Sisli', icon: 'visibility' };
+  if (code >= 51 && code <= 67) return { label: 'Yağmurlu', icon: 'cloud' };
+  if (code >= 71 && code <= 77) return { label: 'Karlı', icon: 'cloud' };
+  if (code >= 80 && code <= 82) return { label: 'Sağanak', icon: 'cloud' };
+  if (code >= 95) return { label: 'Fırtına', icon: 'alert' };
+  return { label: 'Bulutlu', icon: 'cloud' };
+}
+
+function statusLabel(s) {
+  return { flyable: 'Uygun', caution: 'Riskli', no_go: 'Uçuş Yok', unknown: 'Beklemede' }[s] || 'Beklemede';
+}
+
+function setText(id, txt) { const el = document.getElementById(id); if (el) el.textContent = txt; }
+function temp(v) { return v == null ? '--°' : `${Math.round(Number(v))}°`; }
 function kmh(v) { return v == null ? '--' : `${Number(v).toFixed(1)} km/h`; }
 function mm(v) { return v == null ? '--' : `${Number(v).toFixed(1)} mm`; }
 function pct(v) { return v == null ? '--' : `%${Number(v).toFixed(0)}`; }
 function visibility(v) { return v == null ? '--' : `${(Number(v) / 1000).toFixed(1)} km`; }
-function fmtTime(v) { return new Date(v).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }); }
-

@@ -35,6 +35,7 @@ from app.manifest.planning import (
     delete_reservation as planning_delete_reservation,
     list_sheets as planning_list_sheets,
     create_day_sheet as planning_create_day_sheet,
+    delete_passenger_from_reservation as planning_delete_passenger,
     write_identity as planning_write_identity,
     write_operation_details as planning_write_operation_details,
 )
@@ -42,7 +43,7 @@ from app.manifest.writer import ManifestRow, build_rows, export, write_manifest
 from app.vision.extractor import PassportRecord, process_image, media_type_for
 from app.validation.flags import Flag, ValidationOutcome
 
-app = FastAPI(title="Balon Manifesto Sistemi", version="0.1.0")
+app = FastAPI(title="İrtifa Uçuş Sistemi", version="0.1.0")
 
 # --- CORS: geliştirme ortamında tüm origin'lere izin ---
 app.add_middleware(
@@ -73,6 +74,7 @@ async def _no_cache_static(request, call_next):
 def _startup() -> None:
     """DB şemasını uygula (yoksa oluştur)."""
     init_db()
+    weather_mod.normalize_stored_weather_texts()
     weather_mod.start_weather_worker()
 
 
@@ -156,7 +158,7 @@ def api_app_shutdown() -> dict:
         os._exit(0)
 
     threading.Timer(0.25, _exit).start()
-    return {"success": True, "message": "Balon Manifesto kapatiliyor."}
+    return {"success": True, "message": "İrtifa kapatılıyor."}
 
 
 # ═════════════════════════════════════════════════════════════════════
@@ -177,6 +179,10 @@ def get_settings() -> dict:
         "template_path": str(s.template_path()),
         "output_path": str(s.output_path()),
         "uses_claude": s.uses_claude(),
+        "uses_google_vision": s.uses_google_vision(),
+        "uses_tesseract": s.uses_tesseract(),
+        "uses_paddleocr": s.uses_paddleocr(),
+        "uses_automatic_vision": s.uses_automatic_vision(),
         "has_api_key": s.has_api_key(),
         "uses_google_sheets": s.uses_google_sheets(),
         "google_is_configured": s.google_is_configured(),
@@ -221,6 +227,10 @@ def update_settings(body: dict) -> dict:
         "template_path": str(updated.template_path()),
         "output_path": str(updated.output_path()),
         "uses_claude": updated.uses_claude(),
+        "uses_google_vision": updated.uses_google_vision(),
+        "uses_tesseract": updated.uses_tesseract(),
+        "uses_paddleocr": updated.uses_paddleocr(),
+        "uses_automatic_vision": updated.uses_automatic_vision(),
         "has_api_key": updated.has_api_key(),
         "uses_google_sheets": updated.uses_google_sheets(),
         "google_is_configured": updated.google_is_configured(),
@@ -526,6 +536,46 @@ def api_planning_delete_block(body: dict) -> dict:
     return {"success": True, "message": f"{len(rows)} satırlık rezervasyon silindi."}
 
 
+@app.post("/api/planning/delete-passenger")
+def api_planning_delete_passenger(body: dict) -> dict:
+    """Bir rezervasyon bloğundan tek yolcu sil."""
+    sheet = body.get("sheet", "").strip()
+    lead_row = body.get("lead_row")
+    rows = body.get("rows", [])
+    target_row = body.get("row")
+    if not sheet:
+        raise HTTPException(status_code=422, detail="sheet alanı gerekli.")
+    if lead_row is None or target_row is None:
+        raise HTTPException(status_code=422, detail="lead_row ve row alanları gerekli.")
+    if not rows:
+        raise HTTPException(status_code=422, detail="rows listesi boş olamaz.")
+    try:
+        lead_row = int(lead_row)
+        target_row = int(target_row)
+        rows = [int(r) for r in rows]
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=422, detail="Geçersiz satır numarası.")
+
+    s = _load_settings()
+    if s.uses_google_sheets():
+        raise HTTPException(status_code=400, detail="Yolcu silme şu an yalnızca Excel modunda.")
+    xlsx_path = s.planning_path()
+    if not xlsx_path.exists():
+        raise HTTPException(status_code=404, detail=f"Planlama dosyası bulunamadı: {xlsx_path}")
+    try:
+        _backup_excel(xlsx_path)
+        result = planning_delete_passenger(
+            xlsx_path,
+            sheet,
+            lead_row=lead_row,
+            rows=rows,
+            target_row=target_row,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Yolcu silinemedi: {e}")
+    return {"success": True, "message": "Yolcu rezervasyondan silindi.", **result}
+
+
 @app.post("/api/planning/write-identity")
 def api_planning_write_identity(body: dict) -> dict:
     """Kimlik kolonlarını (uyruk, cinsiyet, isim, pasaport no) güncelle.
@@ -665,9 +715,9 @@ async def api_passport_upload(
             })
             continue
 
-        if s.uses_claude():
+        if s.uses_automatic_vision():
             # Claude Vision ile MRZ okuma
-            if not s.has_api_key():
+            if s.uses_claude() and not s.has_api_key():
                 raise HTTPException(
                     status_code=400,
                     detail="Claude modu aktif ama API anahtarı ayarlanmamış.",
@@ -678,6 +728,8 @@ async def api_passport_upload(
                 source=filename,
                 media_type=mt,
                 model=s.model,
+                provider=s.vision_mode,
+                settings=s,
                 seen_document_numbers=seen_doc_numbers,
             )
             field_data = record.to_fields()
@@ -696,7 +748,7 @@ async def api_passport_upload(
     return {
         "records": results,
         "count": len(results),
-        "mode": "claude" if s.uses_claude() else "manual",
+        "mode": s.vision_mode,
         "sheet": sheet,
         "block_index": block_index,
     }
@@ -832,7 +884,7 @@ def api_stats() -> dict:
 
 @app.get("/api/weather/status")
 def api_weather_status() -> dict:
-    """Hava durumu izleme: son durum + bugunun ucus risk karari."""
+    """Hava durumu izleme: son durum + bugünün uçuş risk kararı."""
     s = _load_settings()
     if not s.weather_enabled:
         return weather_mod.cached_weather()
@@ -846,14 +898,14 @@ def api_weather_status() -> dict:
 
 @app.post("/api/weather/refresh")
 def api_weather_refresh() -> dict:
-    """Hava durumunu elle yenile ve son olcumu kaydet."""
+    """Hava durumunu elle yenile ve son ölçümü kaydet."""
     s = _load_settings()
     if not s.weather_enabled:
-        raise HTTPException(status_code=400, detail="Weather monitor kapali.")
+        raise HTTPException(status_code=400, detail="Hava durumu takibi kapalı.")
     try:
         return weather_mod.refresh_weather(s)
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Hava durumu alinamadi: {e}")
+        raise HTTPException(status_code=502, detail=f"Hava durumu alınamadı: {e}")
 
 
 # ═════════════════════════════════════════════════════════════════════

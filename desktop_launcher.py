@@ -1,26 +1,60 @@
-"""Desktop entry point for the packaged Balon Manifesto app.
+"""Desktop entry point for the packaged İrtifa app.
 
-Starts the FastAPI server in the background, launches the Web UI in the default
-web browser, and displays a native window control panel to manage the server process.
+Starts the FastAPI server in the background and hosts the Web UI in a native
+WebView window. Closing the window exits the whole app.
 """
 from __future__ import annotations
 
+import os
+import socket
 import sys
 import time
 import threading
-import webbrowser
+import urllib.request
 import traceback
 import multiprocessing
 from pathlib import Path
 import uvicorn
 
-APP_URL = "http://127.0.0.1:8000/?v=desktop-20260623-1"
+APP_VERSION = "desktop-20260623-4"
+APP_HOST = "127.0.0.1"
+APP_PORT = int(os.environ.get("BALON_MANIFESTO_PORT") or "0")
+
+
+def _choose_port() -> int:
+    if APP_PORT:
+        return APP_PORT
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind((APP_HOST, 0))
+        return int(s.getsockname()[1])
+
+
+PORT = _choose_port()
+APP_URL = f"http://{APP_HOST}:{PORT}/?v={APP_VERSION}"
+HEALTH_URL = f"http://{APP_HOST}:{PORT}/health"
+
+
+def _wait_for_server(timeout_seconds: float = 25) -> bool:
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(HEALTH_URL, timeout=1) as response:
+                if response.status == 200:
+                    return True
+        except Exception:
+            time.sleep(0.25)
+    return False
+
+
+def _shutdown_process() -> None:
+    os._exit(0)
 
 
 def _smoke_test() -> int:
     """Verify imports, configurations, and that static files are bundled."""
     from app import config
     from app.settings import load
+    import webview  # noqa: F401
     import googleapiclient.discovery  # noqa: F401
     import google.oauth2.service_account  # noqa: F401
     from app.main import app  # noqa: F401
@@ -44,7 +78,7 @@ def _smoke_test() -> int:
         return 3
 
     load()
-    print("BalonManifesto smoke-test ok")
+    print("Irtifa smoke-test ok")
     return 0
 
 
@@ -76,7 +110,7 @@ def _run_server():
 
         print(f"\n--- Server starting at {time.strftime('%Y-%m-%d %H:%M:%S')} ---")
         from app.main import app
-        uvicorn.run(app, host="127.0.0.1", port=8000, log_level="info")
+        uvicorn.run(app, host=APP_HOST, port=PORT, log_level="info")
     except Exception as e:
         with open(crash_log, "w", encoding="utf-8") as f:
             f.write(f"Crash at {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
@@ -91,72 +125,32 @@ def main() -> int:
     if "--smoke-test" in sys.argv:
         return _smoke_test()
 
-    try:
-        import tkinter as tk
-        from tkinter import ttk
-    except ModuleNotFoundError:
-        def open_browser_no_gui():
-            time.sleep(1.5)
-            webbrowser.open(APP_URL)
-
-        threading.Thread(target=open_browser_no_gui, daemon=True).start()
-        _run_server()
-        return 0
-
-    # Start FastAPI server in a background thread
     server_thread = threading.Thread(target=_run_server, daemon=True)
     server_thread.start()
+    if not _wait_for_server():
+        raise RuntimeError("İrtifa yerel sunucusu başlatılamadı.")
 
-    # Wait for server startup and open browser
-    def open_browser():
-        time.sleep(1.5)
-        webbrowser.open(APP_URL)
+    try:
+        import webview
+    except ModuleNotFoundError as exc:
+        raise RuntimeError("WebView bileşeni bulunamadı. pywebview kurulmalı.") from exc
 
-    threading.Thread(target=open_browser, daemon=True).start()
-
-    # Create a nice window control panel to exit the server gracefully
-    root = tk.Tk()
-    root.title("Balon Manifesto Sunucusu")
-    root.geometry("420x240")
-    root.resizable(False, False)
-
-    # Styling matching the Turkish blue theme
-    root.configure(background='#0a0e1a')
-    style = ttk.Style()
-    style.theme_use('clam')
-    style.configure('TFrame', background='#0a0e1a')
-    style.configure('TLabel', background='#0a0e1a', foreground='#f1f5f9')
-    style.configure('TButton', background='#0077b6', foreground='#ffffff', borderwidth=0, font=('Helvetica', 10, 'bold'))
-    style.map('TButton', background=[('active', '#005f8c')])
-
-    frame = ttk.Frame(root, padding=20)
-    frame.pack(fill=tk.BOTH, expand=True)
-
-    title_label = ttk.Label(frame, text="🎈 Balon Manifesto Sunucusu", font=('Helvetica', 16, 'bold'), foreground='#00a8e8')
-    title_label.pack(pady=(0, 10))
-
-    status_label = ttk.Label(frame, text="Web sunucusu arka planda başarıyla başlatıldı.", font=('Helvetica', 10), foreground='#22c55e')
-    status_label.pack(pady=5)
-
-    info_label = ttk.Label(
-        frame,
-        text="Arayüze tarayıcınızdan aşağıdaki adresten erişebilirsiniz:\nhttp://127.0.0.1:8000",
-        font=('Helvetica', 9),
-        justify='center',
-        foreground='#94a3b8'
+    webview.create_window(
+        "İrtifa",
+        APP_URL,
+        width=1360,
+        height=860,
+        min_size=(1100, 720),
+        text_select=True,
+        confirm_close=False,
+        background_color="#181225",
     )
-    info_label.pack(pady=10)
-
-    btn_frame = ttk.Frame(frame)
-    btn_frame.pack(pady=10)
-
-    btn_open = ttk.Button(btn_frame, text="Tarayıcıda Aç", command=lambda: webbrowser.open("http://127.0.0.1:8000"))
-    btn_open.pack(side=tk.LEFT, padx=10)
-
-    btn_exit = ttk.Button(btn_frame, text="Durdur & Çıkış", command=root.destroy)
-    btn_exit.pack(side=tk.LEFT, padx=10)
-
-    root.mainloop()
+    webview.start(
+        gui="edgechromium",
+        private_mode=False,
+        storage_path=str(Path.home() / ".manifesto" / "webview"),
+    )
+    _shutdown_process()
     return 0
 
 

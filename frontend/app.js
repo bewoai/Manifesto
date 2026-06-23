@@ -1,7 +1,9 @@
 /* ═══════════════════════════════════════════════════════════════════
-   Balon Manifesto — App Core (Aetheria Flights Theme)
+   İrtifa — App Core (Aetheria Flights Theme)
    Router, State, API Client, Toast, Sidebar, Modal
    ═══════════════════════════════════════════════════════════════════ */
+
+import { icon3d } from '/icons.js';
 
 // ─── API Client ───
 const api = {
@@ -123,7 +125,7 @@ let appShutdownRequested = false;
 window.addEventListener('beforeunload', (event) => {
   if (appShutdownRequested) return;
   event.preventDefault();
-  event.returnValue = 'Uygulamayı kapatmadan tarayıcıyı kapatma.';
+  event.returnValue = 'İrtifa penceresi kapatılsın mı?';
   return event.returnValue;
 });
 
@@ -131,55 +133,48 @@ window.addEventListener('beforeunload', (event) => {
 function renderSidebar(activeRoute) {
   const sidebar = document.getElementById('sidebar');
   const navItems = [
-    { id: 'dashboard', icon: 'rocket_launch', label: 'Dashboard', route: 'dashboard' },
-    { id: 'weather',   icon: 'cloudy_snowing', label: 'Hava Durumu', route: 'weather' },
-    { id: 'planning',  icon: 'calendar_month', label: 'Planlama', route: 'planning' },
-    { id: 'passport',  icon: 'badge',          label: 'Pasaport', route: 'passport' },
-    { id: 'manifest',  icon: 'description',    label: 'Manifesto', route: 'manifest' },
-    { id: 'lists',     icon: 'list_alt',       label: 'Listeler', route: 'lists' },
+    { id: 'dashboard', label: 'Panel', route: 'dashboard' },
+    { id: 'weather',   label: 'Hava Durumu', route: 'weather' },
+    { id: 'planning',  label: 'Planlama', route: 'planning' },
+    { id: 'passport',  label: 'Pasaport', route: 'passport' },
+    { id: 'manifest',  label: 'Manifesto', route: 'manifest' },
+    { id: 'lists',     label: 'Listeler', route: 'lists' },
   ];
-  const bottomItems = [
-    { id: 'settings', icon: 'settings', label: 'Ayarlar', route: 'settings' },
-  ];
+  const bottomItems = [{ id: 'settings', label: 'Ayarlar', route: 'settings' }];
+
+  const navHtml = (items) => items.map((item) => {
+    const on = activeRoute === item.route;
+    return `
+      <a href="#/${item.route}" id="nav-${item.id}"
+         class="group flex items-center gap-3.5 px-3.5 py-2.5 rounded-2xl transition-all ${on
+           ? 'bg-white/10 ring-1 ring-white/15 shadow-lg shadow-black/20'
+           : 'hover:bg-white/5'}">
+        <span class="block transition-transform group-hover:-translate-y-0.5 ${on ? '' : 'opacity-90 group-hover:opacity-100'}">${icon3d(item.id, 30)}</span>
+        <span class="text-[15px] font-medium ${on ? 'text-on-surface' : 'text-on-surface-variant group-hover:text-on-surface'}">${item.label}</span>
+      </a>`;
+  }).join('');
 
   sidebar.innerHTML = `
-    <div class="px-8 mb-4">
-      <h2 class="font-headline text-headline-sm text-primary tracking-tight">Balon Manifesto</h2>
-      <p class="text-label-md text-on-surface-variant opacity-70">Uçuş Planlama Sistemi</p>
+    <div class="px-6 flex items-center gap-3">
+      <img src="/irtifa-logo.png" alt="İrtifa" class="w-12 h-12 rounded-2xl object-cover shadow-lg shadow-black/25 ring-1 ring-white/10" />
+      <div>
+        <h2 class="font-headline text-xl text-on-surface leading-tight tracking-tight">İrtifa</h2>
+        <p class="text-xs text-on-surface-variant/70">Kapadokya Uçuş Sistemi</p>
+      </div>
     </div>
-    <nav class="flex-1 px-4 space-y-1">
-      ${navItems.map(item => `
-        <a class="${activeRoute === item.route
-          ? 'flex items-center gap-4 bg-primary-container text-on-primary-container rounded-full px-6 py-3 shadow-lg shadow-primary-container/20 transition-transform scale-105'
-          : 'flex items-center gap-4 text-on-surface-variant px-6 py-3 hover:bg-white/10 hover:rounded-full transition-all duration-500'
-        }" href="#/${item.route}" data-route="${item.route}" id="nav-${item.id}">
-          <span class="material-symbols-outlined">${item.icon}</span>
-          <span class="text-label-md">${item.label}</span>
-        </a>
-      `).join('')}
-    </nav>
+    <nav class="flex-1 px-4 space-y-1.5 mt-6">${navHtml(navItems)}</nav>
     <div class="px-4 mt-auto space-y-2">
-      ${bottomItems.map(item => `
-        <a class="${activeRoute === item.route
-          ? 'flex items-center gap-4 bg-primary-container text-on-primary-container rounded-full px-6 py-3 shadow-lg shadow-primary-container/20'
-          : 'flex items-center gap-4 text-on-surface-variant px-6 py-2 opacity-60 hover:opacity-100 hover:bg-white/5 rounded-lg transition-all'
-        }" href="#/${item.route}" id="nav-${item.id}">
-          <span class="material-symbols-outlined">${item.icon}</span>
-          <span class="text-label-md">${item.label}</span>
-        </a>
-      `).join('')}
-      <button class="w-full mt-6 bg-error-container text-on-error-container py-3 rounded-full text-label-md hover:brightness-110 transition-all" onclick="window.__shutdownApp()">
-        Kapat
+      ${navHtml(bottomItems)}
+      <button class="w-full mt-3 bg-error-container/70 text-on-error-container py-2.5 rounded-2xl text-sm font-medium hover:bg-error-container transition-all flex items-center justify-center gap-2" onclick="window.__shutdownApp()">
+        <span class="material-symbols-outlined text-base">power_settings_new</span> Kapat
       </button>
-    </div>
-    <div class="px-8 mt-4">
-      <span class="text-xs text-on-surface-variant/40">v0.1.0 — Faz 1</span>
+      <div class="px-3 pt-1"><span class="text-xs text-on-surface-variant/40">v0.1.0 — Faz 1</span></div>
     </div>
   `;
 }
 
 window.__shutdownApp = async function() {
-  if (!confirm('Balon Manifesto kapatılsın mı?')) return;
+  if (!confirm('İrtifa kapatılsın mı?')) return;
   appShutdownRequested = true;
   try {
     await api.post('/api/app/shutdown', {});
@@ -193,7 +188,7 @@ function renderHeader(title, subtitle = '') {
   const header = document.getElementById('page-header');
   header.innerHTML = `
     <div class="flex items-center gap-4">
-      <h1 class="font-headline text-headline-md text-primary tracking-tight">${title}</h1>
+      <h1 class="font-headline text-headline-md text-on-surface tracking-tight">${title}</h1>
       ${subtitle ? `<span class="hidden lg:block text-on-surface-variant text-sm">— ${subtitle}</span>` : ''}
     </div>
     <div class="flex items-center gap-4">

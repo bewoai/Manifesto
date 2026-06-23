@@ -1,4 +1,4 @@
-"""Balon Manifesto — masaüstü uygulaması (tkinter).
+"""İrtifa — masaüstü uygulaması (tkinter).
 
 Akış (brief'in tam zinciri):
   1) Planlama Excel + gün seç
@@ -880,7 +880,7 @@ class SettingsDialogV2:
             ("manifest_template", "Manifesto şablonu", settings.manifest_template, False,
              "Manifesto biçimi için kullanılacak şablon. Boş bırakılırsa programın kendi şablonu kullanılır."),
             ("output_dir", "Manifesto çıktı klasörü", settings.output_dir, False,
-             "Üretilen manifesto dosyalarının kaydedileceği klasör. Boşsa Documents/BalonManifesto kullanılır."),
+             "Üretilen manifesto dosyalarının kaydedileceği klasör. Boşsa Documents/Irtifa kullanılır."),
         ]
         for i, (key, label, value, secret, help_text) in enumerate(rows, start=2):
             self._entry_row(i, key, label, value, secret, help_text)

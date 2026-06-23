@@ -21,8 +21,11 @@ export async function render(container) {
           <select class="form-select" id="s-vision-mode">
             <option value="manual">API'siz / Elle Giriş</option>
             <option value="claude">Claude Vision / Otomatik Okuma</option>
+            <option value="google_vision">Google Cloud Vision / Ucuz Otomatik Okuma</option>
+            <option value="tesseract">Tesseract OCR / Yerel Okuma</option>
+            <option value="paddleocr">PaddleOCR / Yerel Okuma (opsiyonel)</option>
           </select>
-          <div class="form-help">Claude modunda pasaport fotoğraflarından MRZ otomatik okunur. Elle giriş modunda 4 alan elle doldurulur.</div>
+          <div class="form-help">Google Vision ucuz bulut OCR, Tesseract API'siz yerel OCR, Claude ise en güçlü ama daha maliyetli yedek okuma yöntemidir.</div>
         </div>
         <div class="form-group">
           <label class="form-label">Claude API Anahtarı</label>
@@ -33,6 +36,20 @@ export async function render(container) {
           <label class="form-label">Model</label>
           <input class="form-input" id="s-model" placeholder="claude-opus-4-8" />
           <div class="form-help">MRZ okuma için kullanılacak Claude modeli. Emin değilseniz varsayılanı koruyun.</div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Tesseract yolu</label>
+            <input class="form-input" id="s-tesseract-cmd" placeholder="C:\\Program Files\\Tesseract-OCR\\tesseract.exe" />
+            <div class="form-help">Tesseract modunda gerekir. Boş bırakılırsa sistem PATH içindeki tesseract kullanılır.</div>
+          </div>
+          <div class="form-group">
+            <label class="flex items-center gap-3 cursor-pointer mt-8">
+              <input type="checkbox" id="s-google-doc-text" class="w-5 h-5 rounded border-on-surface-variant/30 bg-surface/50 text-primary focus:ring-primary focus:ring-offset-surface" />
+              <span class="text-on-surface">Google belge OCR kullan</span>
+            </label>
+            <div class="form-help">Normal fotoğraflar için kapalı kalsın; çok yoğun/karmaşık görsellerde açılabilir.</div>
+          </div>
         </div>
       </div>
 
@@ -141,7 +158,7 @@ export async function render(container) {
         </div>
         <div class="form-group">
           <label class="form-label">Manifesto çıktı klasörü</label>
-          <input class="form-input" id="s-output-dir" placeholder="Boş = Documents/BalonManifesto" />
+          <input class="form-input" id="s-output-dir" placeholder="Boş = Documents/Irtifa" />
         </div>
       </div>
 
@@ -192,6 +209,8 @@ function fillForm(s) {
   val('s-vision-mode', s.vision_mode);
   val('s-api-key', '');  // Don't show masked key, keep empty unless user types new one
   val('s-model', s.model);
+  val('s-tesseract-cmd', s.tesseract_cmd);
+  chk('s-google-doc-text', s.google_vision_document_text);
   val('s-data-source', s.data_source);
   val('s-planning-xlsx', s.planning_xlsx);
   val('s-gsheet-id', s.google_spreadsheet_id);
@@ -219,6 +238,8 @@ window.__saveSettings = async function() {
     vision_mode: gv('s-vision-mode'),
     data_source: gv('s-data-source'),
     model: gv('s-model'),
+    tesseract_cmd: gv('s-tesseract-cmd'),
+    google_vision_document_text: gc('s-google-doc-text'),
     planning_xlsx: gv('s-planning-xlsx'),
     google_spreadsheet_id: gv('s-gsheet-id'),
     google_credentials_json: gv('s-gsheet-json'),

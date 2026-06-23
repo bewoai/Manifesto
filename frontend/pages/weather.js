@@ -3,16 +3,16 @@ import { api, toast, renderHeader } from '/app.js';
 let state = { data: null };
 
 export async function render(container) {
-  renderHeader('Hava Durumu', 'Yarim saatlik takip, risk takvimi ve ucus karari');
+  renderHeader('Hava Durumu', 'Yarım saatlik takip, risk takvimi ve uçuş kararı');
 
   container.innerHTML = `
     <div class="space-y-6">
       <div class="weather-hero animate-fade-in">
         <div class="flex flex-col sm:flex-row justify-between items-start gap-4 w-full">
           <div>
-            <div class="text-xs font-bold tracking-widest text-primary mb-2">BALON UCUS OPERASYONU</div>
-            <h2 id="weather-title" class="font-headline text-headline-md text-on-surface mb-2">Hava verisi yukleniyor</h2>
-            <p id="weather-summary" class="text-on-surface-variant">Ruzgar, ani ruzgar, gorus ve yagis kontrol ediliyor.</p>
+            <div class="text-xs font-bold tracking-widest text-primary mb-2">BALON UÇUŞ OPERASYONU</div>
+            <h2 id="weather-title" class="font-headline text-headline-md text-on-surface mb-2">Hava verisi yükleniyor</h2>
+            <p id="weather-summary" class="text-on-surface-variant">Rüzgar, ani rüzgar, görüş ve yağış kontrol ediliyor.</p>
           </div>
           <div class="flex items-center gap-3 shrink-0">
             <span class="badge badge-blue" id="weather-updated">--</span>
@@ -33,7 +33,7 @@ export async function render(container) {
           <div class="card-header">
             <div class="card-title">
               <span class="material-symbols-outlined">calendar_month</span>
-              Risk Takvimi
+              7 Günlük Risk Takvimi
             </div>
             <span class="text-sm text-on-surface-variant">03:30 - 07:30</span>
           </div>
@@ -43,7 +43,7 @@ export async function render(container) {
           <div class="card-header">
             <div class="card-title">
               <span class="material-symbols-outlined">history</span>
-              Son Olcumler
+              Son Ölçümler
             </div>
             <span class="text-sm text-on-surface-variant">30 dk takip</span>
           </div>
@@ -73,9 +73,9 @@ async function loadWeather(force = false) {
       : await api.get('/api/weather/status');
     state.data = data;
     renderWeather(data);
-    if (data.error) toast.warning('Hava verisi', 'Yeni veri alinamadi, son kayit gosteriliyor');
+    if (data.error) toast.warning('Hava verisi', 'Yeni veri alınamadı, son kayıt gösteriliyor');
   } catch (err) {
-    toast.error('Hava durumu alinamadi', err.message);
+    toast.error('Hava durumu alınamadı', err.message);
   }
 }
 
@@ -91,7 +91,7 @@ function renderWeather(data) {
 
   document.getElementById('weather-title').textContent = decision.title || statusLabel(status);
   document.getElementById('weather-summary').textContent = decision.summary || current.summary || 'Veri bekleniyor.';
-  document.getElementById('weather-updated').textContent = data.updated_at ? `Son: ${fmtTime(data.updated_at)}` : 'Olcum yok';
+  document.getElementById('weather-updated').textContent = data.updated_at ? `Son: ${fmtTime(data.updated_at)}` : 'Ölçüm yok';
 
   const hero = document.querySelector('.weather-hero');
   hero.classList.remove('risk-low', 'risk-medium', 'risk-high', 'risk-unknown');
@@ -99,13 +99,13 @@ function renderWeather(data) {
 
   const metrics = document.getElementById('weather-metrics');
   metrics.innerHTML = [
-    metric('Ruzgar', kmh(current.wind_speed_kmh), '10m hiz', riskClass(current.wind_speed_kmh, 14, 22)),
-    metric('Ani Ruzgar', kmh(current.wind_gust_kmh), 'gust', riskClass(current.wind_gust_kmh, 22, 30)),
-    metric('Gorus', visibility(current.visibility_m), 'metre', riskClassReverse(current.visibility_m, 5000, 2500)),
-    metric('Yagis', mm(current.precipitation_mm), 'mm', riskClass(current.precipitation_mm, 0.1, 1)),
+    metric('Rüzgar', kmh(current.wind_speed_kmh), '10m hız', riskClass(current.wind_speed_kmh, 14, 22)),
+    metric('Ani Rüzgar', kmh(current.wind_gust_kmh), 'gust', riskClass(current.wind_gust_kmh, 22, 30)),
+    metric('Görüş', visibility(current.visibility_m), 'metre', riskClassReverse(current.visibility_m, 5000, 2500)),
+    metric('Yağış', mm(current.precipitation_mm), 'mm', riskClass(current.precipitation_mm, 0.1, 1)),
   ].join('');
 
-  renderCalendar(data.forecast || []);
+  renderCalendar(data.forecast || [], data.daily_forecast || []);
   renderHistory(data.history || []);
 }
 
@@ -119,13 +119,13 @@ function metric(label, value, sub, cls) {
   `;
 }
 
-function renderCalendar(points) {
+function renderCalendar(points, dailyForecast = []) {
   const el = document.getElementById('weather-calendar');
-  if (!points.length) {
+  if (!points.length && !dailyForecast.length) {
     el.innerHTML = `<div class="empty-state">
       <span class="material-symbols-outlined empty-icon text-on-surface-variant/50">calendar_today</span>
       <div class="empty-title">Tahmin yok</div>
-      <div class="empty-desc">API baglantisi kuruldugunda burada saatlik risk takvimi gorunecek.</div>
+      <div class="empty-desc">API bağlantısı kurulduğunda burada saatlik risk takvimi görünecek.</div>
     </div>`;
     return;
   }
@@ -139,33 +139,56 @@ function renderCalendar(points) {
     const totalMin = h * 60 + m;
     // 03:30 = 210 min, 07:30 = 450 min
     if (totalMin < 210 || totalMin > 450) continue;
-    const dayKey = d.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const dayKey = isoDate(d);
     if (!grouped[dayKey]) grouped[dayKey] = [];
     grouped[dayKey].push(p);
   }
 
-  const days = Object.keys(grouped);
+  const days = dailyForecast.length
+    ? dailyForecast.slice(0, 7)
+    : Object.keys(grouped).slice(0, 7).map(date => ({
+        date,
+        flight_status: worstStatus(grouped[date]),
+        risk_level: worstRisk(grouped[date]),
+        summary: grouped[date][0]?.summary || 'Saatlik tahmin var.',
+      }));
+
   if (!days.length) {
     el.innerHTML = `<div class="empty-state">
       <span class="material-symbols-outlined empty-icon text-on-surface-variant/50">event_busy</span>
-      <div class="empty-title">Ucus penceresi verisi yok</div>
-      <div class="empty-desc">03:30–07:30 araligi icin tahmin bulunamadi.</div>
+      <div class="empty-title">Uçuş penceresi verisi yok</div>
+      <div class="empty-desc">03:30–07:30 aralığı için tahmin bulunamadı.</div>
     </div>`;
     return;
   }
 
-  el.innerHTML = days.map(day => `
-    <div class="calendar-day-label">${day}</div>
+  el.innerHTML = days.map(day => {
+    const slots = grouped[day.date] || [];
+    return `
+    <div class="calendar-day-label ${day.risk_level || 'unknown'}">
+      <div>
+        <span>${fmtDateLabel(day.date)}</span>
+        <small>${day.window_start || '03:30'} - ${day.window_end || '07:30'}</small>
+      </div>
+      <strong>${statusLabel(day.flight_status)}</strong>
+    </div>
     <div class="calendar-day-slots mt-2 mb-4 last:mb-0">
-      ${grouped[day].map(p => `
+      ${slots.length ? slots.map(p => `
         <div class="weather-slot ${p.risk_level || 'unknown'}">
           <div class="slot-time">${fmtTime(p.measured_at)}</div>
           <div class="slot-status">${statusLabel(p.flight_status)}</div>
           <div class="slot-values">${kmh(p.wind_speed_kmh)} / ${kmh(p.wind_gust_kmh)}</div>
         </div>
-      `).join('')}
+      `).join('') : `
+        <div class="weather-slot unknown">
+          <div class="slot-time">Tahmin yok</div>
+          <div class="slot-status">${day.summary || 'Veri bekleniyor'}</div>
+          <div class="slot-values">03:30 - 07:30</div>
+        </div>
+      `}
     </div>
-  `).join('');
+  `;
+  }).join('');
 }
 
 function renderHistory(items) {
@@ -173,8 +196,8 @@ function renderHistory(items) {
   if (!items.length) {
     el.innerHTML = `<div class="empty-state">
       <span class="material-symbols-outlined empty-icon text-on-surface-variant/50">history</span>
-      <div class="empty-title">Olcum yok</div>
-      <div class="empty-desc">Ilk otomatik olcumden sonra liste dolacak.</div>
+      <div class="empty-title">Ölçüm yok</div>
+      <div class="empty-desc">İlk otomatik ölçümden sonra liste dolacak.</div>
     </div>`;
     return;
   }
@@ -191,9 +214,25 @@ function statusLabel(status) {
   return {
     flyable: 'Uygun',
     caution: 'Riskli',
-    no_go: 'Ucus Yok',
+    no_go: 'Uçuş Yok',
     unknown: 'Beklemede',
   }[status] || 'Beklemede';
+}
+
+function worstRisk(points) {
+  const risks = new Set((points || []).map(p => p.risk_level));
+  if (risks.has('high')) return 'high';
+  if (risks.has('medium')) return 'medium';
+  if (risks.has('low')) return 'low';
+  return 'unknown';
+}
+
+function worstStatus(points) {
+  const statuses = new Set((points || []).map(p => p.flight_status));
+  if (statuses.has('no_go')) return 'no_go';
+  if (statuses.has('caution')) return 'caution';
+  if (statuses.has('flyable')) return 'flyable';
+  return 'unknown';
 }
 
 function riskClass(v, warn, stop) {
@@ -213,6 +252,19 @@ function riskClassReverse(v, warn, stop) {
 function kmh(v) { return v == null ? '--' : `${Number(v).toFixed(1)} km/h`; }
 function mm(v) { return v == null ? '--' : `${Number(v).toFixed(1)} mm`; }
 function visibility(v) { return v == null ? '--' : `${(Number(v) / 1000).toFixed(1)} km`; }
+function isoDate(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+function fmtDateLabel(v) {
+  return new Date(`${v}T12:00:00`).toLocaleDateString('tr-TR', {
+    weekday: 'long',
+    day: '2-digit',
+    month: '2-digit',
+  });
+}
 function fmtTime(v) { return new Date(v).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }); }
 function fmtDayTime(v) {
   return new Date(v).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });

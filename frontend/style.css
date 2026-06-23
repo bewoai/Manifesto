@@ -3,15 +3,24 @@
 @tailwind utilities;
 
 /* ═══════════════════════════════════════════════════════════════════
-   Balon Manifesto — Aetheria Flights Design System
+   İrtifa — Aetheria Flights Design System
    Material Design 3 Dark Theme + Warm Amber Palette
    ═══════════════════════════════════════════════════════════════════ */
 
 @layer base {
   body {
-    background-color: #121411;
-    color: #e3e3de;
+    min-height: 100vh;
+    color: #f4ecde;
     overflow-x: hidden;
+    /* Şafak öncesi Kapadokya gökyüzü: indigo → erik → sıcak ufuk + balon parıltıları */
+    background:
+      radial-gradient(135% 90% at 80% -12%, rgba(255,170,90,0.22), transparent 55%),
+      radial-gradient(120% 85% at 10% 112%, rgba(240,116,192,0.16), transparent 55%),
+      radial-gradient(95% 70% at 98% 108%, rgba(91,168,255,0.12), transparent 60%),
+      linear-gradient(180deg, #140e22 0%, #1b1430 36%, #2a1c3c 68%, #3c2638 100%);
+    background-attachment: fixed;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
   }
 
   .material-symbols-outlined {
@@ -22,7 +31,8 @@
 @layer components {
   /* ─── Glass Panel ─── */
   .glass-panel {
-    @apply bg-surface-container-lowest/70 backdrop-blur-2xl border border-white/10 shadow-xl;
+    @apply bg-surface-container-lowest/55 backdrop-blur-2xl border border-white/10;
+    box-shadow: 0 14px 44px -14px rgba(8,5,18,0.65), inset 0 1px 0 rgba(255,255,255,0.06);
   }
 
   /* ─── Liquid Background Blobs ─── */
@@ -51,7 +61,7 @@
     background: rgba(255, 255, 255, 0.05);
   }
   .custom-scrollbar::-webkit-scrollbar-thumb {
-    background: #ffb68d;
+    background: #ff9f5a;
     border-radius: 10px;
   }
 
@@ -287,6 +297,14 @@
   }
 
   /* ─── Block List (Planning) ─── */
+  .block-shell {
+    @apply rounded-3xl border border-transparent transition-all;
+  }
+
+  .block-shell.selected {
+    @apply border-primary/25 bg-white/[.025];
+  }
+
   .block-item {
     @apply flex items-center gap-4 p-5 rounded-3xl bg-white/5 hover:bg-white/10
            transition-all border border-transparent hover:border-white/10 cursor-pointer;
@@ -319,6 +337,42 @@
 
   .block-passenger.empty {
     @apply text-on-surface-variant/40 italic;
+  }
+
+  .block-details {
+    @apply grid grid-cols-1 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,0.9fr)] gap-4 px-5 pb-5;
+  }
+
+  .detail-panel {
+    @apply rounded-3xl border border-white/10 bg-black/10 p-5;
+  }
+
+  .detail-header {
+    @apply flex items-center justify-between gap-3 mb-4;
+  }
+
+  .passenger-list {
+    @apply flex flex-col gap-2 max-h-[360px] overflow-auto pr-1 custom-scrollbar;
+  }
+
+  .passenger-row {
+    @apply flex items-center justify-between gap-3 rounded-2xl border border-white/5 bg-white/[.035] px-3 py-2;
+  }
+
+  .passenger-row.empty {
+    @apply opacity-60;
+  }
+
+  .passenger-row strong {
+    @apply block text-sm text-on-surface truncate;
+  }
+
+  .passenger-row span {
+    @apply block text-xs text-on-surface-variant truncate mt-0.5;
+  }
+
+  .btn-icon.danger {
+    @apply text-error hover:bg-error/10;
   }
 
   .block-balloon {
@@ -358,7 +412,7 @@
 
   .progress-fill {
     @apply h-full bg-primary rounded-full transition-all duration-500
-           shadow-[0_0_8px_rgba(255,182,141,0.5)];
+           shadow-[0_0_8px_rgba(255,159,90,0.55)];
   }
 
   /* ─── Empty State ─── */
@@ -403,6 +457,7 @@
   .weather-slot.low { @apply border-green-500/40; }
   .weather-slot.medium { @apply border-yellow-500/50; }
   .weather-slot.high { @apply border-red-500/50; }
+  .weather-slot.unknown { @apply border-white/10; }
 
   .slot-time {
     @apply font-extrabold text-on-surface text-sm;
@@ -417,7 +472,19 @@
   }
 
   .calendar-day-label {
-    @apply font-bold text-sm text-primary py-1 border-b border-white/10 mt-3 first:mt-0;
+    @apply flex items-center justify-between gap-3 py-2 border-b border-white/10 mt-3 first:mt-0;
+  }
+
+  .calendar-day-label span {
+    @apply block font-bold text-sm text-primary capitalize;
+  }
+
+  .calendar-day-label small {
+    @apply block text-xs text-on-surface-variant mt-0.5;
+  }
+
+  .calendar-day-label strong {
+    @apply text-xs font-bold px-2 py-1 rounded-full bg-white/5 text-on-surface;
   }
 
   .calendar-day-slots {
@@ -520,6 +587,32 @@
   .weather-hero.risk-medium { @apply border-l-4 border-l-yellow-500; }
   .weather-hero.risk-high { @apply border-l-4 border-l-red-500; }
   .weather-hero.risk-unknown { @apply border-l-4 border-l-white/10; }
+
+  /* ─── Hava Durumu Şeridi (dashboard üst, sade + ikonlu + uçuş tahmini) ─── */
+  .wx-strip {
+    @apply glass-panel rounded-[28px] px-5 py-4 flex flex-wrap items-center gap-x-5 gap-y-3;
+  }
+  .wx-now { @apply flex items-center gap-3 pr-2; }
+  .wx-temp { @apply font-headline text-4xl text-on-surface leading-none; }
+  .wx-cond { @apply text-on-surface-variant text-xs; }
+  .wx-sep { @apply hidden lg:block w-px self-stretch bg-white/10 mx-1; }
+  .wx-metric { @apply flex items-center gap-2; }
+  .wx-metric .lbl { @apply text-on-surface-variant/60 text-[10px] uppercase tracking-wider leading-tight; }
+  .wx-metric .val { @apply text-on-surface text-sm font-semibold leading-tight; }
+  .wx-verdict {
+    @apply ml-auto flex items-center gap-3 rounded-2xl pl-4 pr-5 py-2 border;
+  }
+  .wx-verdict.flyable { @apply bg-balloon-green/15 border-balloon-green/30 text-balloon-green; }
+  .wx-verdict.caution { @apply bg-balloon-amber/15 border-balloon-amber/30 text-balloon-amber; }
+  .wx-verdict.no_go   { @apply bg-balloon-red/15 border-balloon-red/30 text-balloon-red; }
+  .wx-verdict.unknown { @apply bg-white/5 border-white/10 text-on-surface-variant; }
+  .wx-verdict .v-cap { @apply text-[10px] uppercase tracking-wider opacity-80 leading-tight; }
+  .wx-verdict .v-status { @apply font-headline text-lg leading-none; }
+  .wx-verdict .v-window { @apply text-[10px] opacity-70 leading-tight; }
+
+  /* ─── 3D ikon kabı (yumuşak gölge) ─── */
+  .icon3d { @apply inline-flex items-center justify-center shrink-0; }
+  .icon3d.shadow { filter: drop-shadow(0 6px 9px rgba(8,5,18,0.45)); }
 }
 
 @layer utilities {

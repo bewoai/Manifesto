@@ -68,6 +68,15 @@ def mrz_lines_from_text(text: str) -> tuple[str, list[str]]:
         if not (20 <= len(l2_candidate) <= 70): continue
         if len(l2_candidate) > 17 and l2_candidate[7] in 'MFX<' and re.match(r'^[A-Z<]{3}$', l2_candidate[15:18]):
             l1 = flat[:i]
+            cc = l2_candidate[15:18]
+            pattern = r'[IAC][A-Z<]?' + cc
+            search_area = l1[-100:]
+            matches = list(re.finditer(pattern, search_area))
+            if not matches:
+                continue
+            idx = matches[-1].start()
+            l1 = search_area[idx:]
+            
             if len(l2_candidate) > 30:
                 l3 = l2_candidate[30:]
                 l2 = l2_candidate[:30]
@@ -75,19 +84,10 @@ def mrz_lines_from_text(text: str) -> tuple[str, list[str]]:
                 l3 = ""
                 l2 = l2_candidate
                 
-            l1 = l1.ljust(30, '<')[-30:]
+            l1 = l1.ljust(30, '<')[:30]
             l2 = l2.ljust(30, '<')[:30]
             l3 = l3.ljust(30, '<')[:30]
-            
-            start_char = ''
-            for c in ['I', 'A', 'C']:
-                if c in l1:
-                    start_char = c
-                    break
-            if start_char:
-                idx = l1.find(start_char)
-                l1 = l1[idx:].ljust(30, '<')[:30]
-                return "TD1", [l1, l2, l3]
+            return "TD1", [l1, l2, l3]
 
     candidates = []
     for raw in text.replace('\r', '\n').split('\n'):
@@ -104,30 +104,28 @@ def mrz_lines_from_text(text: str) -> tuple[str, list[str]]:
 
 def parse_tr_id_front_from_text(text: str) -> tuple[str, dict]:
     import re
+    if 'IDENTITY CARD' not in text.upper() and 'KMLK' not in text.upper() and 'KİMLİK' not in text.upper():
+        return "NONE", {}
+        
     fields = {}
     
-    tc_match = re.search(r"\b(\d{11})\b", text)
-    if tc_match:
-        fields["tc_no"] = tc_match.group(1)
+    m = re.search(r'(?:Identity No)[\s\S]*?(\d{11})', text, re.IGNORECASE)
+    if not m:
+        m = re.search(r'\b(\d{11})\b', text)
+    if m: fields['tc_no'] = m.group(1)
         
-    if re.search(r"\bE\s*/\s*M\b", text, re.IGNORECASE) or re.search(r"\bErkek\b", text, re.IGNORECASE):
-        fields["gender"] = "M"
-    elif re.search(r"\bK\s*/\s*F\b", text, re.IGNORECASE) or re.search(r"\bKad[ıi]n\b", text, re.IGNORECASE):
-        fields["gender"] = "F"
+    m = re.search(r'(?:Surname)[\s\S]*?\n([A-ZÇĞİÖŞÜ]+(?: [A-ZÇĞİÖŞÜ]+)*)', text, re.IGNORECASE)
+    if m: fields['surname'] = m.group(1).strip()
         
-    lines = [l.strip() for l in text.replace("\r", "\n").split("\n") if l.strip()]
-    for i, line in enumerate(lines):
-        norm = line.upper()
-        if "SOYADI" in norm or "SURNAME" in norm:
-            if i + 1 < len(lines):
-                fields["surname"] = lines[i+1]
-        if ("ADI" in norm or "GIVEN NAME" in norm) and "SOYADI" not in norm:
-            if i + 1 < len(lines):
-                fields["name"] = lines[i+1]
-        if "DOĞUM TARİHİ" in norm or "DATE OF BIRTH" in norm:
-            if i + 1 < len(lines):
-                fields["birth_date"] = lines[i+1]
-                
+    m = re.search(r'(?:Given Name)[\s\S]*?\n([A-ZÇĞİÖŞÜ]+(?: [A-ZÇĞİÖŞÜ]+)*)', text, re.IGNORECASE)
+    if m: fields['name'] = m.group(1).strip()
+        
+    m = re.search(r'(?:Gender)[\s\S]*?\n\s*([EK]\s*/\s*[MF]|[EKMF])', text, re.IGNORECASE)
+    if m:
+        s = m.group(1).replace(' ', '').upper()
+        if 'E' in s or 'M' in s: fields['gender'] = 'M'
+        elif 'K' in s or 'F' in s: fields['gender'] = 'F'
+        
     if "tc_no" in fields and "surname" in fields:
         return "TR_ID_FRONT", fields
     return "NONE", {}

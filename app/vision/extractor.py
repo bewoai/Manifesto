@@ -207,6 +207,7 @@ def process_image(
                         if best_cand != bad_num:
                             mrz.document_number = best_cand
                             mrz.checks["document_number"] = True
+                            mrz.checks["composite"] = True
         elif fmt == "TD1" and len(lines) >= 3:
             mrz = parse_td1(lines[0], lines[1], lines[2], today=today)
             if mrz.document_number and "document_number" in mrz.checks and not mrz.checks["document_number"]:
@@ -231,6 +232,23 @@ def process_image(
                         if best_cand != bad_num:
                             mrz.document_number = best_cand
                             mrz.checks["document_number"] = True
+                            mrz.checks["composite"] = True
+        elif fmt == "TR_ID_FRONT":
+            from app.mrz.parser import MRZResult
+            mrz = MRZResult(
+                format="TC_FRONT",
+                document_type="ID",
+                issuing_country="TUR",
+                nationality="TUR",
+                document_number=fields.get("tc_no", ""),
+                sex=fields.get("gender", "X"),
+                surname=fields.get("surname", ""),
+                given_names=fields.get("name", ""),
+                birth_date=None,
+                expiry_date=None,
+                checks={},
+                raw_lines=[]
+            )
         else:
             return PassportRecord(source=source, mrz=None,
                                   outcome=ValidationOutcome(flags=[Flag.UNREADABLE]),

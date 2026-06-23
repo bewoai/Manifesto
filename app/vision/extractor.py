@@ -101,7 +101,7 @@ def _make_client(api_key: Optional[str] = None):
 def extract_mrz_lines(image_bytes: bytes, media_type: str, *, client=None,
                       model: Optional[str] = None,
                       provider: str = settings_mod.VISION_MODE_CLAUDE,
-                      settings: Optional[settings_mod.Settings] = None) -> tuple[str, list[str]]:
+                      settings: Optional[settings_mod.Settings] = None) -> tuple[str, list[str], dict]:
     """Claude Vision -> (format, lines). Yalnızca OCR; doğrulama yapmaz."""
     settings = settings or settings_mod.Settings()
     if provider == settings_mod.VISION_MODE_GOOGLE_VISION:
@@ -134,7 +134,7 @@ def extract_mrz_lines(image_bytes: bytes, media_type: str, *, client=None,
     )
     text = next((b.text for b in resp.content if getattr(b, "type", None) == "text"), "")
     data = json.loads(text)
-    return data.get("format", "NONE"), [str(x) for x in data.get("lines", [])]
+    return data.get("format", "NONE"), [str(x) for x in data.get("lines", [])], data.get("fields", {})
 
 
 def process_image(
@@ -151,7 +151,7 @@ def process_image(
 ) -> PassportRecord:
     """Uçtan uca: görsel -> MRZ -> parse + checksum -> flag'ler -> PassportRecord."""
     try:
-        fmt, lines = extract_mrz_lines(
+        fmt, lines, fields = extract_mrz_lines(
             image_bytes,
             media_type,
             client=client,
@@ -166,7 +166,23 @@ def process_image(
 
     lines = [ln for ln in lines if ln.strip()]
     try:
-        if fmt == "TD3" and len(lines) >= 2:
+        if fmt == "TR_ID_FRONT":
+            from app.mrz.parser import MRZResult
+            mrz = MRZResult(
+                format="TR_ID_FRONT",
+                document_type="ID",
+                issuing_country="TUR",
+                nationality="TUR",
+                document_number=fields.get("tc_no", ""),
+                sex=fields.get("gender", "X"),
+                surname=fields.get("surname", ""),
+                given_names=fields.get("name", ""),
+                birth_date=None,  # Not strictly required for the output table
+                expiry_date=None,
+                checks={"id_front": True},
+                raw_lines=[]
+            )
+        elif fmt == "TD3" and len(lines) >= 2:
             mrz = parse_td3(lines[0], lines[1], today=today)
         elif fmt == "TD1" and len(lines) >= 3:
             mrz = parse_td1(lines[0], lines[1], lines[2], today=today)

@@ -28,7 +28,7 @@ def _fit_mrz_line(line: str, width: int) -> str:
     return line.ljust(width, "<")
 
 
-def mrz_lines_from_text(text: str) -> tuple[str, list[str]]:
+def mrz_lines_from_text(text: str) -> tuple[str, list[str], dict]:
     """Find likely TD3/TD1 MRZ lines in free OCR text."""
     candidates: list[str] = []
     for raw in text.replace("\r", "\n").split("\n"):
@@ -36,17 +36,52 @@ def mrz_lines_from_text(text: str) -> tuple[str, list[str]]:
         if len(line) >= 24 and "<" in line:
             candidates.append(line)
 
-    for i in range(max(0, len(candidates) - 1)):
-        first, second = candidates[i], candidates[i + 1]
-        if len(first) >= 40 and len(second) >= 40 and first.startswith("P<"):
-            return "TD3", [_fit_mrz_line(first, 44), _fit_mrz_line(second, 44)]
+    for i in range(len(candidates) - 1):
+        for j in range(i + 1, min(i + 4, len(candidates))):
+            first, second = candidates[i], candidates[j]
+            if len(first) >= 30 and len(second) >= 30 and first.startswith("P"):
+                return "TD3", [_fit_mrz_line(first, 44), _fit_mrz_line(second, 44)]
 
-    for i in range(max(0, len(candidates) - 2)):
-        group = candidates[i:i + 3]
-        if all(len(line) >= 26 for line in group) and group[0][0] in {"I", "A", "C"}:
-            return "TD1", [_fit_mrz_line(line, 30) for line in group]
+    for i in range(len(candidates) - 2):
+        for j in range(i + 1, min(i + 4, len(candidates) - 1)):
+            for k in range(j + 1, min(j + 4, len(candidates))):
+                group = [candidates[i], candidates[j], candidates[k]]
+                if all(len(line) >= 20 for line in group) and group[0][0] in {"I", "A", "C"}:
+                    return "TD1", [_fit_mrz_line(line, 30) for line in group]
 
     return "NONE", []
+
+
+
+def parse_tr_id_front_from_text(text: str) -> tuple[str, dict]:
+    import re
+    fields = {}
+    
+    tc_match = re.search(r"\b(\d{11})\b", text)
+    if tc_match:
+        fields["tc_no"] = tc_match.group(1)
+        
+    if re.search(r"\bE\s*/\s*M\b", text, re.IGNORECASE) or re.search(r"\bErkek\b", text, re.IGNORECASE):
+        fields["gender"] = "M"
+    elif re.search(r"\bK\s*/\s*F\b", text, re.IGNORECASE) or re.search(r"\bKad[ıi]n\b", text, re.IGNORECASE):
+        fields["gender"] = "F"
+        
+    lines = [l.strip() for l in text.replace("\r", "\n").split("\n") if l.strip()]
+    for i, line in enumerate(lines):
+        norm = line.upper()
+        if "SOYADI" in norm or "SURNAME" in norm:
+            if i + 1 < len(lines):
+                fields["surname"] = lines[i+1]
+        if ("ADI" in norm or "GIVEN NAME" in norm) and "SOYADI" not in norm:
+            if i + 1 < len(lines):
+                fields["name"] = lines[i+1]
+        if "DOĞUM TARİHİ" in norm or "DATE OF BIRTH" in norm:
+            if i + 1 < len(lines):
+                fields["birth_date"] = lines[i+1]
+                
+    if "tc_no" in fields and "surname" in fields:
+        return "TR_ID_FRONT", fields
+    return "NONE", {}
 
 
 def extract_with_google_vision(
@@ -54,7 +89,7 @@ def extract_with_google_vision(
     *,
     credentials_json: str = "",
     use_document_text: bool = False,
-) -> tuple[str, list[str]]:
+) -> tuple[str, list[str], dict]:
     """Google Cloud Vision OCR -> MRZ lines.
 
     Supports:
@@ -100,7 +135,14 @@ def extract_with_google_vision(
             text = annotations[0].description if annotations else ""
         if getattr(response, "error", None) and response.error.message:
             raise RuntimeError(response.error.message)
-        return mrz_lines_from_text(text)
+        
+        fmt, lines = mrz_lines_from_text(text)
+        if fmt == "NONE":
+            tr_fmt, fields = parse_tr_id_front_from_text(text)
+            if tr_fmt != "NONE":
+                return tr_fmt, [], fields
+        return fmt, lines, {}
+
     finally:
         # Restore environment variable
         if old_credentials is None:
@@ -120,7 +162,7 @@ def extract_with_tesseract(
     image_bytes: bytes,
     *,
     tesseract_cmd: str = "",
-) -> tuple[str, list[str]]:
+) -> tuple[str, list[str], dict]:
     """Local Tesseract OCR -> MRZ lines."""
     from PIL import Image
     import pytesseract
@@ -133,10 +175,15 @@ def extract_with_tesseract(
         "-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<"
     )
     text = pytesseract.image_to_string(img, lang="eng", config=config)
-    return mrz_lines_from_text(text)
+    
+    fmt, lines = mrz_lines_from_text(text)
+    if fmt == "NONE":
+        tr_fmt, fields = parse_tr_id_front_from_text(text)
+        if tr_fmt != "NONE":
+            return tr_fmt, [], fields
+    return fmt, lines, {}
 
-
-def extract_with_paddleocr(image_bytes: bytes) -> tuple[str, list[str]]:
+def extract_with_paddleocr(image_bytes: bytes) -> tuple[str, list[str], dict]:
     """Optional local PaddleOCR provider.
 
     PaddleOCR is intentionally lazy-imported because its runtime and model files
@@ -161,4 +208,12 @@ def extract_with_paddleocr(image_bytes: bytes) -> tuple[str, list[str]]:
         for item in page or []:
             if len(item) >= 2 and isinstance(item[1], (list, tuple)):
                 lines.append(str(item[1][0]))
-    return mrz_lines_from_text("\n".join(lines))
+    
+    text = "\\n".join(lines)
+    fmt, lines = mrz_lines_from_text(text)
+    if fmt == "NONE":
+        tr_fmt, fields = parse_tr_id_front_from_text(text)
+        if tr_fmt != "NONE":
+            return tr_fmt, [], fields
+    return fmt, lines, {}
+

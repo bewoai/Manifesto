@@ -45,13 +45,23 @@ def mrz_lines_from_text(text: str) -> tuple[str, list[str]]:
             else:
                 l2_candidate = l2_candidate[:44]
                 
+        cc = l2_candidate[10:13]
+        pattern = r'P[A-Z<]?' + cc
+        search_area = l1[-150:]
+        matches = list(re.finditer(pattern, search_area))
+        if matches:
+            idx = matches[-1].start()
+            l1 = search_area[idx:]
+        else:
+            idx = l1.rfind('P')
+            if idx != -1:
+                l1 = l1[idx:]
+            else:
+                l1 = l1[-44:]
+
         l1 = l1.ljust(44, '<')[:44]
         l2 = l2_candidate.ljust(44, '<')[:44]
-        
-        if 'P' in l1:
-            idx = l1.find('P')
-            l1 = l1[idx:].ljust(44, '<')[:44]
-            return "TD3", [l1, l2]
+        return "TD3", [l1, l2]
             
     for i in range(len(flat)):
         l2_candidate = flat[i:]

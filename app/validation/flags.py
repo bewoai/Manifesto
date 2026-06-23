@@ -19,6 +19,7 @@ class Flag(str, Enum):
     DUPLICATE = "duplicate"
     PAX_MISMATCH = "pax_mismatch"
     UNREADABLE = "unreadable"
+    MRZ_INCONSISTENT = "mrz_inconsistent"  # uyruk ≠ issuing → satır/isim şüpheli
 
 
 @dataclass
@@ -60,6 +61,14 @@ def validate_mrz(
     if seen_document_numbers is not None and result.document_number:
         if result.document_number in seen_document_numbers:
             outcome.add(Flag.DUPLICATE)
+
+    # Pasaportta issuing country ≈ uyruk her zaman aynıdır. Farklıysa satır 1 hizası
+    # bozulmuş olabilir (isim alanı checksum'sız olduğundan hatalı isim yeşile kaçabilir);
+    # operatör gözden geçirsin (sarı).
+    if (result.issuing_country and result.nationality
+            and len(result.issuing_country) == 3 and len(result.nationality) == 3
+            and result.issuing_country != result.nationality):
+        outcome.add(Flag.MRZ_INCONSISTENT)
 
     return outcome
 

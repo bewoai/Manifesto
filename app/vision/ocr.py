@@ -28,6 +28,18 @@ def _fit_mrz_line(line: str, width: int) -> str:
     return line.ljust(width, "<")
 
 
+def _align_td3_line1(l1: str, nat: str) -> str:
+    """OCR 'P<XXX' dolgusunu düşürdüyse (P<RUS → PRUS) satır 1 bir karakter kayar ve
+    isim bozulur (USTINOVA → STINOVA). Uyruk kodunu çapa alıp doğru hizaya getirir."""
+    if not nat or len(l1) < 5 or l1[2:5] == nat:
+        return l1
+    idx = l1[:7].find(nat)        # uyruk kodu satırın başında kaymış mı?
+    if idx < 1:
+        return l1
+    head = l1[:idx].replace("<", "") or "P"   # belge tipi (genelde 'P')
+    return (head + "<<")[:2] + l1[idx:]        # [0:2]=tip+dolgu, [2:5]=uyruk
+
+
 def _mrz_lines_by_sliding(flat: str) -> tuple[str, list[str]]:
     """Son çare: yalnız MRZ bölgesi (basılı metin AYIKLANMIŞ) üzerinde kayan pencere.
     OCR'ın MRZ satırını düzensiz parçaladığı durumları toparlar."""
@@ -48,6 +60,7 @@ def _mrz_lines_by_sliding(flat: str) -> tuple[str, list[str]]:
         else:
             j = l1.rfind('P')
             l1 = l1[j:] if j != -1 else l1[-44:]
+        l1 = _align_td3_line1(l1, cc)
         return "TD3", [l1.ljust(44, '<')[:44], l2.ljust(44, '<')[:44]]
     for i in range(len(flat)):  # TD1
         l2 = flat[i:]
@@ -108,11 +121,12 @@ def mrz_lines_from_text(text: str) -> tuple[str, list[str]]:
         if f.startswith('P') and len(f) >= 20:
             for j in range(k + 1, len(merged)):
                 if len(merged[j]) >= 28 and alpha3(merged[j], 10, 13) and merged[j][20] in 'MFX<':
-                    return "TD3", [_fit_mrz_line(f, 44), _fit_mrz_line(merged[j], 44)]
+                    l1 = _align_td3_line1(f, merged[j][10:13])
+                    return "TD3", [_fit_mrz_line(l1, 44), _fit_mrz_line(merged[j], 44)]
     # 'P' yoksa: line2 imzasına göre (uyruk 10:13 + cinsiyet 20), line1 = önceki satır
     for k, l2 in enumerate(merged):
         if len(l2) >= 40 and not l2.startswith('P<') and alpha3(l2, 10, 13) and l2[20] in 'MFX<':
-            l1 = merged[k - 1] if k >= 1 else ''
+            l1 = _align_td3_line1(merged[k - 1] if k >= 1 else '', l2[10:13])
             return "TD3", [_fit_mrz_line(l1, 44), _fit_mrz_line(l2, 44)]
 
     # 5) Son çare: MRZ bölgesini birleştirip kayan pencere.

@@ -28,78 +28,95 @@ def _fit_mrz_line(line: str, width: int) -> str:
     return line.ljust(width, "<")
 
 
-def mrz_lines_from_text(text: str) -> tuple[str, list[str]]:
-    flat = re.sub(r'[^A-Z0-9<]', '', text.upper())
-    
-    for i in range(len(flat)):
-        l2_candidate = flat[i:]
-        if not (40 <= len(l2_candidate) <= 60): continue
-        if not re.match(r'^[A-Z<]{3}$', l2_candidate[10:13]): continue
-        if l2_candidate[20] not in 'MFX<': continue
-            
+def _mrz_lines_by_sliding(flat: str) -> tuple[str, list[str]]:
+    """Son çare: yalnız MRZ bölgesi (basılı metin AYIKLANMIŞ) üzerinde kayan pencere.
+    OCR'ın MRZ satırını düzensiz parçaladığı durumları toparlar."""
+    for i in range(len(flat)):  # TD3
+        l2 = flat[i:]
+        if not (40 <= len(l2) <= 60):
+            continue
+        if not re.match(r'^[A-Z<]{3}$', l2[10:13]) or l2[20] not in 'MFX<':
+            continue
+        if len(l2) > 44:
+            mid = l2[28:-16]
+            l2 = (l2[:28] + l2[-16:]) if all(c == '<' for c in mid) else l2[:44]
+        cc = l2[10:13]
         l1 = flat[:i]
-        if len(l2_candidate) > 44:
-            mid = l2_candidate[28:-16]
-            if all(c == '<' for c in mid):
-                l2_candidate = l2_candidate[:28] + l2_candidate[-16:]
-            else:
-                l2_candidate = l2_candidate[:44]
-                
-        cc = l2_candidate[10:13]
-        pattern = r'P[A-Z<]?' + cc
-        search_area = l1[-150:]
-        matches = list(re.finditer(pattern, search_area))
-        if matches:
-            idx = matches[-1].start()
-            l1 = search_area[idx:]
+        m = list(re.finditer(r'P[A-Z<]?' + cc, l1[-150:]))
+        if m:
+            l1 = l1[-150:][m[-1].start():]
         else:
-            idx = l1.rfind('P')
-            if idx != -1:
-                l1 = l1[idx:]
-            else:
-                l1 = l1[-44:]
-
-        l1 = l1.ljust(44, '<')[:44]
-        l2 = l2_candidate.ljust(44, '<')[:44]
-        return "TD3", [l1, l2]
-            
-    for i in range(len(flat)):
-        l2_candidate = flat[i:]
-        if not (20 <= len(l2_candidate) <= 70): continue
-        if len(l2_candidate) > 17 and l2_candidate[7] in 'MFX<' and re.match(r'^[A-Z<]{3}$', l2_candidate[15:18]):
+            j = l1.rfind('P')
+            l1 = l1[j:] if j != -1 else l1[-44:]
+        return "TD3", [l1.ljust(44, '<')[:44], l2.ljust(44, '<')[:44]]
+    for i in range(len(flat)):  # TD1
+        l2 = flat[i:]
+        if not (20 <= len(l2) <= 70):
+            continue
+        if len(l2) > 17 and l2[7] in 'MFX<' and re.match(r'^[A-Z<]{3}$', l2[15:18]):
+            cc = l2[15:18]
             l1 = flat[:i]
-            cc = l2_candidate[15:18]
-            pattern = r'[IAC][A-Z<]?' + cc
-            search_area = l1[-100:]
-            matches = list(re.finditer(pattern, search_area))
-            if not matches:
+            m = list(re.finditer(r'[IAC][A-Z<]?' + cc, l1[-100:]))
+            if not m:
                 continue
-            idx = matches[-1].start()
-            l1 = search_area[idx:]
-            
-            if len(l2_candidate) > 30:
-                l3 = l2_candidate[30:]
-                l2 = l2_candidate[:30]
-            else:
-                l3 = ""
-                l2 = l2_candidate
-                
-            l1 = l1.ljust(30, '<')[:30]
-            l2 = l2.ljust(30, '<')[:30]
-            l3 = l3.ljust(30, '<')[:30]
-            return "TD1", [l1, l2, l3]
-
-    candidates = []
-    for raw in text.replace('\r', '\n').split('\n'):
-        line = re.sub(r'[^A-Z0-9<]', '', raw.upper())
-        if len(line) >= 24 and '<' in line:
-            candidates.append(line)
-            
-    if len(candidates) >= 2:
-        if candidates[0].startswith('P'):
-            return "TD3", [candidates[0].ljust(44, '<')[:44], candidates[1].ljust(44, '<')[:44]]
-            
+            l1 = l1[-100:][m[-1].start():]
+            l3 = l2[30:] if len(l2) > 30 else ""
+            l2 = l2[:30]
+            return "TD1", [l1.ljust(30, '<')[:30], l2.ljust(30, '<')[:30], l3.ljust(30, '<')[:30]]
     return "NONE", []
+
+
+def mrz_lines_from_text(text: str) -> tuple[str, list[str]]:
+    """OCR metninden MRZ satırlarını çıkarır — SATIR YAPISI öncelikli.
+
+    MRZ satırları '<' dolgu karakteri içerir; basılı kart metni (isim, başlık,
+    'IDENTITY CARD' vb.) içermez. Önce '<'li yüksek-saflıkta satırları MRZ bölgesi
+    olarak ayırırız → basılı metnin yanlış eşleşmesi (TC kimlik sorunu) biter.
+    """
+    # 1) MRZ-aday satırlar (sırayı koru): '<' içeren, yüksek-saflıkta [A-Z0-9<].
+    frags: list[str] = []
+    for raw in text.replace('\r', '\n').split('\n'):
+        compact = re.sub(r'\s+', '', raw.upper())
+        if not compact:
+            continue
+        cleaned = MRZ_CHARS_RE.sub('', compact)
+        if '<' in cleaned and len(cleaned) >= 5 and len(cleaned) >= 0.75 * len(compact):
+            frags.append(cleaned)
+    if not frags:
+        return "NONE", []
+
+    # 2) OCR'ın böldüğü kısa / yalnız-'<' parçaları önceki satıra ekle.
+    merged: list[str] = []
+    for f in frags:
+        if merged and len(merged[-1]) < 44 and (set(f) <= {'<'} or len(f) <= 12):
+            merged[-1] += f
+        else:
+            merged.append(f)
+
+    def alpha3(s: str, a: int, b: int) -> bool:
+        return len(s) >= b and re.fullmatch(r'[A-Z<]{3}', s[a:b]) is not None
+
+    # 3) TD1 — 3 satır ~30; orta satır: doğum(6 hane)+cinsiyet(7)+uyruk(15:18)
+    c30 = [f for f in merged if 28 <= len(f) <= 34]
+    if len(c30) >= 3:
+        l1, l2, l3 = c30[0], c30[1], c30[2]
+        if l2[:6].isdigit() and l2[7] in 'MFX<' and alpha3(l2, 15, 18):
+            return "TD1", [_fit_mrz_line(l1, 30), _fit_mrz_line(l2, 30), _fit_mrz_line(l3, 30)]
+
+    # 4) TD3 — 'P' ile başlayan satır = line1, sonraki uyruk-imzalı satır = line2
+    for k, f in enumerate(merged):
+        if f.startswith('P') and len(f) >= 20:
+            for j in range(k + 1, len(merged)):
+                if len(merged[j]) >= 28 and alpha3(merged[j], 10, 13) and merged[j][20] in 'MFX<':
+                    return "TD3", [_fit_mrz_line(f, 44), _fit_mrz_line(merged[j], 44)]
+    # 'P' yoksa: line2 imzasına göre (uyruk 10:13 + cinsiyet 20), line1 = önceki satır
+    for k, l2 in enumerate(merged):
+        if len(l2) >= 40 and not l2.startswith('P<') and alpha3(l2, 10, 13) and l2[20] in 'MFX<':
+            l1 = merged[k - 1] if k >= 1 else ''
+            return "TD3", [_fit_mrz_line(l1, 44), _fit_mrz_line(l2, 44)]
+
+    # 5) Son çare: MRZ bölgesini birleştirip kayan pencere.
+    return _mrz_lines_by_sliding(''.join(merged))
 
 
 def parse_tr_id_front_from_text(text: str) -> tuple[str, dict]:
@@ -183,11 +200,15 @@ def extract_with_google_vision(
         if getattr(response, "error", None) and response.error.message:
             raise RuntimeError(response.error.message)
             
-        with open(r"C:\Users\pc\Desktop\Manifesto\ocr_debug.txt", "a", encoding="utf-8") as df:
-            df.write("=== GOOGLE VISION OCR ===\n")
-            df.write(text + "\n======================\n")
+        # Hata-ayıklama dökümü — sabit yol başka makinede yoksa OCR'ı ASLA bozmasın.
+        try:
+            with open(r"C:\Users\pc\Desktop\Manifesto\ocr_debug.txt", "a", encoding="utf-8") as df:
+                df.write("=== GOOGLE VISION OCR ===\n")
+                df.write(text + "\n======================\n")
+        except OSError:
+            pass
 
-        
+
         fmt, lines = mrz_lines_from_text(text)
         if fmt == "NONE":
             tr_fmt, fields = parse_tr_id_front_from_text(text)

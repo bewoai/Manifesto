@@ -12,6 +12,7 @@ from __future__ import annotations
 import base64
 import datetime as _dt
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -54,6 +55,27 @@ _MEDIA_TYPES = {
 
 def media_type_for(path: Path) -> str:
     return _MEDIA_TYPES.get(Path(path).suffix.lower(), "image/jpeg")
+
+
+def _valid_tc(n: str) -> bool:
+    """T.C. Kimlik No checksum doğrulaması (10. ve 11. hane)."""
+    if len(n) != 11 or not n.isdigit() or n[0] == "0":
+        return False
+    d = [int(c) for c in n]
+    if ((sum(d[0:9:2]) * 7) - sum(d[1:8:2])) % 10 != d[9]:
+        return False
+    return sum(d[:10]) % 10 == d[10]
+
+
+def _tr_tc_no_from_line1(line1: str) -> Optional[str]:
+    """Türk kimliği (TD1): TC Kimlik No 1. satırın opsiyonel alanındadır (11 hane, harfsiz).
+    Belge SERİ no (harfli) yerine bunu kullanırız. Geçerli TC bulunamazsa None."""
+    optional = line1[15:30] if len(line1) >= 30 else line1[15:]
+    digits = re.sub(r"\D", "", optional)
+    for m in re.finditer(r"\d{11}", digits):
+        if _valid_tc(m.group()):
+            return m.group()
+    return digits if len(digits) == 11 else None
 
 
 @dataclass
@@ -233,6 +255,11 @@ def process_image(
                             mrz.document_number = best_cand
                             mrz.checks["document_number"] = True
                             mrz.checks["composite"] = True
+            # Türk kimliği: belge SERİ no yerine TC Kimlik No (1. satır opsiyonel alanı, 11 hane)
+            if mrz.issuing_country == "TUR" or mrz.nationality == "TUR":
+                tc = _tr_tc_no_from_line1(mrz.raw_lines[0]) if mrz.raw_lines else None
+                if tc:
+                    mrz.document_number = tc
         elif fmt == "TR_ID_FRONT":
             from app.mrz.parser import MRZResult
             mrz = MRZResult(

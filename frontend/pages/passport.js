@@ -237,7 +237,13 @@ function renderFileList() {
 }
 
 window.__removeFile = function(i) {
+  if (state.records.length) syncCardsToState();
   state.files.splice(i, 1);
+  if (state.records.length) {
+    state.records.splice(i, 1);
+    if (state.records.length) renderCards();
+    else document.getElementById('cards-section').style.display = 'none';
+  }
   renderFileList();
 };
 
@@ -327,7 +333,13 @@ function renderCards() {
       <div class="glass-panel p-5 flex flex-col md:flex-row gap-5 relative animate-fade-in overflow-hidden" id="pcard-${i}">
         <!-- Status Indicator Edge -->
         <div class="absolute left-0 top-0 bottom-0 w-1.5 ${isGreen ? 'bg-success' : 'bg-warning'} shadow-[0_0_10px_rgba(${isGreen ? '74,222,128' : '250,204,21'},0.5)]"></div>
-        
+
+        <!-- Bu taramayı sil -->
+        <button onclick="window.__removeCard(${i})" title="Bu taramayı sil" aria-label="Bu taramayı sil"
+                class="absolute top-3 left-4 z-20 w-8 h-8 rounded-full flex items-center justify-center bg-surface/80 backdrop-blur border border-white/10 text-on-surface-variant hover:text-danger hover:bg-danger/20 hover:border-danger/30 transition-colors">
+          <span class="material-symbols-outlined text-[18px]">close</span>
+        </button>
+
         <div class="pl-1 flex flex-col md:flex-row gap-5 w-full">
           ${thumbHtml}
           
@@ -365,7 +377,7 @@ function renderCards() {
             </div>
             
             <label class="flex items-center justify-center gap-2 mt-4 text-sm font-medium text-on-surface cursor-pointer hover:bg-primary/10 hover:text-primary transition-colors bg-surface-light/50 px-4 py-2.5 rounded-xl border border-white/5 w-full group select-none">
-              <input type="checkbox" class="w-4 h-4 rounded border-white/10 bg-surface text-primary focus:ring-primary focus:ring-offset-surface group-hover:border-primary/50" id="pc-approve-${i}" ${(isGreen || rec.name || rec.passport_no) ? 'checked' : ''} />
+              <input type="checkbox" class="w-4 h-4 rounded border-white/10 bg-surface text-primary focus:ring-primary focus:ring-offset-surface group-hover:border-primary/50" id="pc-approve-${i}" ${(rec._approved !== undefined ? rec._approved : (isGreen || rec.name || rec.passport_no)) ? 'checked' : ''} />
               Onayla ve Ekle
             </label>
           </div>
@@ -380,6 +392,34 @@ function renderCards() {
     if (el) attachCombobox(el, () => state.countries);
   }
 }
+
+// DOM'daki kart düzenlemelerini state.records'a geri yaz (re-render'da kaybolmasın)
+function syncCardsToState() {
+  for (let i = 0; i < state.records.length; i++) {
+    const nat = document.getElementById(`pc-nat-${i}`);
+    if (!nat) continue;
+    state.records[i].nationality = nat.value.trim().toUpperCase();
+    state.records[i].sex = (document.getElementById(`pc-sex-${i}`)?.value || '').trim().toUpperCase();
+    state.records[i].name = (document.getElementById(`pc-name-${i}`)?.value || '').trim().toUpperCase();
+    state.records[i].passport_no = (document.getElementById(`pc-ppno-${i}`)?.value || '').trim();
+    const chk = document.getElementById(`pc-approve-${i}`);
+    if (chk) state.records[i]._approved = chk.checked;
+  }
+}
+
+// Tek tuşla bir taramayı kaldır (kart + ilgili dosya birlikte silinir)
+window.__removeCard = function(i) {
+  syncCardsToState();
+  state.records.splice(i, 1);
+  state.files.splice(i, 1);
+  renderFileList();
+  if (!state.records.length) {
+    document.getElementById('cards-list').innerHTML = '';
+    document.getElementById('cards-section').style.display = 'none';
+    return;
+  }
+  renderCards();
+};
 
 // ─── Rezervasyon oluştur + kimlikleri yaz (pasaport girerken o an açılır) ───
 window.__writePlanning = async function() {

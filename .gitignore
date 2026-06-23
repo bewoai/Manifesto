@@ -22,3 +22,10 @@ node_modules/
 dist/
 build/
 
+# Sırlar & yerel hata-ayıklama PII — ASLA commit'lenmez
+# (Google servis hesabı anahtarları vb.; data/country_map.json etkilenmez)
+/app/*.json
+*service-account*.json
+*-credentials*.json
+ocr_debug.txt
+

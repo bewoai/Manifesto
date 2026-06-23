@@ -28,59 +28,68 @@ def _fit_mrz_line(line: str, width: int) -> str:
     return line.ljust(width, "<")
 
 
-def mrz_lines_from_text(text: str) -> tuple[str, list[str], dict]:
-    """Find likely TD3/TD1 MRZ lines in free OCR text."""
-    candidates: list[str] = []
-    for raw in text.replace("\r", "\n").split("\n"):
-        line = _clean_candidate(raw)
-        if len(line) >= 24 and "<" in line:
+def mrz_lines_from_text(text: str) -> tuple[str, list[str]]:
+    flat = re.sub(r'[^A-Z0-9<]', '', text.upper())
+    
+    for i in range(len(flat)):
+        l2_candidate = flat[i:]
+        if not (40 <= len(l2_candidate) <= 60): continue
+        if not re.match(r'^[A-Z<]{3}$', l2_candidate[10:13]): continue
+        if l2_candidate[20] not in 'MFX<': continue
+            
+        l1 = flat[:i]
+        if len(l2_candidate) > 44:
+            mid = l2_candidate[28:-16]
+            if all(c == '<' for c in mid):
+                l2_candidate = l2_candidate[:28] + l2_candidate[-16:]
+            else:
+                l2_candidate = l2_candidate[:44]
+                
+        l1 = l1.ljust(44, '<')[:44]
+        l2 = l2_candidate.ljust(44, '<')[:44]
+        
+        if 'P' in l1:
+            idx = l1.find('P')
+            l1 = l1[idx:].ljust(44, '<')[:44]
+            return "TD3", [l1, l2]
+            
+    for i in range(len(flat)):
+        l2_candidate = flat[i:]
+        if not (20 <= len(l2_candidate) <= 70): continue
+        if len(l2_candidate) > 17 and l2_candidate[7] in 'MFX<' and re.match(r'^[A-Z<]{3}$', l2_candidate[15:18]):
+            l1 = flat[:i]
+            if len(l2_candidate) > 30:
+                l3 = l2_candidate[30:]
+                l2 = l2_candidate[:30]
+            else:
+                l3 = ""
+                l2 = l2_candidate
+                
+            l1 = l1.ljust(30, '<')[-30:]
+            l2 = l2.ljust(30, '<')[:30]
+            l3 = l3.ljust(30, '<')[:30]
+            
+            start_char = ''
+            for c in ['I', 'A', 'C']:
+                if c in l1:
+                    start_char = c
+                    break
+            if start_char:
+                idx = l1.find(start_char)
+                l1 = l1[idx:].ljust(30, '<')[:30]
+                return "TD1", [l1, l2, l3]
+
+    candidates = []
+    for raw in text.replace('\r', '\n').split('\n'):
+        line = re.sub(r'[^A-Z0-9<]', '', raw.upper())
+        if len(line) >= 24 and '<' in line:
             candidates.append(line)
-
-    expanded_candidates = []
-    for line in candidates:
-        if "P" in line:
-            idx = line.find("P")
-            sub = line[idx:]
-            if len(sub) >= 70:
-                expanded_candidates.append(sub[:44])
-                expanded_candidates.append(sub[44:88])
-                if len(sub) >= 132:
-                    expanded_candidates.append(sub[88:132])
-                continue
-                
-        # Also check for TD1 starting with I, A, C
-        td1_start = -1
-        for char in ["I", "A", "C"]:
-            if char in line:
-                idx = line.find(char)
-                if td1_start == -1 or idx < td1_start:
-                    td1_start = idx
-        if td1_start != -1:
-            sub = line[td1_start:]
-            if len(sub) >= 70:
-                expanded_candidates.append(sub[:30])
-                expanded_candidates.append(sub[30:60])
-                expanded_candidates.append(sub[60:90])
-                continue
-                
-        expanded_candidates.append(line)
-    candidates = expanded_candidates
-
-    for i in range(len(candidates) - 1):
-        for j in range(i + 1, min(i + 4, len(candidates))):
-            first, second = candidates[i], candidates[j]
-            if len(first) >= 30 and len(second) >= 30 and first.startswith("P"):
-                return "TD3", [_fit_mrz_line(first, 44), _fit_mrz_line(second, 44)]
-
-    for i in range(len(candidates) - 2):
-        for j in range(i + 1, min(i + 4, len(candidates) - 1)):
-            for k in range(j + 1, min(j + 4, len(candidates))):
-                group = [candidates[i], candidates[j], candidates[k]]
-                if all(len(line) >= 20 for line in group) and group[0][0] in {"I", "A", "C"}:
-                    return "TD1", [_fit_mrz_line(line, 30) for line in group]
-
+            
+    if len(candidates) >= 2:
+        if candidates[0].startswith('P'):
+            return "TD3", [candidates[0].ljust(44, '<')[:44], candidates[1].ljust(44, '<')[:44]]
+            
     return "NONE", []
-
 
 
 def parse_tr_id_front_from_text(text: str) -> tuple[str, dict]:

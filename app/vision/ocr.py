@@ -36,6 +36,36 @@ def mrz_lines_from_text(text: str) -> tuple[str, list[str], dict]:
         if len(line) >= 24 and "<" in line:
             candidates.append(line)
 
+    expanded_candidates = []
+    for line in candidates:
+        if "P" in line:
+            idx = line.find("P")
+            sub = line[idx:]
+            if len(sub) >= 70:
+                expanded_candidates.append(sub[:44])
+                expanded_candidates.append(sub[44:88])
+                if len(sub) >= 132:
+                    expanded_candidates.append(sub[88:132])
+                continue
+                
+        # Also check for TD1 starting with I, A, C
+        td1_start = -1
+        for char in ["I", "A", "C"]:
+            if char in line:
+                idx = line.find(char)
+                if td1_start == -1 or idx < td1_start:
+                    td1_start = idx
+        if td1_start != -1:
+            sub = line[td1_start:]
+            if len(sub) >= 70:
+                expanded_candidates.append(sub[:30])
+                expanded_candidates.append(sub[30:60])
+                expanded_candidates.append(sub[60:90])
+                continue
+                
+        expanded_candidates.append(line)
+    candidates = expanded_candidates
+
     for i in range(len(candidates) - 1):
         for j in range(i + 1, min(i + 4, len(candidates))):
             first, second = candidates[i], candidates[j]
@@ -135,6 +165,11 @@ def extract_with_google_vision(
             text = annotations[0].description if annotations else ""
         if getattr(response, "error", None) and response.error.message:
             raise RuntimeError(response.error.message)
+            
+        with open(r"C:\Users\pc\Desktop\Manifesto\ocr_debug.txt", "a", encoding="utf-8") as df:
+            df.write("=== GOOGLE VISION OCR ===\n")
+            df.write(text + "\n======================\n")
+
         
         fmt, lines = mrz_lines_from_text(text)
         if fmt == "NONE":

@@ -185,7 +185,7 @@ def extract_with_google_vision(
             tr_fmt, fields = parse_tr_id_front_from_text(text)
             if tr_fmt != "NONE":
                 return tr_fmt, [], fields
-        return fmt, lines, {}
+        return fmt, lines, {"raw_text": text}
 
     finally:
         # Restore environment variable

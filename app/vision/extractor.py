@@ -184,8 +184,53 @@ def process_image(
             )
         elif fmt == "TD3" and len(lines) >= 2:
             mrz = parse_td3(lines[0], lines[1], today=today)
+            # Auto-correct from raw OCR text if checksum fails
+            if mrz.document_number and "document_number" in mrz.checks and not mrz.checks["document_number"]:
+                raw_text = fields.get("raw_text", "")
+                if raw_text:
+                    expected_check_char = lines[1][9]
+                    expected_check = 0 if expected_check_char == '<' else int(expected_check_char) if expected_check_char.isdigit() else -1
+                    if expected_check != -1:
+                        import re
+                        from app.mrz.checksum import check_digit
+                        flat = re.sub(r'[^A-Z0-9]', '', raw_text.upper())
+                        bad_num = mrz.document_number
+                        best_cand = bad_num
+                        min_dist = 999
+                        for i in range(len(flat) - len(bad_num) + 1):
+                            cand = flat[i:i+len(bad_num)]
+                            if check_digit(cand) == expected_check:
+                                dist = sum(1 for a, b in zip(cand, bad_num) if a != b)
+                                if 0 < dist <= 3 and dist < min_dist:
+                                    min_dist = dist
+                                    best_cand = cand
+                        if best_cand != bad_num:
+                            mrz.document_number = best_cand
+                            mrz.checks["document_number"] = True
         elif fmt == "TD1" and len(lines) >= 3:
             mrz = parse_td1(lines[0], lines[1], lines[2], today=today)
+            if mrz.document_number and "document_number" in mrz.checks and not mrz.checks["document_number"]:
+                raw_text = fields.get("raw_text", "")
+                if raw_text:
+                    expected_check_char = lines[0][14]
+                    expected_check = 0 if expected_check_char == '<' else int(expected_check_char) if expected_check_char.isdigit() else -1
+                    if expected_check != -1:
+                        import re
+                        from app.mrz.checksum import check_digit
+                        flat = re.sub(r'[^A-Z0-9]', '', raw_text.upper())
+                        bad_num = mrz.document_number
+                        best_cand = bad_num
+                        min_dist = 999
+                        for i in range(len(flat) - len(bad_num) + 1):
+                            cand = flat[i:i+len(bad_num)]
+                            if check_digit(cand) == expected_check:
+                                dist = sum(1 for a, b in zip(cand, bad_num) if a != b)
+                                if 0 < dist <= 3 and dist < min_dist:
+                                    min_dist = dist
+                                    best_cand = cand
+                        if best_cand != bad_num:
+                            mrz.document_number = best_cand
+                            mrz.checks["document_number"] = True
         else:
             return PassportRecord(source=source, mrz=None,
                                   outcome=ValidationOutcome(flags=[Flag.UNREADABLE]),

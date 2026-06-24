@@ -3,7 +3,9 @@ from PyInstaller.utils.hooks import collect_all
 
 datas = [('data', 'data'), ('frontend/dist', 'frontend/dist'), ('app/templates', 'app/templates')]
 binaries = []
-hiddenimports = []
+from PyInstaller.utils.hooks import collect_submodules
+
+hiddenimports = collect_submodules('app')
 tmp_ret = collect_all('anthropic')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('webview')

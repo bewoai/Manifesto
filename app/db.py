@@ -32,16 +32,6 @@ CREATE TABLE IF NOT EXISTS passport_extraction (
     nationality     TEXT,                 -- alpha-3
     sex             TEXT,                 -- M / F / X
     name            TEXT,
-
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS passport_extraction (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
-    source_media_id TEXT,                 -- WhatsApp media_id (Faz 2)
-    mrz_format      TEXT,                 -- TD3 / TD1
-    nationality     TEXT,                 -- alpha-3
-    sex             TEXT,                 -- M / F / X
-    name            TEXT,
     document_number TEXT,
     birth_date      TEXT,
     expiry_date     TEXT,
@@ -75,7 +65,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
 
 CREATE INDEX IF NOT EXISTS idx_extraction_status ON passport_extraction(status);
 CREATE INDEX IF NOT EXISTS idx_extraction_docno ON passport_extraction(document_number);
-CREATE INDEX IF NOT EXISTS idx_extraction_manual ON passport_extraction(requires_manual_review);
+
 
 CREATE TABLE IF NOT EXISTS weather_measurement (
     id                 INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -164,6 +154,7 @@ def init_db(db_path: Path | None = None) -> None:
             conn.execute("ALTER TABLE passport_extraction ADD COLUMN requires_manual_review INTEGER NOT NULL DEFAULT 0")
             conn.execute("ALTER TABLE passport_extraction ADD COLUMN manual_review_reason TEXT")
             
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_extraction_manual ON passport_extraction(requires_manual_review)")
         conn.execute("DELETE FROM audit_log WHERE ts < datetime('now', '-365 days')")
         conn.execute("DELETE FROM auth_session WHERE expires_at < datetime('now')")
         conn.commit()

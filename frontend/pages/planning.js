@@ -1,7 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════════
    Planlama — Gün seçimi, rezervasyon blokları, operasyon formu
    ═══════════════════════════════════════════════════════════════════ */
-import { api, toast, modal, renderHeader } from '/app.js';
+import { api, toast, modal, renderHeader, helpIcon } from '/app.js';
 import { attachCombobox } from '/combobox.js';
 
 let state = {
@@ -11,6 +11,8 @@ let state = {
   balloons: [],
   selectedBlock: null,
   source: 'excel',
+  revision: '',
+  readiness: null,
 };
 
 export async function render(container) {
@@ -56,6 +58,20 @@ export async function render(container) {
         </div>
       </div>
       <div class="flex flex-wrap gap-2 mb-4" id="balloon-load"></div>
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
+        <input class="form-input md:col-span-2" id="block-search" placeholder="İsim, otel, acente, balon veya şoför ara" oninput="window.__renderPlanning()" />
+        <select class="form-select" id="block-filter" onchange="window.__renderPlanning()">
+          <option value="">Tüm rezervasyonlar</option>
+          <option value="missing">Pasaportu eksik</option>
+          <option value="ready">Kimliği hazır</option>
+        </select>
+        <select class="form-select" id="block-sort" onchange="window.__renderPlanning()">
+          <option value="row">Liste sırası</option>
+          <option value="pickup">Pickup saatine göre</option>
+          <option value="pax">PAX'a göre</option>
+          <option value="name">İsme göre</option>
+        </select>
+      </div>
       <div class="flex flex-col gap-3" id="blocks-list"></div>
     </div>
 
@@ -100,6 +116,8 @@ window.__loadDay = async function() {
     state.balloons = data.balloon_codes || [];
     state.balloonLoad = data.balloon_load || {};
     state.capacity = data.capacity || 28;
+    state.revision = data.workbook_revision || '';
+    state.readiness = data.readiness || null;
     try { state.lists = (await api.get('/api/lists')).options || {}; } catch (e) { state.lists = {}; }
     renderBlocks();
     renderBalloonLoad();
@@ -119,9 +137,10 @@ function renderBlocks() {
   if (!section || !list) return;
 
   section.style.display = '';
-  count.textContent = `${state.blocks.length} blok`;
+  const visible = filteredBlocks();
+  count.textContent = `${visible.length}/${state.blocks.length} blok`;
 
-  if (!state.blocks.length) {
+  if (!visible.length) {
     list.innerHTML = `
       <div class="empty-state">
         <div class="material-symbols-outlined empty-icon text-on-surface-variant">inbox</div>
@@ -132,7 +151,7 @@ function renderBlocks() {
     return;
   }
 
-  list.innerHTML = state.blocks.map((b, i) => {
+  list.innerHTML = visible.map(({ block: b, index: i }) => {
     const count = b.rows?.length ?? b.pax ?? 0;
     const passengers = (b.passengers || []).map((p, idx) => {
       const name = p.name || (p.passport_no ? p.passport_no : 'Kimlik boş');
@@ -183,6 +202,34 @@ function renderBlocks() {
   `; }).join('');
 }
 
+function filteredBlocks() {
+  const query = (document.getElementById('block-search')?.value || '').trim().toLocaleUpperCase('tr-TR');
+  const filter = document.getElementById('block-filter')?.value || '';
+  const sort = document.getElementById('block-sort')?.value || 'row';
+  let rows = state.blocks.map((block, index) => ({ block, index }));
+  if (query) {
+    rows = rows.filter(({ block }) => [
+      block.lead_name, block.hotel, block.agency, block.balloon, block.driver,
+      ...(block.passengers || []).map(p => p.name),
+    ].join(' ').toLocaleUpperCase('tr-TR').includes(query));
+  }
+  if (filter) {
+    rows = rows.filter(({ block }) => {
+      const missing = (block.passengers || []).some(p => !p.name || !p.passport_no || !p.nationality || !p.sex);
+      return filter === 'missing' ? missing : !missing;
+    });
+  }
+  rows.sort((a, b) => {
+    if (sort === 'pickup') return String(a.block.pickup || '99:99').localeCompare(String(b.block.pickup || '99:99'));
+    if (sort === 'pax') return Number(b.block.pax || 0) - Number(a.block.pax || 0);
+    if (sort === 'name') return String(a.block.lead_name || '').localeCompare(String(b.block.lead_name || ''), 'tr');
+    return Number(a.block.lead_row) - Number(b.block.lead_row);
+  });
+  return rows;
+}
+
+window.__renderPlanning = renderBlocks;
+
 function renderBalloonLoad() {
   const el = document.getElementById('balloon-load');
   if (!el) return;
@@ -219,7 +266,7 @@ function renderBlockDetails(block, index) {
 
   const formHtml = fields.map(f => `
     <div class="form-group">
-      <label class="form-label">${f.label}</label>
+      <label class="form-label">${f.label}${helpIcon(operationHelp[f.key] || `${f.label} alanı planlama Excel'ine yazılır.`)}</label>
       <input class="form-input" id="op-${f.key}" type="${f.type || 'text'}"
              value="${escHtml(f.value)}" placeholder="${f.placeholder || ''}"
              ${f.width ? `style="width:${f.width}"` : ''} />
@@ -270,6 +317,21 @@ function renderBlockDetails(block, index) {
   `;
 }
 
+const operationHelp = {
+  pax: 'Rezervasyondaki toplam kişi sayısıdır. Değiştirildiğinde gerçek yolcu satırları da büyütülür veya küçültülür.',
+  room: 'Oda numarası veya acente/otel irtibat bilgisidir.',
+  hotel: 'Misafirlerin alınacağı oteldir.',
+  pickup: 'Şoförün misafirleri otelden alacağı saattir.',
+  reserved_by: 'Rezervasyonu sisteme ileten kişi veya personeldir.',
+  agency: 'Rezervasyonu gönderen acentedir.',
+  company: 'Misafirin uçacağı işletme bilgisidir.',
+  balloon: 'Manifesto ve kapasite hesabında kullanılan balon kodudur.',
+  pilot: 'Bu balonda görevli pilottur.',
+  driver: 'Pickup aracı veya şoför numarasıdır.',
+  coming_place: 'Misafirin pickup sonrası geleceği noktadır.',
+  note: 'Operasyon ekibinin görmesi gereken kısa nottur.',
+};
+
 function attachOperationComboboxes() {
   const L = state.lists || {};
   const sources = {
@@ -305,10 +367,23 @@ window.__saveOperation = async function() {
       lead_row: block.lead_row,
       rows: block.rows,
       fields,
+      expected_revision: state.revision,
     });
     toast.success('Kaydedildi', 'Operasyon bilgileri planlamaya yazıldı');
     window.__loadDay();
   } catch (err) {
+    if (err.status === 409 && String(err.message).includes('Açık onay')) {
+      if (confirm(`${err.message}\n\nYolcu bilgileri silinerek devam edilsin mi?`)) {
+        try {
+          await api.post('/api/planning/write-operation', {
+            sheet: state.currentSheet, lead_row: block.lead_row, rows: block.rows,
+            fields, expected_revision: state.revision, allow_data_loss: true,
+          });
+          toast.success('Kaydedildi', 'PAX ve operasyon bilgileri güncellendi');
+          return window.__loadDay();
+        } catch (retryErr) { return toast.error('Kaydetme hatası', retryErr.message); }
+      }
+    }
     toast.error('Kaydetme hatası', err.message);
   }
 };
@@ -319,7 +394,7 @@ window.__deleteBlock = async function(index) {
   const who = block.lead_name || block.hotel || `PAX ${block.pax ?? '?'}`;
   if (!confirm(`"${who}" rezervasyonu silinsin mi? (${block.rows?.length || 0} satır)`)) return;
   try {
-    await api.post('/api/planning/delete-block', { sheet: state.currentSheet, rows: block.rows });
+    await api.post('/api/planning/delete-block', { sheet: state.currentSheet, rows: block.rows, expected_revision: state.revision });
     toast.info('Silindi', `${who} rezervasyonu kaldırıldı`);
     state.selectedBlock = null;
     window.__loadDay();
@@ -340,6 +415,7 @@ window.__deletePassenger = async function(index, row) {
       lead_row: block.lead_row,
       rows: block.rows,
       row,
+      expected_revision: state.revision,
     });
     toast.info('Yolcu silindi', `${who} rezervasyondan çıkarıldı`);
     window.__loadDay();
@@ -403,6 +479,7 @@ window.__submitReservation = async function() {
   }
 
   try {
+    body.expected_revision = state.revision;
     const res = await api.post('/api/planning/create-block', body);
     modal.close();
     if (res.overflow) {
@@ -412,8 +489,40 @@ window.__submitReservation = async function() {
     }
     window.__loadDay();
   } catch (err) {
+    if (err.detail?.code === 'capacity_confirmation_required') {
+      return showCapacityChoice(body, err.detail);
+    }
     toast.error('Oluşturma hatası', err.message);
   }
+};
+
+function showCapacityChoice(body, detail) {
+  window.__pendingOverflowBody = body;
+  modal.open('Balon Kapasitesi Doldu', `
+    <p class="text-on-surface-variant mb-4">Grup hiçbir balona kapasite içinde sığmıyor. Hedef balonu seçip kapasite aşımını açıkça onaylayın veya iptal edin.</p>
+    <div class="space-y-2">${(detail.balloon_codes || []).map(code => `
+      <label class="flex items-center justify-between rounded-lg border border-white/10 p-3 cursor-pointer">
+        <span><input type="radio" name="overflow-balloon" value="${code}" class="mr-3" />${code}</span>
+        <strong>${detail.balloon_load?.[code] || 0}/${detail.capacity}</strong>
+      </label>`).join('')}</div>
+  `, `
+    <button class="btn-secondary" onclick="window.__closeModal()">İptal</button>
+    <button class="btn-primary" onclick="window.__confirmOverflow()">Seçimi Onayla</button>
+  `);
+}
+
+window.__confirmOverflow = async function() {
+  const body = { ...(window.__pendingOverflowBody || {}) };
+  const selected = document.querySelector('input[name="overflow-balloon"]:checked')?.value;
+  if (!selected) return toast.warning('Hedef balonu seçin');
+  body.requested_balloon = selected;
+  body.allow_overflow = true;
+  try {
+    const res = await api.post('/api/planning/create-block', body);
+    modal.close();
+    toast.warning('Kapasite aşımı onaylandı', `${res.balloon} balonuna atandı`);
+    window.__loadDay();
+  } catch (err) { toast.error('Oluşturma hatası', err.message); }
 };
 
 window.__createDay = function() {
@@ -441,7 +550,7 @@ window.__submitNewDay = async function() {
   if (!name) { toast.warning('Gün adı girin'); return; }
 
   try {
-    await api.post('/api/planning/create-day', { new_sheet: name, source_sheet: source });
+    await api.post('/api/planning/create-day', { new_sheet: name, source_sheet: source, expected_revision: state.revision || null });
     toast.success('Gün oluşturuldu', `${name} başarıyla eklendi`);
     modal.close();
     loadSheets();

@@ -20,11 +20,7 @@ from typing import Optional
 from app import settings as settings_mod
 from app.mrz.parser import MRZResult, parse_td1, parse_td3
 from app.validation.flags import Flag, ValidationOutcome, validate_mrz
-from app.vision.ocr import (
-    extract_with_google_vision,
-    extract_with_paddleocr,
-    extract_with_tesseract,
-)
+from app.vision.ocr import extract_with_google_vision
 
 # Claude'a sadece MRZ satırlarını çıkarttırıyoruz; geri kalan her şey kodda.
 SYSTEM_PROMPT = (
@@ -132,11 +128,6 @@ def extract_mrz_lines(image_bytes: bytes, media_type: str, *, client=None,
             credentials_json=settings.google_credentials_json,
             use_document_text=settings.google_vision_document_text,
         )
-    if provider == settings_mod.VISION_MODE_TESSERACT:
-        return extract_with_tesseract(image_bytes, tesseract_cmd=settings.tesseract_cmd)
-    if provider == settings_mod.VISION_MODE_PADDLEOCR:
-        return extract_with_paddleocr(image_bytes)
-
     client = client or _make_client()
     model = model or settings_mod.DEFAULT_MODEL
     b64 = base64.standard_b64encode(image_bytes).decode("utf-8")

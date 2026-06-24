@@ -72,7 +72,8 @@ python -m PyInstaller `
     --collect-all google_auth_httplib2 `
     --collect-all google.api_core `
     --collect-all google.cloud.vision `
-    --collect-all pytesseract `
+    --collect-all argon2 `
+    --collect-all reportlab `
     desktop_launcher.py
 Assert-LastExit "PyInstaller"
 

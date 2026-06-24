@@ -7,6 +7,7 @@ then write approved identity fields back with the Sheets API.
 from __future__ import annotations
 
 import io
+import json
 import tempfile
 from pathlib import Path
 from typing import Iterable
@@ -35,7 +36,12 @@ def _require_google_libs():
 
 def _credentials(settings: Settings):
     service_account, _, _ = _require_google_libs()
-    path = Path(settings.google_credentials_json)
+    value = settings.google_credentials_json.strip()
+    if value.startswith("{"):
+        return service_account.Credentials.from_service_account_info(
+            json.loads(value), scopes=SCOPES
+        )
+    path = Path(value)
     if not path.exists():
         raise FileNotFoundError(f"Google servis hesabı JSON dosyası bulunamadı: {path}")
     return service_account.Credentials.from_service_account_file(path, scopes=SCOPES)

@@ -23,17 +23,13 @@ def _config_dir() -> Path:
 SETTINGS_PATH = Path(os.getenv("MANIFESTO_SETTINGS", _config_dir() / "settings.json"))
 LEGACY_SETTINGS_PATH = Path(os.getenv("APPDATA") or os.path.expanduser("~/.config")) / "BalonManifesto" / "settings.json"
 
-VISION_MODE_MANUAL = "manual"
-VISION_MODE_CLAUDE = "claude"
 VISION_MODE_GOOGLE_VISION = "google_vision"
-VISION_MODE_TESSERACT = "tesseract"
-VISION_MODE_PADDLEOCR = "paddleocr"
+VISION_MODE_CLAUDE = "claude"
+VISION_MODE_MANUAL = "manual"
 VISION_MODES = (
-    VISION_MODE_MANUAL,
-    VISION_MODE_CLAUDE,
     VISION_MODE_GOOGLE_VISION,
-    VISION_MODE_TESSERACT,
-    VISION_MODE_PADDLEOCR,
+    VISION_MODE_CLAUDE,
+    VISION_MODE_MANUAL,
 )
 
 DATA_SOURCE_EXCEL = "excel"
@@ -45,12 +41,11 @@ DEFAULT_MODEL = "claude-opus-4-8"  # MRZ okuma modeli (Settings'ten değiştiril
 
 @dataclass
 class Settings:
-    vision_mode: str = VISION_MODE_MANUAL
+    vision_mode: str = VISION_MODE_GOOGLE_VISION
     data_source: str = DATA_SOURCE_EXCEL
     anthropic_api_key: str = ""
     model: str = DEFAULT_MODEL
     google_vision_document_text: bool = False
-    tesseract_cmd: str = ""
     planning_xlsx: str = ""          # boşsa config.PLANNING_XLSX kullanılır
     output_dir: str = ""             # manifesto export klasörü
     manifest_template: str = ""      # boşsa config.MANIFEST_TEMPLATE_PATH
@@ -68,6 +63,9 @@ class Settings:
     weather_longitude: float = 34.8289
     weather_location_name: str = "Goreme Valley"
     weather_poll_minutes: int = 30
+    google_sheets_experimental: bool = False
+    update_manifest_url: str = ""
+    update_public_key: str = ""
 
     # --- türetilmiş yollar (boşsa config defaultlarına düşer) ---
     def planning_path(self) -> Path:
@@ -91,12 +89,6 @@ class Settings:
     def uses_google_vision(self) -> bool:
         return self.vision_mode == VISION_MODE_GOOGLE_VISION
 
-    def uses_tesseract(self) -> bool:
-        return self.vision_mode == VISION_MODE_TESSERACT
-
-    def uses_paddleocr(self) -> bool:
-        return self.vision_mode == VISION_MODE_PADDLEOCR
-
     def uses_automatic_vision(self) -> bool:
         return self.vision_mode != VISION_MODE_MANUAL
 
@@ -108,7 +100,7 @@ class Settings:
 
     def normalized(self) -> "Settings":
         if self.vision_mode not in VISION_MODES:
-            self.vision_mode = VISION_MODE_MANUAL
+            self.vision_mode = VISION_MODE_GOOGLE_VISION
         if self.data_source not in DATA_SOURCES:
             self.data_source = DATA_SOURCE_EXCEL
         # Balon kapasitesi 1..MAX_PAX aralığında
@@ -170,11 +162,31 @@ def load(path: Optional[Path] = None) -> Settings:
     except (json.JSONDecodeError, OSError):
         return Settings()
     known = {k: data[k] for k in Settings.__dataclass_fields__ if k in data}
-    return Settings(**known).normalized()
+    settings = Settings(**known).normalized()
+    try:
+        from app.secret_store import get_secret
+        for key in ("anthropic_api_key", "google_credentials_json", "weather_api_key"):
+            stored = get_secret(key)
+            if stored:
+                setattr(settings, key, stored)
+    except Exception:
+        pass
+    return settings
 
 
 def save(settings: Settings, path: Optional[Path] = None) -> Path:
     p = Path(path) if path else SETTINGS_PATH
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(asdict(settings), ensure_ascii=False, indent=2), encoding="utf-8")
+    data = asdict(settings)
+    from app.secret_store import migrate_file_secret, set_secret
+    set_secret("anthropic_api_key", settings.anthropic_api_key)
+    set_secret("weather_api_key", settings.weather_api_key)
+    if settings.google_credentials_json:
+        migrate_file_secret("google_credentials_json", settings.google_credentials_json)
+    data["anthropic_api_key"] = "dpapi:anthropic_api_key" if settings.anthropic_api_key else ""
+    data["weather_api_key"] = "dpapi:weather_api_key" if settings.weather_api_key else ""
+    data["google_credentials_json"] = (
+        "dpapi:google_credentials_json" if settings.google_credentials_json else ""
+    )
+    p.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     return p

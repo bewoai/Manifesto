@@ -19,13 +19,11 @@ export async function render(container) {
         <div class="form-group">
           <label class="form-label">Okuma yöntemi</label>
           <select class="form-select" id="s-vision-mode">
-            <option value="manual">API'siz / Elle Giriş</option>
-            <option value="claude">Claude Vision / Otomatik Okuma</option>
             <option value="google_vision">Google Cloud Vision / Ucuz Otomatik Okuma</option>
-            <option value="tesseract">Tesseract OCR / Yerel Okuma</option>
-            <option value="paddleocr">PaddleOCR / Yerel Okuma (opsiyonel)</option>
+            <option value="claude">Claude Vision / Otomatik Okuma</option>
+            <option value="manual">API'siz / Elle Giriş</option>
           </select>
-          <div class="form-help">Google Vision ucuz bulut OCR, Tesseract API'siz yerel OCR, Claude ise en güçlü ama daha maliyetli yedek okuma yöntemidir.</div>
+          <div class="form-help">Google Vision varsayılan ekonomik yöntemdir. Sarı kartlar pasaport ekranından tek tek Claude ile yeniden taranabilir.</div>
         </div>
         <div class="form-group">
           <label class="form-label">Claude API Anahtarı</label>
@@ -39,16 +37,14 @@ export async function render(container) {
         </div>
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label">Tesseract yolu</label>
-            <input class="form-input" id="s-tesseract-cmd" placeholder="C:\\Program Files\\Tesseract-OCR\\tesseract.exe" />
-            <div class="form-help">Tesseract modunda gerekir. Boş bırakılırsa sistem PATH içindeki tesseract kullanılır.</div>
-          </div>
-          <div class="form-group">
             <label class="flex items-center gap-3 cursor-pointer mt-8">
               <input type="checkbox" id="s-google-doc-text" class="w-5 h-5 rounded border-on-surface-variant/30 bg-surface/50 text-primary focus:ring-primary focus:ring-offset-surface" />
               <span class="text-on-surface">Google belge OCR kullan</span>
             </label>
             <div class="form-help">Normal fotoğraflar için kapalı kalsın; çok yoğun/karmaşık görsellerde açılabilir.</div>
+          </div>
+          <div class="form-group flex items-end">
+            <button class="btn-secondary" onclick="window.__testConnection('google_vision')">Google Vision Bağlantısını Test Et</button>
           </div>
         </div>
       </div>
@@ -63,22 +59,19 @@ export async function render(container) {
           <label class="form-label">Planlama kaynağı</label>
           <select class="form-select" id="s-data-source">
             <option value="excel">Excel Dosyası</option>
-            <option value="google_sheets">Google Sheets</option>
           </select>
+          <div class="form-help">Google Sheets desteği deneysel olduğu için operatör arayüzünde geçici olarak gizlenmiştir.</div>
         </div>
         <div class="form-group">
           <label class="form-label">Planlama Excel yolu</label>
           <input class="form-input" id="s-planning-xlsx" placeholder="Boş = varsayılan Downloads yolu" />
         </div>
         <div class="form-group">
-          <label class="form-label">Google Sheet ID</label>
-          <input class="form-input font-mono" id="s-gsheet-id" placeholder="URL'deki Sheet ID" />
-          <div class="form-help">Google Sheets modunda Drive'daki dosyanın URL içindeki ID.</div>
+          <label class="form-label">Google Servis Hesabı JSON</label>
+          <input class="form-input" id="s-gsheet-json" placeholder="JSON dosya yolu veya JSON içeriği" />
+          <div class="form-help">Bilgi kaydedildiğinde Windows korumalı deposuna taşınır.</div>
         </div>
-        <div class="form-group">
-          <label class="form-label">Google Servis Hesabı JSON Yolu</label>
-          <input class="form-input" id="s-gsheet-json" placeholder="credentials.json yolu" />
-        </div>
+        <button class="btn-secondary" onclick="window.__testConnection('planning')">Excel Bağlantısını Test Et</button>
       </div>
 
       <!-- Balon -->
@@ -162,6 +155,15 @@ export async function render(container) {
         </div>
       </div>
 
+      <div class="glass-panel rounded-3xl p-6 mb-6 animate-in">
+        <div class="flex items-center gap-3 mb-6">
+          <span class="material-symbols-outlined text-primary text-3xl">system_update</span>
+          <h2 class="font-headline text-headline-sm text-on-surface">Otomatik Güncelleme</h2>
+        </div>
+        <div class="form-group"><label class="form-label">Sürüm manifesti URL</label><input class="form-input" id="s-update-url" placeholder="https://.../update.json" /></div>
+        <div class="form-group"><label class="form-label">Ed25519 açık anahtar</label><input class="form-input font-mono" id="s-update-key" placeholder="Base64 açık anahtar" /></div>
+      </div>
+
       <!-- KVKK -->
       <div class="glass-panel rounded-3xl p-6 mb-6 animate-in" style="animation-delay: 250ms">
         <div class="flex items-center gap-3 mb-6">
@@ -209,12 +211,12 @@ function fillForm(s) {
   val('s-vision-mode', s.vision_mode);
   val('s-api-key', '');  // Don't show masked key, keep empty unless user types new one
   val('s-model', s.model);
-  val('s-tesseract-cmd', s.tesseract_cmd);
   chk('s-google-doc-text', s.google_vision_document_text);
   val('s-data-source', s.data_source);
   val('s-planning-xlsx', s.planning_xlsx);
-  val('s-gsheet-id', s.google_spreadsheet_id);
   val('s-gsheet-json', s.google_credentials_json);
+  val('s-update-url', s.update_manifest_url);
+  val('s-update-key', s.update_public_key);
   val('s-template', s.manifest_template);
   val('s-output-dir', s.output_dir);
   val('s-balloon-capacity', s.balloon_capacity);
@@ -238,11 +240,11 @@ window.__saveSettings = async function() {
     vision_mode: gv('s-vision-mode'),
     data_source: gv('s-data-source'),
     model: gv('s-model'),
-    tesseract_cmd: gv('s-tesseract-cmd'),
     google_vision_document_text: gc('s-google-doc-text'),
     planning_xlsx: gv('s-planning-xlsx'),
-    google_spreadsheet_id: gv('s-gsheet-id'),
     google_credentials_json: gv('s-gsheet-json'),
+    update_manifest_url: gv('s-update-url'),
+    update_public_key: gv('s-update-key'),
     manifest_template: gv('s-template'),
     output_dir: gv('s-output-dir'),
     delete_images_after_write: gc('s-delete-images'),
@@ -280,4 +282,11 @@ window.__saveSettings = async function() {
 window.__reloadSettings = function() {
   loadSettings();
   toast.info('Yenilendi', 'Ayarlar sunucudan tekrar yüklendi');
+};
+
+window.__testConnection = async function(target) {
+  try {
+    const data = await api.post('/api/settings/test', { target });
+    toast.success('Bağlantı başarılı', data.message);
+  } catch (err) { toast.error('Bağlantı testi başarısız', err.message); }
 };

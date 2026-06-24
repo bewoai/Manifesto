@@ -211,14 +211,24 @@ def pilot_for_balloon(rows: list[PlanningRow], code: str) -> str:
 
 
 def next_free_row(ws) -> int:
-    """Ad/balon/pasaport hepsi boş ilk veri satırı (yoksa max_row+1)."""
+    """Tüm planlama kolonları boş olan ilk veri satırı."""
     for r in range(config.PLANNING_FIRST_DATA_ROW, ws.max_row + 1):
-        name = _cell(ws, r, config.COL_NAME)
-        balloon = _cell(ws, r, config.COL_BALLOON)
-        ppno = _cell(ws, r, config.COL_PASSPORT_NO)
-        if not name and not balloon and not ppno:
+        if not any(_cell(ws, r, col) for col in range(1, config.COL_PASSPORT_NO + 1)):
             return r
     return ws.max_row + 1
+
+
+def _unmerge_rows(ws, lo: int, hi: int) -> None:
+    for rng in list(ws.merged_cells.ranges):
+        if not (rng.max_row < lo or rng.min_row > hi):
+            ws.unmerge_cells(str(rng))
+
+
+def _merge_lead_columns(ws, lead: int, last: int) -> None:
+    if last <= lead:
+        return
+    for col in config.LEAD_MERGE_COLS:
+        ws.merge_cells(start_row=lead, start_column=col, end_row=last, end_column=col)
 
 
 def create_reservation(
@@ -249,9 +259,7 @@ def create_reservation(
 
     # Hedef satırlarla kesişen mevcut birleşmeleri çöz (kaynak günden miras kalan,
     # yeni blok sınırlarımıza uymayan birleşik hücreler yazımı engeller).
-    for rng in list(ws.merged_cells.ranges):
-        if not (rng.max_row < lead or rng.min_row > last):
-            ws.unmerge_cells(str(rng))
+    _unmerge_rows(ws, lead, last)
 
     ws.cell(lead, config.COL_PAX).value = int(pax)
     for key, col in config.OPERATION_FIELD_TO_COL.items():
@@ -265,9 +273,7 @@ def create_reservation(
             ws.cell(row, col).value = value
 
     # Lider-gösterim kolonlarını blok boyunca dikey birleştir (orijinal görünüm)
-    if len(rows) > 1:
-        for col in config.LEAD_MERGE_COLS:
-            ws.merge_cells(start_row=lead, start_column=col, end_row=last, end_column=col)
+    _merge_lead_columns(ws, lead, last)
 
     target = out_path or planning_xlsx
     wb.save(target)
@@ -358,30 +364,20 @@ def delete_passenger_from_reservation(
     ws = wb[sheet]
     lo, hi = min(rows), max(rows)
 
-    for rng in list(ws.merged_cells.ranges):
-        if not (rng.max_row < lo or rng.min_row > hi):
-            ws.unmerge_cells(str(rng))
+    _unmerge_rows(ws, lo, hi)
 
     identity_cols = (config.COL_UYRUK, config.COL_MF, config.COL_NAME, config.COL_PASSPORT_NO)
 
-    def has_identity(row: int) -> bool:
-        return any(_cell(ws, row, col) for col in identity_cols)
+    target_index = rows.index(target_row)
+    for index in range(target_index, len(rows) - 1):
+        source_row = rows[index + 1]
+        destination_row = rows[index]
+        for col in identity_cols:
+            ws.cell(destination_row, col).value = ws.cell(source_row, col).value
 
-    clear_row = target_row
-    if target_row == lead_row:
-        replacement = next((r for r in rows if r != lead_row and has_identity(r)), None)
-        if replacement is not None:
-            for col in identity_cols:
-                ws.cell(lead_row, col).value = ws.cell(replacement, col).value
-            clear_row = replacement
-        else:
-            for col in identity_cols:
-                ws.cell(lead_row, col).value = None
-            clear_row = None
-
-    if clear_row is not None:
-        for col in range(1, config.COL_PASSPORT_NO + 1):
-            ws.cell(clear_row, col).value = None
+    clear_row = rows[-1]
+    for col in range(1, config.COL_PASSPORT_NO + 1):
+        ws.cell(clear_row, col).value = None
 
     pax_raw = _cell(ws, lead_row, config.COL_PAX)
     try:
@@ -390,11 +386,70 @@ def delete_passenger_from_reservation(
         pax = len(rows)
     pax = max(1, pax - 1)
     ws.cell(lead_row, config.COL_PAX).value = pax
+    _merge_lead_columns(ws, lead_row, rows[-2])
 
     target = out_path or planning_xlsx
     wb.save(target)
     wb.close()
     return {"deleted_block": False, "pax": pax, "cleared_row": clear_row}
+
+
+def resize_reservation(
+    planning_xlsx: Path,
+    sheet: str,
+    *,
+    lead_row: int,
+    rows: list[int],
+    new_pax: int,
+    allow_data_loss: bool = False,
+    out_path: Optional[Path] = None,
+) -> list[int]:
+    """Rezervasyonu bitişik satır düzenini koruyarak büyütür veya küçültür."""
+    if not (1 <= new_pax <= config.MAX_PAX):
+        raise ValueError(f"PAX 1-{config.MAX_PAX} arasında olmalı.")
+    if not rows or rows[0] != lead_row:
+        raise ValueError("Rezervasyon satırları geçersiz.")
+
+    wb = openpyxl.load_workbook(planning_xlsx)
+    ws = wb[sheet]
+    old_last = rows[-1]
+    new_last = lead_row + new_pax - 1
+    _unmerge_rows(ws, lead_row, max(old_last, new_last))
+
+    if new_last > old_last:
+        for row in range(old_last + 1, new_last + 1):
+            if any(_cell(ws, row, col) for col in range(1, config.COL_PASSPORT_NO + 1)):
+                wb.close()
+                raise ValueError(
+                    "PAX artırılamadı; rezervasyonun altındaki satırlar başka veri içeriyor."
+                )
+        for key in config.BLOCK_WIDE_OPERATION_FIELDS:
+            col = config.OPERATION_FIELD_TO_COL[key]
+            value = ws.cell(lead_row, col).value
+            for row in range(old_last + 1, new_last + 1):
+                ws.cell(row, col).value = value
+    elif new_last < old_last:
+        removed_rows = range(new_last + 1, old_last + 1)
+        has_identity = any(
+            _cell(ws, row, col)
+            for row in removed_rows
+            for col in (config.COL_UYRUK, config.COL_MF, config.COL_NAME, config.COL_PASSPORT_NO)
+        )
+        if has_identity and not allow_data_loss:
+            wb.close()
+            raise ValueError(
+                "PAX azaltılacak satırlarda yolcu bilgisi var. Açık onay gerekli."
+            )
+        for row in removed_rows:
+            for col in range(1, config.COL_PASSPORT_NO + 1):
+                ws.cell(row, col).value = None
+
+    ws.cell(lead_row, config.COL_PAX).value = new_pax
+    _merge_lead_columns(ws, lead_row, new_last)
+    target = out_path or planning_xlsx
+    wb.save(target)
+    wb.close()
+    return list(range(lead_row, new_last + 1))
 
 
 def write_identity(planning_xlsx: Path, sheet: str, updates: dict[int, dict],

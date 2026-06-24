@@ -29,3 +29,10 @@ build/
 *-credentials*.json
 ocr_debug.txt
 
+# Codex / yerel doğrulama çıktıları
+/review.db
+/review_settings.json
+/browser-review.log
+/browser-review.err.log
+/secret-test.dat
+/tmp/

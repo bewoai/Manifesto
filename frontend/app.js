@@ -6,14 +6,28 @@
 import { icon3d } from '/icons.js';
 
 // ─── API Client ───
+class ApiError extends Error {
+  constructor(message, detail, status) {
+    super(message);
+    this.detail = detail;
+    this.status = status;
+  }
+}
+
+async function parseResponse(res) {
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    const detail = err.detail;
+    const message = typeof detail === 'string' ? detail : (detail?.message || `HTTP ${res.status}`);
+    throw new ApiError(message, detail, res.status);
+  }
+  return res.json();
+}
+
 const api = {
   async get(url) {
     const res = await fetch(url);
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: res.statusText }));
-      throw new Error(err.detail || `HTTP ${res.status}`);
-    }
-    return res.json();
+    return parseResponse(res);
   },
   async post(url, body) {
     const res = await fetch(url, {
@@ -21,11 +35,7 @@ const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: res.statusText }));
-      throw new Error(err.detail || `HTTP ${res.status}`);
-    }
-    return res.json();
+    return parseResponse(res);
   },
   async put(url, body) {
     const res = await fetch(url, {
@@ -33,25 +43,19 @@ const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: res.statusText }));
-      throw new Error(err.detail || `HTTP ${res.status}`);
-    }
-    return res.json();
+    return parseResponse(res);
   },
   async upload(url, files, extraFields = {}) {
     const form = new FormData();
     for (const f of files) form.append('files', f);
     for (const [k, v] of Object.entries(extraFields)) form.append(k, v);
     const res = await fetch(url, { method: 'POST', body: form });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: res.statusText }));
-      throw new Error(err.detail || `HTTP ${res.status}`);
-    }
-    return res.json();
+    return parseResponse(res);
   },
   downloadUrl(url) { return url; },
 };
+
+let currentUser = null;
 
 // ─── Toast Notification System ───
 const toast = {
@@ -140,7 +144,10 @@ function renderSidebar(activeRoute) {
     { id: 'manifest',  label: 'Manifesto', route: 'manifest' },
     { id: 'lists',     label: 'Listeler', route: 'lists' },
   ];
-  const bottomItems = [{ id: 'settings', label: 'Ayarlar', route: 'settings' }];
+  const bottomItems = [
+    ...(currentUser?.role === 'admin' ? [{ id: 'admin', label: 'Yönetim', route: 'admin' }] : []),
+    { id: 'settings', label: 'Ayarlar', route: 'settings' },
+  ];
 
   const navHtml = (items) => items.map((item) => {
     const on = activeRoute === item.route;
@@ -165,6 +172,9 @@ function renderSidebar(activeRoute) {
     <nav class="flex-1 px-4 space-y-1.5 mt-6">${navHtml(navItems)}</nav>
     <div class="px-4 mt-auto space-y-2">
       ${navHtml(bottomItems)}
+      <button class="w-full bg-white/5 text-on-surface-variant py-2.5 rounded-2xl text-sm font-medium hover:bg-white/10 transition-all flex items-center justify-center gap-2" onclick="window.__logout()">
+        <span class="material-symbols-outlined text-base">logout</span> Çıkış
+      </button>
       <button class="w-full mt-3 bg-error-container/70 text-on-error-container py-2.5 rounded-2xl text-sm font-medium hover:bg-error-container transition-all flex items-center justify-center gap-2" onclick="window.__shutdownApp()">
         <span class="material-symbols-outlined text-base">power_settings_new</span> Kapat
       </button>
@@ -184,6 +194,12 @@ window.__shutdownApp = async function() {
   }
 };
 
+window.__logout = async function() {
+  await api.post('/api/auth/logout', {});
+  currentUser = null;
+  await bootAuth();
+};
+
 function renderHeader(title, subtitle = '') {
   const header = document.getElementById('page-header');
   header.innerHTML = `
@@ -196,7 +212,7 @@ function renderHeader(title, subtitle = '') {
         <span class="material-symbols-outlined">refresh</span>
       </button>
       <div class="w-9 h-9 rounded-full bg-primary-container/30 flex items-center justify-center">
-        <span class="material-symbols-outlined text-primary text-lg">person</span>
+        <span class="material-symbols-outlined text-primary text-lg" title="${currentUser?.display_name || ''}">person</span>
       </div>
     </div>
   `;
@@ -260,8 +276,83 @@ window.addEventListener('hashchange', () => navigateTo(getRoute()));
 
 document.addEventListener('DOMContentLoaded', () => {
   toast.init();
-  navigateTo(getRoute());
+  bootAuth();
 });
 
+async function bootAuth() {
+  const sidebar = document.getElementById('sidebar');
+  const header = document.getElementById('page-header');
+  const body = document.getElementById('page-body');
+  try {
+    const status = await api.get('/api/auth/status');
+    currentUser = status.user || null;
+    if (currentUser) {
+      sidebar.style.display = '';
+      header.style.display = '';
+      await navigateTo(getRoute());
+      return;
+    }
+    sidebar.style.display = 'none';
+    header.style.display = 'none';
+    renderAuth(body, status.setup_required);
+  } catch (err) {
+    body.innerHTML = `<div class="empty-state"><div class="empty-title">İrtifa başlatılamadı</div><div class="empty-desc">${escapeHtml(err.message)}</div></div>`;
+  }
+}
+
+function renderAuth(container, setupRequired) {
+  container.innerHTML = `
+    <div class="min-h-[80vh] flex items-center justify-center">
+      <div class="glass-panel rounded-3xl p-8 w-full max-w-md">
+        <div class="flex items-center gap-4 mb-7">
+          <img src="/irtifa-logo.png" class="w-16 h-16 rounded-2xl" alt="İrtifa" />
+          <div><h1 class="font-headline text-3xl text-on-surface">İrtifa</h1><p class="text-on-surface-variant">${setupRequired ? 'İlk yönetici kurulumu' : 'Oturum aç'}</p></div>
+        </div>
+        ${setupRequired ? `
+          <div class="form-group"><label class="form-label">Kullanıcı adı</label><input id="auth-user" class="form-input" value="admin" /></div>
+          <div class="form-group"><label class="form-label">Ad soyad</label><input id="auth-name" class="form-input" /></div>
+          <div class="form-group"><label class="form-label">Parola</label><input id="auth-pass" type="password" class="form-input" /></div>
+          <button class="btn-primary w-full mt-4" onclick="window.__setupAdmin()">Yönetici Hesabını Oluştur</button>
+        ` : `
+          <div class="form-group"><label class="form-label">Kullanıcı adı</label><input id="auth-user" class="form-input" /></div>
+          <div class="form-group"><label class="form-label">Parola</label><input id="auth-pass" type="password" class="form-input" onkeydown="if(event.key==='Enter')window.__login()" /></div>
+          <button class="btn-primary w-full mt-4" onclick="window.__login()">Giriş Yap</button>
+        `}
+      </div>
+    </div>`;
+}
+
+window.__setupAdmin = async function() {
+  try {
+    const data = await api.post('/api/auth/setup', {
+      username: document.getElementById('auth-user').value.trim(),
+      display_name: document.getElementById('auth-name').value.trim(),
+      password: document.getElementById('auth-pass').value,
+    });
+    alert(`Kurtarma kodunuz:\n\n${data.recovery_code}\n\nBu kod yalnızca bir kez gösterilir. Güvenli bir yerde saklayın.`);
+    currentUser = data.user;
+    await bootAuth();
+  } catch (err) { toast.error('Kurulum başarısız', err.message); }
+};
+
+window.__login = async function() {
+  try {
+    const data = await api.post('/api/auth/login', {
+      username: document.getElementById('auth-user').value.trim(),
+      password: document.getElementById('auth-pass').value,
+    });
+    currentUser = data.user;
+    await bootAuth();
+  } catch (err) { toast.error('Giriş başarısız', err.message); }
+};
+
+function helpIcon(text) {
+  return `<button type="button" class="help-icon" aria-label="Alan açıklaması" data-help="${escapeHtml(text)}">?</button>`;
+}
+
+function escapeHtml(value) {
+  return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 // Export for pages
-export { api, toast, modal, renderHeader };
+export { api, toast, modal, renderHeader, helpIcon, currentUser };

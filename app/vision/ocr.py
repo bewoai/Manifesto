@@ -8,9 +8,7 @@ from __future__ import annotations
 import os
 import re
 import tempfile
-from io import BytesIO
 from pathlib import Path
-from typing import Optional
 
 
 MRZ_CHARS_RE = re.compile(r"[^A-Z0-9<]")
@@ -214,15 +212,6 @@ def extract_with_google_vision(
         if getattr(response, "error", None) and response.error.message:
             raise RuntimeError(response.error.message)
             
-        # Hata-ayıklama dökümü — sabit yol başka makinede yoksa OCR'ı ASLA bozmasın.
-        try:
-            with open(r"C:\Users\pc\Desktop\Manifesto\ocr_debug.txt", "a", encoding="utf-8") as df:
-                df.write("=== GOOGLE VISION OCR ===\n")
-                df.write(text + "\n======================\n")
-        except OSError:
-            pass
-
-
         fmt, lines = mrz_lines_from_text(text)
         if fmt == "NONE":
             tr_fmt, fields = parse_tr_id_front_from_text(text)
@@ -243,64 +232,4 @@ def extract_with_google_vision(
                 temp_json_path.unlink()
             except OSError:
                 pass
-
-
-def extract_with_tesseract(
-    image_bytes: bytes,
-    *,
-    tesseract_cmd: str = "",
-) -> tuple[str, list[str], dict]:
-    """Local Tesseract OCR -> MRZ lines."""
-    from PIL import Image
-    import pytesseract
-
-    if tesseract_cmd:
-        pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
-    img = Image.open(BytesIO(image_bytes))
-    config = (
-        "--psm 6 "
-        "-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<"
-    )
-    text = pytesseract.image_to_string(img, lang="eng", config=config)
-    
-    fmt, lines = mrz_lines_from_text(text)
-    if fmt == "NONE":
-        tr_fmt, fields = parse_tr_id_front_from_text(text)
-        if tr_fmt != "NONE":
-            return tr_fmt, [], fields
-    return fmt, lines, {}
-
-def extract_with_paddleocr(image_bytes: bytes) -> tuple[str, list[str], dict]:
-    """Optional local PaddleOCR provider.
-
-    PaddleOCR is intentionally lazy-imported because its runtime and model files
-    are large. If the operator installs it later, this mode starts working.
-    """
-    from paddleocr import PaddleOCR
-
-    ocr = PaddleOCR(use_angle_cls=True, lang="en", show_log=False)
-    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
-        tmp.write(image_bytes)
-        tmp_path = Path(tmp.name)
-    try:
-        result = ocr.ocr(str(tmp_path), cls=True)
-    finally:
-        try:
-            tmp_path.unlink()
-        except OSError:
-            pass
-
-    lines: list[str] = []
-    for page in result or []:
-        for item in page or []:
-            if len(item) >= 2 and isinstance(item[1], (list, tuple)):
-                lines.append(str(item[1][0]))
-    
-    text = "\\n".join(lines)
-    fmt, lines = mrz_lines_from_text(text)
-    if fmt == "NONE":
-        tr_fmt, fields = parse_tr_id_front_from_text(text)
-        if tr_fmt != "NONE":
-            return tr_fmt, [], fields
-    return fmt, lines, {}
 

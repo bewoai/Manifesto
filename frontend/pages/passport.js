@@ -2,7 +2,7 @@
    Pasaport Tarama — Drag & drop, MRZ okuma, kontrol kartları
    Brief §8: sol görsel, sağ 4 alan, yeşil/sarı status
    ═══════════════════════════════════════════════════════════════════ */
-import { api, toast, renderHeader } from '/app.js';
+import { api, toast, renderHeader, modal, helpIcon } from '/app.js';
 import { attachCombobox } from '/combobox.js';
 
 let state = {
@@ -14,6 +14,8 @@ let state = {
   countries: [],   // [{value:'TUR', label:'TUR — Türkiye'}]
   hotels: [],
   agencies: [],
+  blocks: [],
+  revision: '',
 };
 
 export async function render(container) {
@@ -30,31 +32,42 @@ export async function render(container) {
       </div>
       
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+        <div class="flex flex-col gap-1 md:col-span-2">
+          <label class="text-sm font-medium text-on-surface-variant ml-1">Kayıt biçimi${helpIcon('Yeni rezervasyon açabilir veya mevcut rezervasyonun yalnız boş yolcu satırlarına pasaport ekleyebilirsiniz.')}</label>
+          <select class="form-select" id="pp-mode" onchange="window.__passportModeChanged()">
+            <option value="new">Yeni rezervasyon oluştur</option>
+            <option value="existing">Mevcut rezervasyona pasaport ekle</option>
+          </select>
+        </div>
         <div class="flex flex-col gap-1">
-          <label class="text-sm font-medium text-on-surface-variant ml-1">Uçuş Günü</label>
+          <label class="text-sm font-medium text-on-surface-variant ml-1">Uçuş Günü${helpIcon('Pasaportların yazılacağı günlük planlama sayfasıdır.')}</label>
           <select class="form-select" id="pp-sheet-select">
             <option value="">Yükleniyor...</option>
           </select>
         </div>
         <div class="flex flex-col gap-1">
-          <label class="text-sm font-medium text-on-surface-variant ml-1">PAX (kişi sayısı)</label>
+          <label class="text-sm font-medium text-on-surface-variant ml-1">PAX (kişi sayısı)${helpIcon('Yeni rezervasyondaki toplam kişi sayısıdır. Pasaport sayısından büyük olabilir; kalan satırlar boş bırakılır.')}</label>
           <input class="form-input" id="pp-pax" type="number" min="1" max="28" />
           <div class="text-xs text-on-surface-variant/70 mt-1 ml-1">Bu rezervasyondaki kişi sayısı — pasaport sayısına göre otomatik gelir, değiştirebilirsin.</div>
         </div>
       </div>
+      <div class="form-group mb-4" id="existing-block-wrap" style="display:none">
+        <label class="form-label">Mevcut Rezervasyon${helpIcon('Yeni kimlikler seçilen rezervasyonun yalnız boş yolcu satırlarına yazılır.')}</label>
+        <select class="form-select" id="pp-existing-block"></select>
+      </div>
       
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
         <div class="flex flex-col gap-1">
-          <label class="text-sm font-medium text-on-surface-variant ml-1">Otel</label>
+          <label class="text-sm font-medium text-on-surface-variant ml-1">Otel${helpIcon('Misafirlerin pickup yapılacağı oteldir.')}</label>
           <input class="form-input" id="pp-hotel" list="dl-pp-hotel" placeholder="ör. ARGOS" />
           <datalist id="dl-pp-hotel"></datalist>
         </div>
         <div class="flex flex-col gap-1">
-          <label class="text-sm font-medium text-on-surface-variant ml-1">Acente</label>
+          <label class="text-sm font-medium text-on-surface-variant ml-1">Acente${helpIcon('Rezervasyonu gönderen acente bilgisidir.')}</label>
           <input class="form-input" id="pp-agency" placeholder="ör. BEDEL TURIZM" />
         </div>
         <div class="flex flex-col gap-1">
-          <label class="text-sm font-medium text-on-surface-variant ml-1">Rezerve Yapan</label>
+          <label class="text-sm font-medium text-on-surface-variant ml-1">Rezerve Yapan${helpIcon('Rezervasyonu ileten veya sisteme giren kişidir.')}</label>
           <input class="form-input" id="pp-reserved" placeholder="ör. MAHMUT" />
         </div>
       </div>
@@ -170,6 +183,8 @@ async function loadContext() {
       ? state.sheets.map(s => `<option value="${s}">${s}</option>`).join('')
       : '<option value="">Sayfa yok</option>';
     if (state.sheets.length) sel.value = state.sheets[state.sheets.length - 1];
+    sel.addEventListener('change', () => loadBlocks(sel.value));
+    if (sel.value) await loadBlocks(sel.value);
   } catch (err) { /* silently fail, user can still upload */ }
   // Uyruk (alpha-3) + otel/acente önerileri
   try {
@@ -190,6 +205,32 @@ async function loadContext() {
   if (agencyEl) attachCombobox(agencyEl, () => state.agencies);
   if (resEl) attachCombobox(resEl, () => state.reservedBy);
 }
+
+async function loadBlocks(sheet) {
+  try {
+    const data = await api.get(`/api/planning/load?sheet=${encodeURIComponent(sheet)}`);
+    state.blocks = data.blocks || [];
+    state.revision = data.workbook_revision || '';
+    const select = document.getElementById('pp-existing-block');
+    if (select) {
+      select.innerHTML = state.blocks.map(block => {
+        const empty = (block.passengers || []).filter(p => !p.name && !p.passport_no).length;
+        return `<option value="${block.lead_row}" ${empty ? '' : 'disabled'}>${esc(block.agency || block.hotel || block.lead_name || `Satır ${block.lead_row}`)} — PAX ${block.pax || block.rows?.length || 0} — ${empty} boş</option>`;
+      }).join('');
+    }
+  } catch (err) {
+    toast.error('Rezervasyonlar yüklenemedi', err.message);
+  }
+}
+
+window.__passportModeChanged = function() {
+  const existing = document.getElementById('pp-mode')?.value === 'existing';
+  document.getElementById('existing-block-wrap').style.display = existing ? '' : 'none';
+  for (const id of ['pp-pax', 'pp-hotel', 'pp-agency', 'pp-reserved']) {
+    const el = document.getElementById(id);
+    if (el) el.disabled = existing;
+  }
+};
 
 // ─── File Handling ───
 window.__handleDrop = function(e) {
@@ -377,9 +418,10 @@ function renderCards() {
             </div>
             
             <label class="flex items-center justify-center gap-2 mt-4 text-sm font-medium text-on-surface cursor-pointer hover:bg-primary/10 hover:text-primary transition-colors bg-surface-light/50 px-4 py-2.5 rounded-xl border border-white/5 w-full group select-none">
-              <input type="checkbox" class="w-4 h-4 rounded border-white/10 bg-surface text-primary focus:ring-primary focus:ring-offset-surface group-hover:border-primary/50" id="pc-approve-${i}" ${(rec._approved !== undefined ? rec._approved : (isGreen || rec.name || rec.passport_no)) ? 'checked' : ''} />
+              <input type="checkbox" class="w-4 h-4 rounded border-white/10 bg-surface text-primary focus:ring-primary focus:ring-offset-surface group-hover:border-primary/50" id="pc-approve-${i}" ${(rec._approved !== undefined ? rec._approved : isGreen) ? 'checked' : ''} />
               Onayla ve Ekle
             </label>
+            ${!isGreen ? `<button class="btn-secondary w-full mt-2 flex items-center justify-center gap-2" onclick="window.__retryClaude(${i})"><span class="material-symbols-outlined text-sm">auto_fix_high</span> Claude ile Tekrar Tara</button>` : ''}
           </div>
         </div>
       </div>
@@ -392,6 +434,24 @@ function renderCards() {
     if (el) attachCombobox(el, () => state.countries);
   }
 }
+
+window.__retryClaude = async function(i) {
+  const file = state.files[i];
+  if (!file) return toast.warning('Görsel bulunamadı');
+  syncCardsToState();
+  const form = new FormData();
+  form.append('file', file);
+  try {
+    const res = await fetch('/api/passport/retry-claude', { method: 'POST', body: form });
+    if (!res.ok) {
+      const payload = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(typeof payload.detail === 'string' ? payload.detail : payload.detail?.message);
+    }
+    state.records[i] = await res.json();
+    renderCards();
+    toast.success('Yeniden tarandı', state.records[i].green ? 'Sonuç doğrulandı' : 'Sonuç hâlâ kontrol gerektiriyor');
+  } catch (err) { toast.error('Claude taraması başarısız', err.message); }
+};
 
 // DOM'daki kart düzenlemelerini state.records'a geri yaz (re-render'da kaybolmasın)
 function syncCardsToState() {
@@ -425,6 +485,7 @@ window.__removeCard = function(i) {
 window.__writePlanning = async function() {
   const sheet = document.getElementById('pp-sheet-select')?.value;
   if (!sheet) { toast.warning('Uçuş günü seçin'); return; }
+  const existingMode = document.getElementById('pp-mode')?.value === 'existing';
 
   // Onaylı kartları topla + veri olup onaylanmamışları say (veri kaybı uyarısı)
   const approved = [];
@@ -436,6 +497,7 @@ window.__writePlanning = async function() {
       sex: document.getElementById(`pc-sex-${i}`)?.value.trim().toUpperCase() || '',
       name: document.getElementById(`pc-name-${i}`)?.value.trim().toUpperCase() || '',
       passport_no: document.getElementById(`pc-ppno-${i}`)?.value.trim() || '',
+      extraction_id: state.records[i]?.extraction_id,
     };
     const hasData = card.name || card.passport_no;
     if (chk?.checked) approved.push(card);
@@ -451,7 +513,7 @@ window.__writePlanning = async function() {
   }
 
   // PAX: alandan oku, boşsa onaylı sayısı
-  let pax = parseInt(document.getElementById('pp-pax')?.value, 10);
+  let pax = existingMode ? approved.length : parseInt(document.getElementById('pp-pax')?.value, 10);
   if (!pax || pax < 1) pax = approved.length;
   if (pax > 28) { toast.warning('PAX en fazla 28'); return; }
   // PAX onaylı yolcu sayısından az ise otomatik yükselt (pasaport kaybolmasın)
@@ -460,7 +522,7 @@ window.__writePlanning = async function() {
     toast.info('PAX güncellendi', `PAX ${pax} olarak ayarlandı (${approved.length} onaylı yolcu)`);
   }
   // PAX, yazılacak yolcudan fazlaysa: boş satırlar kalır — operatöre bildir
-  if (pax > approved.length) {
+  if (!existingMode && pax > approved.length) {
     if (!confirm(`PAX ${pax} ama ${approved.length} yolcu yazılacak. ${pax - approved.length} satır boş kalacak. Devam?`)) return;
   }
 
@@ -473,19 +535,21 @@ window.__writePlanning = async function() {
   btn.innerHTML = '<span class="material-symbols-outlined animate-spin text-[20px]">progress_activity</span> Oluşturuluyor...';
 
   try {
-    // 1) Rezervasyonu oluştur (balon otomatik atanır)
-    const res = await api.post('/api/planning/create-block', { sheet, pax, hotel, agency, reserved_by });
-
-    // 2) Onaylı kimlikleri bloğun satırlarına yaz
-    const updates = {};
-    for (let i = 0; i < approved.length && i < res.rows.length; i++) {
-      updates[res.rows[i]] = approved[i];
+    let res;
+    if (existingMode) {
+      const leadRow = parseInt(document.getElementById('pp-existing-block')?.value, 10);
+      if (!leadRow) throw new Error('Mevcut rezervasyon seçin.');
+      res = await api.post('/api/planning/append-identities', {
+        sheet, lead_row: leadRow, identities: approved, expected_revision: state.revision,
+      });
+      toast.success('Kimlikler eklendi', `${approved.length} yolcu mevcut rezervasyona yazıldı`);
+    } else {
+      res = await api.post('/api/planning/create-with-identities', {
+        sheet, pax, hotel, agency, reserved_by, identities: approved,
+        expected_revision: state.revision,
+      });
+      toast.success('Rezervasyon oluşturuldu', `${res.balloon} balonuna atandı — ${approved.length} yolcu yazıldı`);
     }
-    await api.post('/api/planning/write-identity', { sheet, updates });
-
-    const msg = `${res.balloon} balonuna atandı (${(res.load?.[res.balloon]) ?? pax}/${res.capacity}) — ${approved.length} yolcu yazıldı`;
-    if (res.overflow) toast.warning('Rezervasyon açıldı (taşma)', msg);
-    else toast.success('Rezervasyon oluşturuldu', msg);
 
     // Temizle: bir sonraki rezervasyona hazır
     window.__clearFiles();
@@ -494,12 +558,49 @@ window.__writePlanning = async function() {
     const hEl = document.getElementById('pp-hotel'); if (hEl) hEl.value = '';
     const aEl = document.getElementById('pp-agency'); if (aEl) aEl.value = '';
     const rEl = document.getElementById('pp-reserved'); if (rEl) rEl.value = '';
+    await loadBlocks(sheet);
   } catch (err) {
+    if (err.detail?.code === 'capacity_confirmation_required') {
+      btn.disabled = false;
+      btn.innerHTML = '<span class="material-symbols-outlined text-[20px]">save</span> Rezervasyon Oluştur & Yaz';
+      return showPassportCapacityChoice({
+        sheet, pax, hotel, agency, reserved_by, identities: approved,
+        expected_revision: state.revision,
+      }, err.detail);
+    }
     toast.error('Hata', err.message);
   } finally {
     btn.disabled = false;
     btn.innerHTML = '<span class="material-symbols-outlined text-[20px]">save</span> Rezervasyon Oluştur & Yaz';
   }
+};
+
+function showPassportCapacityChoice(body, detail) {
+  window.__pendingPassportOverflow = body;
+  modal.open('Balon Kapasitesi Doldu', `
+    <p class="text-on-surface-variant mb-4">Grup kapasite içinde hiçbir balona sığmıyor. Hedef balonu seçin.</p>
+    <div class="space-y-2">${(detail.balloon_codes || []).map(code => `
+      <label class="flex items-center justify-between rounded-lg border border-white/10 p-3 cursor-pointer">
+        <span><input type="radio" name="pp-overflow-balloon" value="${code}" class="mr-3" />${code}</span>
+        <strong>${detail.balloon_load?.[code] || 0}/${detail.capacity}</strong>
+      </label>`).join('')}</div>
+  `, `
+    <button class="btn-secondary" onclick="window.__closeModal()">İptal</button>
+    <button class="btn-primary" onclick="window.__confirmPassportOverflow()">Aşımı Onayla</button>
+  `);
+}
+
+window.__confirmPassportOverflow = async function() {
+  const balloon = document.querySelector('input[name="pp-overflow-balloon"]:checked')?.value;
+  if (!balloon) return toast.warning('Hedef balonu seçin');
+  const body = { ...(window.__pendingPassportOverflow || {}), requested_balloon: balloon, allow_overflow: true };
+  try {
+    const res = await api.post('/api/planning/create-with-identities', body);
+    modal.close();
+    toast.warning('Kapasite aşımı onaylandı', `${res.balloon} balonuna atandı`);
+    window.__clearFiles();
+    await loadBlocks(body.sheet);
+  } catch (err) { toast.error('Rezervasyon oluşturulamadı', err.message); }
 };
 
 function esc(s) {

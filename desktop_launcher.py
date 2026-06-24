@@ -15,8 +15,8 @@ import traceback
 import multiprocessing
 from pathlib import Path
 import uvicorn
+from app.version import APP_VERSION
 
-APP_VERSION = "desktop-20260623-4"
 APP_HOST = "127.0.0.1"
 APP_PORT = int(os.environ.get("BALON_MANIFESTO_PORT") or "0")
 

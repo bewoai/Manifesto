@@ -17,7 +17,9 @@ DefaultGroupName=İrtifa Balon Operasyon
 ; Output Settings
 OutputDir=.\setup_build
 OutputBaseFilename=Irtifa_Setup
-SetupIconFile=compiler:SetupClassicIcon.ico
+SetupIconFile=assets\setup_icon.ico
+WizardImageFile=assets\setup_large.bmp
+WizardSmallImageFile=assets\setup_small.bmp
 
 ; Compression Settings
 Compression=lzma2/ultra64

@@ -36,17 +36,22 @@ DATA_SOURCE_EXCEL = "excel"
 DATA_SOURCE_GOOGLE_SHEETS = "google_sheets"
 DATA_SOURCES = (DATA_SOURCE_EXCEL, DATA_SOURCE_GOOGLE_SHEETS)
 
-DEFAULT_MODEL = "claude-opus-4-8"  # MRZ okuma modeli (Settings'ten değiştirilebilir)
+DEFAULT_MODEL = "claude-sonnet-4-6"  # Ana MRZ/Liste okuma modeli (Settings'ten değiştirilebilir)
+FALLBACK_MODEL = "claude-opus-4-8"   # Premium fallback modeli
 
 
 @dataclass
 class Settings:
     is_setup_complete: bool = False
     company_name: str = ""
-    vision_mode: str = VISION_MODE_GOOGLE_VISION
+    vision_mode: str = VISION_MODE_CLAUDE
     data_source: str = DATA_SOURCE_EXCEL
     anthropic_api_key: str = ""
     model: str = DEFAULT_MODEL
+    anthropic_fallback_model: str = FALLBACK_MODEL
+    ai_confidence_threshold_auto_save: float = 0.90
+    ai_confidence_threshold_fallback: float = 0.75
+    ai_confidence_threshold_manual_review: float = 0.70
     google_vision_document_text: bool = False
     planning_xlsx: str = ""          # boşsa config.PLANNING_XLSX kullanılır
     output_dir: str = ""             # manifesto export klasörü

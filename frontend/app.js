@@ -134,6 +134,8 @@ window.addEventListener('beforeunload', (event) => {
 });
 
 // ─── Sidebar ───
+
+// ─── Sidebar ───
 function renderSidebar(activeRoute) {
   const sidebar = document.getElementById('sidebar');
   const navItems = [
@@ -141,6 +143,7 @@ function renderSidebar(activeRoute) {
     { id: 'weather',   label: 'Hava Durumu', route: 'weather' },
     { id: 'planning',  label: 'Planlama', route: 'planning' },
     { id: 'passport',  label: 'Pasaport', route: 'passport' },
+    { id: 'manual_review', label: 'Manuel Kontrol', route: 'manual_review' },
     { id: 'manifest',  label: 'Manifesto', route: 'manifest' },
     { id: 'lists',     label: 'Listeler', route: 'lists' },
   ];

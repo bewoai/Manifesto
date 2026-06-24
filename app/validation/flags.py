@@ -21,6 +21,10 @@ class Flag(str, Enum):
     UNREADABLE = "unreadable"
     MRZ_INCONSISTENT = "mrz_inconsistent"  # uyruk ≠ issuing → satır/isim şüpheli
     FREE_TEXT_UNVERIFIED = "free_text_unverified"  # MRZ yok, serbest metinden çıkarıldı
+    LOW_CONFIDENCE = "low_confidence"
+    MISSING_REQUIRED_FIELDS = "missing_required_fields"
+    CONFLICTING_AI_OUTPUTS = "conflicting_ai_outputs"
+    UNKNOWN_DOCUMENT_TYPE = "unknown_document_type"
 
 
 @dataclass

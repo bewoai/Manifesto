@@ -32,6 +32,16 @@ CREATE TABLE IF NOT EXISTS passport_extraction (
     nationality     TEXT,                 -- alpha-3
     sex             TEXT,                 -- M / F / X
     name            TEXT,
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS passport_extraction (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    source_media_id TEXT,                 -- WhatsApp media_id (Faz 2)
+    mrz_format      TEXT,                 -- TD3 / TD1
+    nationality     TEXT,                 -- alpha-3
+    sex             TEXT,                 -- M / F / X
+    name            TEXT,
     document_number TEXT,
     birth_date      TEXT,
     expiry_date     TEXT,
@@ -41,7 +51,14 @@ CREATE TABLE IF NOT EXISTS passport_extraction (
     -- eşleştirme (Faz 2): hangi planlama satırına yazıldı
     planning_date   TEXT,
     planning_row    INTEGER,
-    agency          TEXT
+    agency          TEXT,
+    -- v2: multi-layer OCR & confidence
+    confidence_score REAL,
+    processing_route TEXT,
+    ai_model_used    TEXT,
+    fallback_reason  TEXT,
+    requires_manual_review INTEGER NOT NULL DEFAULT 0,
+    manual_review_reason   TEXT
 );
 
 CREATE TABLE IF NOT EXISTS audit_log (
@@ -58,6 +75,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
 
 CREATE INDEX IF NOT EXISTS idx_extraction_status ON passport_extraction(status);
 CREATE INDEX IF NOT EXISTS idx_extraction_docno ON passport_extraction(document_number);
+CREATE INDEX IF NOT EXISTS idx_extraction_manual ON passport_extraction(requires_manual_review);
 
 CREATE TABLE IF NOT EXISTS weather_measurement (
     id                 INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -128,11 +146,24 @@ def init_db(db_path: Path | None = None) -> None:
     conn = connect(db_path)
     try:
         conn.executescript(SCHEMA)
-        columns = {row["name"] for row in conn.execute("PRAGMA table_info(audit_log)")}
-        if "sheet" not in columns:
+        
+        # audit_log migration
+        columns_audit = {row["name"] for row in conn.execute("PRAGMA table_info(audit_log)")}
+        if "sheet" not in columns_audit:
             conn.execute("ALTER TABLE audit_log ADD COLUMN sheet TEXT")
-        if "reservation_row" not in columns:
+        if "reservation_row" not in columns_audit:
             conn.execute("ALTER TABLE audit_log ADD COLUMN reservation_row INTEGER")
+            
+        # passport_extraction v2 migration
+        columns_pe = {row["name"] for row in conn.execute("PRAGMA table_info(passport_extraction)")}
+        if "confidence_score" not in columns_pe:
+            conn.execute("ALTER TABLE passport_extraction ADD COLUMN confidence_score REAL")
+            conn.execute("ALTER TABLE passport_extraction ADD COLUMN processing_route TEXT")
+            conn.execute("ALTER TABLE passport_extraction ADD COLUMN ai_model_used TEXT")
+            conn.execute("ALTER TABLE passport_extraction ADD COLUMN fallback_reason TEXT")
+            conn.execute("ALTER TABLE passport_extraction ADD COLUMN requires_manual_review INTEGER NOT NULL DEFAULT 0")
+            conn.execute("ALTER TABLE passport_extraction ADD COLUMN manual_review_reason TEXT")
+            
         conn.execute("DELETE FROM audit_log WHERE ts < datetime('now', '-365 days')")
         conn.execute("DELETE FROM auth_session WHERE expires_at < datetime('now')")
         conn.commit()

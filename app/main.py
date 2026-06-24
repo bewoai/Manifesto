@@ -1369,8 +1369,9 @@ async def api_passport_upload(
                         """
                         INSERT INTO passport_extraction(
                             source_media_id, mrz_format, nationality, sex, name,
-                            document_number, birth_date, expiry_date, checks_ok, flags, status
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+                            document_number, birth_date, expiry_date, checks_ok, flags, status,
+                            confidence_score, processing_route, ai_model_used, fallback_reason, requires_manual_review
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)
                         """,
                         (
                             str(staged_path),
@@ -1383,6 +1384,11 @@ async def api_passport_upload(
                             field_data.get("expiry_date"),
                             int(bool(record.is_green)),
                             ",".join(field_data.get("flags", [])),
+                            field_data.get("confidence_score", 1.0),
+                            field_data.get("processing_route", "google_vision"),
+                            field_data.get("ai_model_used"),
+                            field_data.get("fallback_reason"),
+                            int(field_data.get("requires_manual_review", False)),
                         ),
                     )
                     conn.commit()
@@ -1420,7 +1426,7 @@ async def api_passport_retry_claude(
     image_bytes = await file.read()
     filename = file.filename or "passport.jpg"
     staged_path = save_image(image_bytes, filename)
-    record = process_image(
+    records = process_image(
         image_bytes,
         source=filename,
         media_type=media_type_for(Path(filename)),
@@ -1428,6 +1434,12 @@ async def api_passport_retry_claude(
         settings=s,
         model=s.model,
     )
+    if not records:
+         raise HTTPException(status_code=400, detail="Hiçbir şey okunamadı.")
+    
+    # Retry endpoint genelde tek görsel tek kişi beklenir ama process_image liste döner. 
+    # Frontend ilk kaydı alır genelde. (Veya hepsini liste dönebiliriz, orijinal kod record = process_image(...) diyordu ama array döndüğünü unuttuğu için patlayabilirdi. Onu da düzelttik.)
+    record = records[0]
     fields = record.to_fields()
     conn = connect()
     try:
@@ -1435,8 +1447,9 @@ async def api_passport_retry_claude(
             """
             INSERT INTO passport_extraction(
                 source_media_id, mrz_format, nationality, sex, name,
-                document_number, birth_date, expiry_date, checks_ok, flags, status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+                document_number, birth_date, expiry_date, checks_ok, flags, status,
+                confidence_score, processing_route, ai_model_used, fallback_reason, requires_manual_review
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)
             """,
             (
                 str(staged_path),
@@ -1449,6 +1462,11 @@ async def api_passport_retry_claude(
                 fields.get("expiry_date"),
                 int(bool(record.is_green)),
                 ",".join(fields.get("flags", [])),
+                fields.get("confidence_score", 1.0),
+                fields.get("processing_route", "google_vision"),
+                fields.get("ai_model_used"),
+                fields.get("fallback_reason"),
+                int(fields.get("requires_manual_review", False)),
             ),
         )
         conn.commit()
@@ -1458,7 +1476,67 @@ async def api_passport_retry_claude(
     return fields
 
 
-@app.post("/api/passport/cleanup")
+@app.get("/api/passport/manual-review")
+def api_passport_manual_review() -> dict:
+    conn = connect()
+    try:
+        rows = conn.execute(
+            """
+            SELECT id, created_at, source_media_id, mrz_format, nationality, sex, name,
+                   document_number, flags, status, confidence_score, processing_route,
+                   ai_model_used, fallback_reason, manual_review_reason
+            FROM passport_extraction
+            WHERE requires_manual_review = 1 AND status = 'pending'
+            ORDER BY created_at ASC
+            """
+        ).fetchall()
+        return {"items": [dict(r) for r in rows]}
+    finally:
+        conn.close()
+
+@app.get("/api/passport/image/{id}")
+def api_passport_get_image(id: int):
+    conn = connect()
+    try:
+        row = conn.execute("SELECT source_media_id FROM passport_extraction WHERE id = ?", (id,)).fetchone()
+        if not row or not row["source_media_id"]:
+            raise HTTPException(404, "Image not found")
+        path = Path(row["source_media_id"])
+        if not path.exists():
+            raise HTTPException(404, "File not found on disk")
+        return FileResponse(path)
+    finally:
+        conn.close()
+
+class ResolveManualReviewRequest(BaseModel):
+    id: int
+    action: str  # 'approve' veya 'reject'
+    corrected_data: Optional[dict] = None
+
+@app.post("/api/passport/manual-review/resolve")
+def api_passport_manual_review_resolve(req: ResolveManualReviewRequest) -> dict:
+    conn = connect()
+    try:
+        if req.action == "approve" and req.corrected_data:
+            d = req.corrected_data
+            conn.execute(
+                """
+                UPDATE passport_extraction 
+                SET nationality = ?, sex = ?, name = ?, document_number = ?, 
+                    requires_manual_review = 0, checks_ok = 1
+                WHERE id = ?
+                """,
+                (d.get("nationality"), d.get("sex"), d.get("name"), d.get("document_number"), req.id)
+            )
+        elif req.action == "reject":
+            conn.execute(
+                "UPDATE passport_extraction SET status = 'rejected', requires_manual_review = 0 WHERE id = ?",
+                (req.id,)
+            )
+        conn.commit()
+        return {"success": True}
+    finally:
+        conn.close()
 def api_passport_cleanup(request: Request, body: dict) -> dict:
     result = cleanup_passport_day(body.get("day"))
     conn = connect()

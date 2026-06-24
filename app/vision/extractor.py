@@ -34,6 +34,7 @@ SYSTEM_PROMPT = (
     "but extract their `nationality` (3-letter ISO code if possible), `sex` (M, F, or X), `name` (full name, uppercase), and `passport_no` (or ID number) directly from the text. "
     "If the gender/sex is not explicitly stated but can be inferred from title (MR/MRS/MS), infer it. "
     "Ensure `name` does NOT include the passport number or dates. "
+    "You must also provide a `confidence` score (between 0.0 and 1.0) for each passenger and an `overall_confidence` score for the entire extraction. "
     "Output ONLY the requested JSON."
 )
 
@@ -47,6 +48,7 @@ OUTPUT_SCHEMA = {
                 "properties": {
                     "format": {"type": "string", "enum": ["TD3", "TD1", "TR_ID_FRONT", "NONE"]},
                     "lines": {"type": "array", "items": {"type": "string"}},
+                    "confidence": {"type": "number"},
                     "fields": {
                         "type": "object",
                         "properties": {
@@ -58,11 +60,12 @@ OUTPUT_SCHEMA = {
                         "additionalProperties": True
                     }
                 },
-                "required": ["format", "lines"]
+                "required": ["format", "lines", "confidence"]
             }
-        }
+        },
+        "overall_confidence": {"type": "number"}
     },
-    "required": ["passengers"],
+    "required": ["passengers", "overall_confidence"],
     "additionalProperties": False,
 }
 
@@ -104,10 +107,15 @@ class PassportRecord:
     mrz: Optional[MRZResult]
     outcome: ValidationOutcome
     error: Optional[str] = None
+    confidence_score: float = 1.0
+    processing_route: str = "google_vision"
+    ai_model_used: Optional[str] = None
+    fallback_reason: Optional[str] = None
+    requires_manual_review: bool = False
 
     @property
     def is_green(self) -> bool:
-        return self.mrz is not None and self.outcome.is_green
+        return self.mrz is not None and self.outcome.is_green and not self.requires_manual_review
 
     @property
     def flags(self) -> list[Flag]:
@@ -118,7 +126,10 @@ class PassportRecord:
         if self.mrz is None:
             return {"nationality": "", "sex": "", "name": "", "passport_no": "",
                     "green": False, "flags": [f.value for f in self.flags],
-                    "error": self.error, "source": self.source}
+                    "error": self.error, "source": self.source,
+                    "confidence_score": self.confidence_score,
+                    "processing_route": self.processing_route,
+                    "requires_manual_review": self.requires_manual_review}
         return {
             "nationality": self.mrz.nationality,     # alpha-3 -> planlama col 2
             "sex": self.mrz.sex,                      # M/F -> planlama col 3
@@ -131,6 +142,10 @@ class PassportRecord:
             "checks": self.mrz.checks,
             "error": None,
             "source": self.source,
+            "confidence_score": self.confidence_score,
+            "processing_route": self.processing_route,
+            "ai_model_used": self.ai_model_used,
+            "requires_manual_review": self.requires_manual_review
         }
 
 
@@ -139,46 +154,34 @@ def _make_client(api_key: Optional[str] = None):
     return anthropic.Anthropic(api_key=api_key) if api_key else anthropic.Anthropic()
 
 
-def extract_passengers_from_vision(image_bytes: bytes, media_type: str, *, client=None,
-                                     model: Optional[str] = None,
-                                     provider: str = settings_mod.VISION_MODE_CLAUDE,
-                                     settings: Optional[settings_mod.Settings] = None) -> list[dict]:
-    """Claude Vision -> list of passengers (each with format, lines, fields)."""
-    settings = settings or settings_mod.Settings()
-    if provider == settings_mod.VISION_MODE_GOOGLE_VISION:
-        fmt, lines, fields = extract_with_google_vision(
-            image_bytes,
-            credentials_json=settings.google_credentials_json,
-            use_document_text=settings.google_vision_document_text,
-        )
-        return [{"format": fmt, "lines": lines, "fields": fields}]
-    client = client or _make_client()
-    model = model or settings_mod.DEFAULT_MODEL
+def call_anthropic(image_bytes: bytes, media_type: str, client, model: str, system_prompt: str) -> dict:
     b64 = base64.standard_b64encode(image_bytes).decode("utf-8")
-    resp = client.messages.create(
-        model=model,
-        max_tokens=2048,
-        system=SYSTEM_PROMPT,
-        messages=[{
-            "role": "user",
-            "content": [
-                {"type": "image", "source": {"type": "base64",
-                                             "media_type": media_type, "data": b64}},
-                {"type": "text", "text": "Extract all passenger information."},
-            ],
-        }],
-        tools=[{
-            "name": "record_passengers",
-            "description": "Record extracted passengers",
-            "input_schema": OUTPUT_SCHEMA
-        }],
-        tool_choice={"type": "tool", "name": "record_passengers"}
-    )
-    tool_use = next((b for b in resp.content if getattr(b, "type", None) == "tool_use"), None)
-    if tool_use and isinstance(tool_use.input, dict):
-        return tool_use.input.get("passengers", [])
-    return []
-
+    try:
+        resp = client.messages.create(
+            model=model,
+            max_tokens=2048,
+            system=system_prompt,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "image", "source": {"type": "base64",
+                                                 "media_type": media_type, "data": b64}},
+                    {"type": "text", "text": "Extract all passenger information. If the document is unreadable or not a passenger list/ID, return empty passengers array."},
+                ],
+            }],
+            tools=[{
+                "name": "record_passengers",
+                "description": "Record extracted passengers",
+                "input_schema": OUTPUT_SCHEMA
+            }],
+            tool_choice={"type": "tool", "name": "record_passengers"}
+        )
+        tool_use = next((b for b in resp.content if getattr(b, "type", None) == "tool_use"), None)
+        if tool_use and isinstance(tool_use.input, dict):
+            return tool_use.input
+    except Exception as e:
+        print(f"Anthropic API Error ({model}): {e}")
+    return {}
 
 def process_image(
     image_bytes: bytes,
@@ -192,31 +195,95 @@ def process_image(
     seen_document_numbers: Optional[set[str]] = None,
     today: Optional[_dt.date] = None,
 ) -> list[PassportRecord]:
-    """Uçtan uca: görsel -> yolcu listesi -> parse + checksum -> flag'ler -> list[PassportRecord]."""
+    """Uçtan uca: görsel -> Google Vision -> Classifier -> (Optional) Claude Sonnet -> (Optional) Claude Opus -> list[PassportRecord]."""
+    settings = settings or settings_mod.Settings()
+    
+    # 1. Google Vision (Her zaman ilk çağrılır)
+    fmt = "NONE"
+    lines = []
+    fields = {}
+    raw_text = ""
     try:
-        passengers = extract_passengers_from_vision(
-            image_bytes,
-            media_type,
-            client=client,
-            model=model,
-            provider=provider,
-            settings=settings,
-        )
+        if settings.google_credentials_json:
+            fmt, lines, fields = extract_with_google_vision(
+                image_bytes,
+                credentials_json=settings.google_credentials_json,
+                use_document_text=settings.google_vision_document_text,
+            )
+            raw_text = fields.get("raw_text", "")
     except Exception as e:
-        return [PassportRecord(source=source, mrz=None,
-                               outcome=ValidationOutcome(flags=[Flag.UNREADABLE]),
-                               error=f"{type(e).__name__}: {e}")]
+        # Google Vision fail olsa da Claude'a fallback yapabiliriz.
+        pass
 
+    # 2. Classifier
+    from app.vision.document_classifier import classify_document
+    doc_type = classify_document(raw_text)
+    
+    # Eğer pasaport/kimlik ise ve MRZ sorunsuz okunduysa Claude'a gitmeye gerek yok!
+    if doc_type in ("passport", "national_id") and fmt != "NONE" and lines:
+        records = _parse_and_validate_mrz([{"format": fmt, "lines": lines, "fields": fields, "confidence": 1.0}], source, seen_document_numbers, today)
+        if records and all(r.is_green for r in records):
+            # Mükemmel sonuç, erken dön!
+            for r in records:
+                r.processing_route = "google_vision_direct"
+                r.confidence_score = 1.0
+            return records
+            
+    # Sadece Google Vision kullanılıyorsa Claude'a gitme
+    if provider == settings_mod.VISION_MODE_GOOGLE_VISION:
+        if fmt != "NONE":
+             return _parse_and_validate_mrz([{"format": fmt, "lines": lines, "fields": fields, "confidence": 1.0}], source, seen_document_numbers, today)
+        return [PassportRecord(source=source, mrz=None, outcome=ValidationOutcome(flags=[Flag.UNREADABLE]), error="Yolcu/MRZ bulunamadı (Google Vision Mode)")]
+
+    # Eğer buraya geldiysek ya belge tipi liste/WhatsApp, ya da MRZ okunamadı/hatalı. Claude'a gitmeliyiz.
+    client = client or _make_client(settings.anthropic_api_key)
+    main_model = model or settings.model or settings_mod.DEFAULT_MODEL
+    fallback_model = settings.anthropic_fallback_model or settings_mod.FALLBACK_MODEL
+    
+    # 3. Claude Sonnet (Ana AI Modeli)
+    anthropic_result = call_anthropic(image_bytes, media_type, client, main_model, SYSTEM_PROMPT)
+    overall_conf = anthropic_result.get("overall_confidence", 0.0)
+    passengers = anthropic_result.get("passengers", [])
+    
+    # 4. Fallback değerlendirmesi
+    ai_model_used = main_model
+    processing_route = "google_vision_plus_sonnet"
+    fallback_reason = None
+    
+    if passengers and overall_conf < settings.ai_confidence_threshold_fallback:
+        # Fallback to Opus
+        fallback_reason = f"Sonnet confidence ({overall_conf}) < {settings.ai_confidence_threshold_fallback}"
+        ai_model_used = fallback_model
+        processing_route = "google_vision_plus_opus"
+        
+        anthropic_result = call_anthropic(image_bytes, media_type, client, fallback_model, SYSTEM_PROMPT)
+        overall_conf = anthropic_result.get("overall_confidence", 0.0)
+        passengers = anthropic_result.get("passengers", [])
+        
     if not passengers:
-        return [PassportRecord(source=source, mrz=None,
-                               outcome=ValidationOutcome(flags=[Flag.UNREADABLE]),
-                               error="Yolcu/MRZ bulunamadı")]
+        return [PassportRecord(source=source, mrz=None, outcome=ValidationOutcome(flags=[Flag.UNREADABLE]), error="Yolcu/MRZ bulunamadı", ai_model_used=ai_model_used, processing_route=processing_route, requires_manual_review=True, fallback_reason=fallback_reason)]
 
+    records = _parse_and_validate_mrz(passengers, source, seen_document_numbers, today)
+    
+    # Check manual review
+    for r in records:
+        r.ai_model_used = ai_model_used
+        r.processing_route = processing_route
+        r.fallback_reason = fallback_reason
+        if r.confidence_score < settings.ai_confidence_threshold_manual_review:
+            r.requires_manual_review = True
+            r.outcome.add(Flag.LOW_CONFIDENCE)
+            
+    return records
+
+
+def _parse_and_validate_mrz(passengers: list[dict], source: str, seen_document_numbers: Optional[set[str]], today: Optional[_dt.date]) -> list[PassportRecord]:
     records = []
     for p in passengers:
         fmt = p.get("format", "NONE")
         lines = [ln for ln in p.get("lines", []) if ln.strip()]
         fields = p.get("fields", {})
+        conf = p.get("confidence", 1.0)
 
         if fmt == "NONE" and any([fields.get("name"), fields.get("passport_no"), fields.get("nationality")]):
             from app.mrz.parser import MRZResult
@@ -236,7 +303,7 @@ def process_image(
             )
             outcome = validate_mrz(mrz, seen_document_numbers=seen_document_numbers, today=today)
             outcome.add(Flag.FREE_TEXT_UNVERIFIED)
-            records.append(PassportRecord(source=source, mrz=mrz, outcome=outcome))
+            records.append(PassportRecord(source=source, mrz=mrz, outcome=outcome, confidence_score=conf))
             continue
 
         try:
@@ -330,16 +397,16 @@ def process_image(
             else:
                 records.append(PassportRecord(source=source, mrz=None,
                                       outcome=ValidationOutcome(flags=[Flag.UNREADABLE]),
-                                      error="MRZ bulunamadı/okunamadı"))
+                                      error="MRZ bulunamadı/okunamadı", confidence_score=conf))
                 continue
         except Exception as e:
             records.append(PassportRecord(source=source, mrz=None,
                                   outcome=ValidationOutcome(flags=[Flag.UNREADABLE]),
-                                  error=f"parse: {e}"))
+                                  error=f"parse: {e}", confidence_score=conf))
             continue
 
         outcome = validate_mrz(mrz, seen_document_numbers=seen_document_numbers, today=today)
-        records.append(PassportRecord(source=source, mrz=mrz, outcome=outcome))
+        records.append(PassportRecord(source=source, mrz=mrz, outcome=outcome, confidence_score=conf))
 
     return records
 
@@ -348,3 +415,4 @@ def process_file(path: str | Path, **kwargs) -> list[PassportRecord]:
     p = Path(path)
     return process_image(p.read_bytes(), source=str(p),
                          media_type=media_type_for(p), **kwargs)
+

@@ -17,6 +17,22 @@ from pathlib import Path
 import uvicorn
 from app.version import APP_VERSION
 
+# For PyInstaller to discover these modules since they are dynamically or lazily imported
+if False:
+    import app.main
+    import app.db
+    import app.config
+    import app.settings
+    import app.weather
+    import app.google_sheets
+    import app.vision.extractor
+    import app.vision.document_classifier
+    import app.vision.ocr
+    import app.mrz.parser
+    import app.mrz.checksum
+    import app.manifest.writer
+    import app.manifest.exporter
+
 APP_HOST = "127.0.0.1"
 APP_PORT = int(os.environ.get("BALON_MANIFESTO_PORT") or "0")
 

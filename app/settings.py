@@ -41,6 +41,8 @@ DEFAULT_MODEL = "claude-opus-4-8"  # MRZ okuma modeli (Settings'ten değiştiril
 
 @dataclass
 class Settings:
+    is_setup_complete: bool = False
+    company_name: str = ""
     vision_mode: str = VISION_MODE_GOOGLE_VISION
     data_source: str = DATA_SOURCE_EXCEL
     anthropic_api_key: str = ""
@@ -67,9 +69,9 @@ class Settings:
     update_manifest_url: str = ""
     update_public_key: str = ""
 
-    # --- türetilmiş yollar (boşsa config defaultlarına düşer) ---
+    # --- türetilmiş yollar ---
     def planning_path(self) -> Path:
-        return Path(self.planning_xlsx) if self.planning_xlsx else config.PLANNING_XLSX
+        return Path(self.planning_xlsx) if self.planning_xlsx else Path("BELIRLENMEDI.xlsx")
 
     def template_path(self) -> Path:
         return Path(self.manifest_template) if self.manifest_template else config.MANIFEST_TEMPLATE_PATH

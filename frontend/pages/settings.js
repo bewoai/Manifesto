@@ -48,7 +48,37 @@ export async function render(container) {
           </div>
         </div>
       </div>
+      <!-- Firma ve Operasyon Ayarları -->
+      <div class="glass-panel rounded-3xl p-6 mb-6 animate-in" style="animation-delay: 25ms">
+        <div class="flex items-center gap-3 mb-6">
+          <span class="material-symbols-outlined text-primary text-3xl">storefront</span>
+          <h2 class="font-headline text-headline-sm text-on-surface">Firma ve Operasyon Ayarları</h2>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Firmanızın Adı</label>
+          <input class="form-input" id="s-company-name" placeholder="Örn: Kapadokya Balloons" />
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div class="form-group">
+            <label class="form-label">Acenteleriniz</label>
+            <textarea id="s-agencies" class="form-input h-24" placeholder="Acente 1, Acente 2..."></textarea>
+            <div class="form-help">Virgülle ayırın.</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Şoförleriniz</label>
+            <textarea id="s-drivers" class="form-input h-24" placeholder="Ahmet, Mehmet..."></textarea>
+            <div class="form-help">Virgülle ayırın.</div>
+          </div>
+        </div>
+      </div>
 
+      <!-- Veri Kaynağı -->
+      <div class="glass-panel rounded-3xl p-6 mb-6 animate-in" style="animation-delay: 50ms">
+        <div class="flex items-center gap-3 mb-6">
+          <span class="material-symbols-outlined text-primary text-3xl">database</span>
+          <h2 class="font-headline text-headline-sm text-on-surface">Veri Kaynağı</h2>
+        </div>
+        <div class="form-group">
       <!-- Veri Kaynağı -->
       <div class="glass-panel rounded-3xl p-6 mb-6 animate-in" style="animation-delay: 50ms">
         <div class="flex items-center gap-3 mb-6">
@@ -64,7 +94,10 @@ export async function render(container) {
         </div>
         <div class="form-group">
           <label class="form-label">Planlama Excel yolu</label>
-          <input class="form-input" id="s-planning-xlsx" placeholder="Boş = varsayılan Downloads yolu" />
+          <div class="flex gap-2">
+            <input class="form-input flex-1" id="s-planning-xlsx" placeholder="Boş = varsayılan Downloads yolu" />
+            <button class="btn-secondary whitespace-nowrap" onclick="window.__settingsImportPlan()">Dosya Seç...</button>
+          </div>
         </div>
         <div class="form-group">
           <label class="form-label">Google Servis Hesabı JSON</label>
@@ -151,7 +184,10 @@ export async function render(container) {
         </div>
         <div class="form-group">
           <label class="form-label">Manifesto çıktı klasörü</label>
-          <input class="form-input" id="s-output-dir" placeholder="Boş = Documents/Irtifa" />
+          <div class="flex gap-2">
+            <input class="form-input flex-1" id="s-output-dir" placeholder="Boş = Documents/Irtifa" />
+            <button class="btn-secondary whitespace-nowrap" onclick="window.__settingsImportDir()">Klasör Seç...</button>
+          </div>
         </div>
       </div>
 
@@ -194,6 +230,7 @@ export async function render(container) {
   loadSettings();
 }
 
+
 async function loadSettings() {
   try {
     const s = await api.get('/api/settings');
@@ -205,7 +242,7 @@ async function loadSettings() {
 }
 
 function fillForm(s) {
-  const val = (id, v) => { const el = document.getElementById(id); if (el) el.value = v || ''; };
+  const val = (id, v) => { const el = document.getElementById(id); if (el) el.value = (v === null || v === undefined) ? '' : v; };
   const chk = (id, v) => { const el = document.getElementById(id); if (el) el.checked = !!v; };
 
   val('s-vision-mode', s.vision_mode);
@@ -215,6 +252,14 @@ function fillForm(s) {
   val('s-data-source', s.data_source);
   val('s-planning-xlsx', s.planning_xlsx);
   val('s-gsheet-json', s.google_credentials_json);
+
+  // Firma ve Operasyon
+  val('s-company-name', s.company_name);
+  if (s.operation_options) {
+    val('s-agencies', s.operation_options.agency ? s.operation_options.agency.join(', ') : '');
+    val('s-drivers', s.operation_options.driver ? s.operation_options.driver.join(', ') : '');
+  }
+
   val('s-update-url', s.update_manifest_url);
   val('s-update-key', s.update_public_key);
   val('s-template', s.manifest_template);
@@ -232,6 +277,36 @@ function fillForm(s) {
   chk('s-delete-images', s.delete_images_after_write);
 }
 
+window.__settingsImportPlan = async function() {
+  const { toast } = await import('/app.js');
+  try {
+    const res = await api.post('/api/planning/import-existing', {});
+    if (res.success) {
+      document.getElementById('s-planning-xlsx').value = res.path;
+      toast.success('Başarılı', res.message + " (Değişiklikleri kaydetmeyi unutmayın)");
+    } else {
+      if (res.message !== 'İptal edildi') toast.error('Hata', res.message);
+    }
+  } catch (err) {
+    toast.error('Hata', err.message);
+  }
+};
+
+window.__settingsImportDir = async function() {
+  const { toast } = await import('/app.js');
+  try {
+    const res = await api.post('/api/settings/import-directory', {});
+    if (res.success) {
+      document.getElementById('s-output-dir').value = res.path;
+      toast.success('Başarılı', res.message + " (Değişiklikleri kaydetmeyi unutmayın)");
+    } else {
+      if (res.message !== 'İptal edildi') toast.error('Hata', res.message);
+    }
+  } catch (err) {
+    toast.error('Hata', err.message);
+  }
+};
+
 window.__saveSettings = async function() {
   const gv = (id) => document.getElementById(id)?.value?.trim() || '';
   const gc = (id) => document.getElementById(id)?.checked || false;
@@ -243,6 +318,11 @@ window.__saveSettings = async function() {
     google_vision_document_text: gc('s-google-doc-text'),
     planning_xlsx: gv('s-planning-xlsx'),
     google_credentials_json: gv('s-gsheet-json'),
+    company_name: gv('s-company-name'),
+    operation_options: {
+      agency: gv('s-agencies').split(',').map(s => s.trim()).filter(Boolean),
+      driver: gv('s-drivers').split(',').map(s => s.trim()).filter(Boolean)
+    },
     update_manifest_url: gv('s-update-url'),
     update_public_key: gv('s-update-key'),
     manifest_template: gv('s-template'),

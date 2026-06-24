@@ -19,7 +19,21 @@ const CATEGORIES = [
 
 export async function render(container) {
   renderHeader('Listeler', 'Tekrar eden verileri kaydet — formlarda öneri olarak çıkar');
-  container.innerHTML = `<div id="lists-root" class="max-w-[860px] mx-auto flex flex-col gap-6 pb-12 w-full"></div>`;
+  container.innerHTML = `
+    <div id="lists-root" class="max-w-[860px] mx-auto flex flex-col gap-6 pb-12 w-full">
+      <div class="glass-panel p-6 rounded-3xl flex items-center justify-between animate-in">
+        <div>
+          <h3 class="text-on-surface font-medium text-lg mb-1">Mevcut Excel'den Listeleri Doldur</h3>
+          <p class="text-on-surface-variant text-sm">Excel dosyanızdaki geçmiş tüm operasyon günlerini tarayarak acente, otel ve diğer listeleri otomatik doldurur.</p>
+        </div>
+        <button class="btn-primary flex items-center gap-2 whitespace-nowrap" id="btn-scan-lists" onclick="window.__scanLists()">
+          <span class="material-symbols-outlined">radar</span>
+          Otomatik Tara
+        </button>
+      </div>
+      <div id="lists-cards" class="flex flex-col gap-6"></div>
+    </div>
+  `;
   await load();
 }
 
@@ -40,7 +54,7 @@ function valuesFor(key) {
 }
 
 function renderCards() {
-  const root = document.getElementById('lists-root');
+  const root = document.getElementById('lists-cards');
   if (!root) return;
   root.innerHTML = CATEGORIES.map(cat => {
     const values = valuesFor(cat.key);
@@ -112,6 +126,27 @@ window.__listDel = async function(category, btn) {
     toast.info('Silindi', value);
   } catch (err) {
     toast.error('Silinemedi', err.message);
+  }
+};
+
+window.__scanLists = async function() {
+  const btn = document.getElementById('btn-scan-lists');
+  const oldHtml = btn.innerHTML;
+  btn.innerHTML = '<span class="material-symbols-outlined animate-spin">progress_activity</span> Taranıyor...';
+  btn.disabled = true;
+  
+  try {
+    const data = await api.post('/api/lists/scan', {});
+    state.balloons = data.balloons || [];
+    state.capacity = data.capacity || state.capacity;
+    state.options = data.options || {};
+    renderCards();
+    toast.success('Tarama Tamamlandı', 'Tüm geçmiş veriler listelere eklendi!');
+  } catch (err) {
+    toast.error('Tarama Başarısız', err.message);
+  } finally {
+    btn.innerHTML = oldHtml;
+    btn.disabled = false;
   }
 };
 

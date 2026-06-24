@@ -30,12 +30,100 @@ async function loadDashboard() {
     const sheets = sheetsData.sheets || [];
     const select = document.getElementById('dash-sheet');
     select.innerHTML = sheets.map(sheet => `<option value="${esc(sheet)}">${esc(sheet)}</option>`).join('');
-    if (sheets.length) select.value = sheets[sheets.length - 1];
-    await Promise.all([window.__dashLoad(), loadWeather()]);
+    if (sheets.length) {
+      select.value = sheets[sheets.length - 1];
+      await Promise.all([window.__dashLoad(), loadWeather()]);
+    } else {
+      showEmptyState();
+    }
   } catch (err) {
-    toast.error('Operasyon paneli yüklenemedi', err.message);
+    if (err.status === 404) {
+      showEmptyState();
+    } else {
+      toast.error('Operasyon paneli yüklenemedi', err.message);
+    }
   }
 }
+
+function showEmptyState() {
+  document.getElementById('operation-steps').innerHTML = `
+    <div class="col-span-full bg-surface-variant/30 rounded-2xl p-8 text-center border border-white/5">
+      <span class="material-symbols-outlined text-5xl text-primary mb-4 block">description</span>
+      <h3 class="text-xl font-headline text-on-surface mb-2">Henüz Uçuş Planı Dosyası Tanımlanmadı</h3>
+      <p class="text-on-surface-variant mb-6">İrtifa'yı kullanmaya başlamak için bir Uçuş Planı (Excel) dosyası oluşturmalısınız.</p>
+      <div class="flex flex-col items-center gap-4 mt-6">
+        <button class="btn-primary" onclick="window.__dashCreatePlan()">Yeni Excel Dosyası Oluştur</button>
+        <div class="text-on-surface-variant text-sm">veya</div>
+        <button class="btn-ghost shadow" onclick="window.__dashImportPlan()">Mevcut Excel Dosyasını Bağla</button>
+      </div>
+    </div>
+  `;
+  document.getElementById('dash-issues').innerHTML = '<div class="p-6 text-center text-on-surface-variant">Bekleniyor...</div>';
+  document.getElementById('dash-summary').innerHTML = '<div class="p-6 text-center text-on-surface-variant">Bekleniyor...</div>';
+}
+
+window.__dashCreatePlan = async function() {
+  const { modal } = await import('/app.js');
+  const now = new Date();
+  modal.open('Yeni Uçuş Planı Oluştur', `
+    <div class="space-y-4">
+      <div class="form-group">
+        <label class="form-label">Yıl</label>
+        <select id="dash-modal-year" class="form-select">
+          <option value="${now.getFullYear()}">${now.getFullYear()}</option>
+          <option value="${now.getFullYear() + 1}">${now.getFullYear() + 1}</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Ay</label>
+        <select id="dash-modal-month" class="form-select">
+          ${[...Array(12)].map((_, i) => {
+            const val = i + 1;
+            const name = new Date(2000, i, 1).toLocaleString('tr-TR', { month: 'long' });
+            return '<option value="' + val + '" ' + (now.getMonth() + 1 === val ? 'selected' : '') + '>' + name + '</option>';
+          }).join('')}
+        </select>
+      </div>
+    </div>
+  `, `
+    <button class="btn-ghost" onclick="window.__closeModal()">İptal</button>
+    <button class="btn-primary" onclick="window.__dashDoCreatePlan()">Oluştur ve Kaydet</button>
+  `);
+};
+
+window.__dashDoCreatePlan = async function() {
+  const { toast } = await import('/app.js');
+  const y = parseInt(document.getElementById('dash-modal-year').value);
+  const m = parseInt(document.getElementById('dash-modal-month').value);
+  window.__closeModal();
+  try {
+    const res = await api.post('/api/planning/generate-monthly', { year: y, month: m });
+    if (res.success) {
+      toast.success('Başarılı', res.message);
+      // Başarıyla oluşturuldu, dashboard'u yeniden yükle
+      await loadDashboard();
+    } else {
+      if (res.message !== 'İptal edildi') toast.error('Hata', res.message);
+    }
+  } catch (err) {
+    toast.error('Hata', err.message);
+  }
+};
+
+window.__dashImportPlan = async function() {
+  const { toast } = await import('/app.js');
+  try {
+    const res = await api.post('/api/planning/import-existing', {});
+    if (res.success) {
+      toast.success('Başarılı', res.message);
+      await loadDashboard();
+    } else {
+      if (res.message !== 'İptal edildi') toast.error('Hata', res.message);
+    }
+  } catch (err) {
+    toast.error('Hata', err.message);
+  }
+};
 
 window.__dashLoad = async function() {
   const sheet = document.getElementById('dash-sheet')?.value;

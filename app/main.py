@@ -13,6 +13,7 @@ import sqlite3
 from dataclasses import asdict
 from pathlib import Path
 from typing import Optional
+from pydantic import BaseModel
 
 from fastapi import FastAPI, File, HTTPException, Query, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -208,8 +209,14 @@ def api_app_shutdown() -> dict:
 
 @app.get("/api/auth/status")
 def api_auth_status(request: Request) -> dict:
+    s = _load_settings()
     user = auth_mod.user_for_session(request.cookies.get(auth_mod.SESSION_COOKIE))
-    return {"setup_required": auth_mod.setup_required(), "authenticated": bool(user), "user": user}
+    return {
+        "setup_required": auth_mod.setup_required(),
+        "authenticated": bool(user),
+        "user": user,
+        "is_setup_complete": s.is_setup_complete,
+    }
 
 
 @app.post("/api/auth/setup")
@@ -472,12 +479,69 @@ def api_generate_monthly(req: GenerateMonthlyRequest) -> dict[str, Any]:
 
     try:
         generate_monthly_flight_plan(req.year, req.month, save_path)
+        # Yeni planı ayarlara kaydet (otomatik geçiş)
+        s = _load_settings()
+        s.planning_xlsx = str(save_path)
+        settings_mod.save(s)
         # Sadece Windows'ta geçerli:
         if os.name == 'nt':
             os.startfile(save_path)
-        return {"success": True, "path": save_path, "message": "Uçuş planı oluşturuldu."}
+        return {"success": True, "path": save_path, "message": "Uçuş planı oluşturuldu ve ayarlandı."}
     except Exception as e:
         raise HTTPException(500, f"Oluşturma hatası: {e}")
+
+@app.post("/api/planning/import-existing")
+def api_import_existing() -> dict[str, Any]:
+    """Native dialog ile var olan bir Excel dosyasını seç ve ayarla."""
+    import tkinter as tk
+    from tkinter import filedialog
+    import os
+
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes('-topmost', True)
+
+    open_path = filedialog.askopenfilename(
+        title="Mevcut Uçuş Planını Seç",
+        defaultextension=".xlsx",
+        filetypes=[("Excel Dosyaları", "*.xlsx")]
+    )
+    root.destroy()
+
+    if not open_path:
+        return {"success": False, "message": "İptal edildi"}
+
+    try:
+        s = _load_settings()
+        s.planning_xlsx = str(open_path)
+        settings_mod.save(s)
+        return {"success": True, "path": open_path, "message": "Mevcut uçuş planı bağlandı."}
+    except Exception as e:
+        raise HTTPException(500, f"İçe aktarma hatası: {e}")
+
+@app.post("/api/settings/import-directory")
+def api_import_directory() -> dict[str, Any]:
+    """Native dialog ile klasör seç."""
+    import tkinter as tk
+    from tkinter import filedialog
+
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes('-topmost', True)
+
+    open_path = filedialog.askdirectory(title="Çıktı Klasörünü Seç")
+    root.destroy()
+
+    if not open_path:
+        return {"success": False, "message": "İptal edildi"}
+
+    try:
+        s = _load_settings()
+        s.output_dir = str(open_path)
+        settings_mod.save(s)
+        return {"success": True, "path": open_path, "message": "Çıktı klasörü ayarlandı."}
+    except Exception as e:
+        raise HTTPException(500, f"Klasör seçme hatası: {e}")
 
 
 # ═════════════════════════════════════════════════════════════════════

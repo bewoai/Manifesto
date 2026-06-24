@@ -289,7 +289,11 @@ async function bootAuth() {
     if (currentUser) {
       sidebar.style.display = '';
       header.style.display = '';
-      await navigateTo(getRoute());
+      if (!status.is_setup_complete && getRoute() !== 'onboarding') {
+        await navigateTo('onboarding');
+      } else {
+        await navigateTo(getRoute());
+      }
       return;
     }
     sidebar.style.display = 'none';

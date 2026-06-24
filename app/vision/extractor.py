@@ -167,14 +167,17 @@ def extract_passengers_from_vision(image_bytes: bytes, media_type: str, *, clien
                 {"type": "text", "text": "Extract all passenger information."},
             ],
         }],
-        output_config={"format": {"type": "json_schema", "schema": OUTPUT_SCHEMA}},
+        tools=[{
+            "name": "record_passengers",
+            "description": "Record extracted passengers",
+            "input_schema": OUTPUT_SCHEMA
+        }],
+        tool_choice={"type": "tool", "name": "record_passengers"}
     )
-    text = next((b.text for b in resp.content if getattr(b, "type", None) == "text"), "")
-    try:
-        data = json.loads(text)
-        return data.get("passengers", [])
-    except json.JSONDecodeError:
-        return []
+    tool_use = next((b for b in resp.content if getattr(b, "type", None) == "tool_use"), None)
+    if tool_use and isinstance(tool_use.input, dict):
+        return tool_use.input.get("passengers", [])
+    return []
 
 
 def process_image(

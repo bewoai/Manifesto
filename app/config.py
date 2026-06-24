@@ -6,6 +6,7 @@ kullanıcının Downloads klasöründen okunur, ortam değişkeniyle override ed
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -79,3 +80,15 @@ DEFAULT_BALLOON_CODES = ["BYF", "BTK", "BYJ", "BZR", "BZV"]
 DEFAULT_BALLOON_CAPACITY = 28   # balon başına maksimum yolcu (Sayfa2 KAPASİTE 112 = ~4×28)
 MAX_PAX = 28                    # tek rezervasyonun en fazla yolcu sayısı
 VEHICLE_CAPACITY = 16          # araç (ALIŞ ŞÖFÖR/kaptan) başına maksimum yolcu
+
+def get_resource_path(relative_path: str) -> Path:
+    """Gets the absolute path to a resource, works for dev and for PyInstaller."""
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = Path(sys._MEIPASS)
+    except Exception:
+        base_path = BASE_DIR
+    return base_path / relative_path
+
+MONTHLY_FLIGHT_TEMPLATE_PATH = get_resource_path("app/templates/monthly_flight_template.xlsx")
+

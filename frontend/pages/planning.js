@@ -19,19 +19,6 @@ export async function render(container) {
   renderHeader('Planlama', 'Uçuş günü yönetimi ve rezervasyon blokları');
 
   container.innerHTML = `
-    <!-- 1) Gün Seçimi -->
-    <div class="card mb-6 animate-in">
-      <div class="card-header">
-        <div class="card-title">
-          <span class="material-symbols-outlined">calendar_today</span> Gün Seçimi
-        </div>
-        <button class="btn-secondary flex items-center gap-2" id="btn-new-day" onclick="window.__createDay()">
-          <span class="material-symbols-outlined text-sm">add</span> Yeni Gün
-        </button>
-      </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label">Uçuş Günü</label>
           <select class="form-select" id="sheet-select">
             <option value="">Yükleniyor...</option>
           </select>
@@ -493,6 +480,120 @@ window.__submitReservation = async function() {
       return showCapacityChoice(body, err.detail);
     }
     toast.error('Oluşturma hatası', err.message);
+  }
+};
+
+window.__openMonthlyPlanModal = function() {
+  const d = new Date();
+  const currentYear = d.getFullYear();
+  const currentMonth = d.getMonth() + 1;
+  const ALLOW_CURRENT_MONTH = true;
+
+  const monthsTR = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
+
+  let yearOptions = '';
+  for (let y = currentYear; y <= currentYear + 2; y++) {
+    yearOptions += `<option value="${y}">${y}</option>`;
+  }
+
+  modal.open('Uçuş Planı Oluştur', `
+    <div class="mb-4 text-sm text-on-surface-variant">
+      Oluşturmak istediğiniz uçuş planı ayını seçin. Seçilen aya göre şablon çoğaltılarak temiz bir Excel dosyası kaydedilecektir.
+    </div>
+    <div class="form-group mb-4">
+      <label class="form-label">Yıl</label>
+      <select class="form-select w-full" id="mp-year" onchange="window.__renderMonthGrid()">
+        ${yearOptions}
+      </select>
+    </div>
+    <div class="form-group mb-6">
+      <label class="form-label">Ay</label>
+      <div id="mp-month-grid" class="grid grid-cols-3 gap-2"></div>
+    </div>
+    <div class="flex justify-end gap-3">
+      <button class="btn-secondary" onclick="modal.close()">İptal</button>
+      <button class="btn-primary" onclick="window.__submitMonthlyPlan()" id="btn-mp-submit" disabled>Devam / Oluştur</button>
+    </div>
+  `);
+
+  window.selectedMonthlyPlan = null;
+  window.__renderMonthGrid();
+};
+
+window.__renderMonthGrid = function() {
+  const d = new Date();
+  const currentYear = d.getFullYear();
+  const currentMonth = d.getMonth() + 1; // 1-12
+  const ALLOW_CURRENT_MONTH = true;
+
+  const yearSel = document.getElementById('mp-year');
+  if (!yearSel) return;
+  const selectedYear = parseInt(yearSel.value, 10);
+  const grid = document.getElementById('mp-month-grid');
+  
+  const monthsTR = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
+  
+  let html = '';
+  for (let m = 1; m <= 12; m++) {
+    let disabled = false;
+    if (selectedYear < currentYear) {
+      disabled = true;
+    } else if (selectedYear === currentYear) {
+      if (ALLOW_CURRENT_MONTH) {
+        if (m < currentMonth) disabled = true;
+      } else {
+        if (m <= currentMonth) disabled = true;
+      }
+    }
+
+    const isSelected = window.selectedMonthlyPlan === m;
+    const btnClass = disabled 
+      ? 'bg-surface-variant opacity-50 cursor-not-allowed text-on-surface-variant' 
+      : isSelected 
+        ? 'bg-primary text-on-primary ring-2 ring-primary ring-offset-2 ring-offset-surface' 
+        : 'bg-surface-variant hover:bg-surface text-on-surface cursor-pointer';
+
+    html += `<div class="p-3 text-center rounded-lg text-sm font-medium transition-all ${btnClass}" 
+                 ${!disabled ? `onclick="window.__selectMonthlyPlan(${m})"` : ''}>
+               ${monthsTR[m-1]}
+             </div>`;
+  }
+  grid.innerHTML = html;
+  
+  // Re-check submit button
+  const submitBtn = document.getElementById('btn-mp-submit');
+  if (submitBtn) {
+    submitBtn.disabled = !window.selectedMonthlyPlan;
+  }
+};
+
+window.__selectMonthlyPlan = function(m) {
+  window.selectedMonthlyPlan = m;
+  window.__renderMonthGrid();
+};
+
+window.__submitMonthlyPlan = async function() {
+  const year = parseInt(document.getElementById('mp-year').value, 10);
+  const month = window.selectedMonthlyPlan;
+  if (!year || !month) return;
+  
+  const btn = document.getElementById('btn-mp-submit');
+  btn.innerHTML = '<span class="material-symbols-outlined animate-spin">progress_activity</span> Bekleniyor...';
+  btn.disabled = true;
+
+  try {
+    const res = await api.post('/api/planning/generate-monthly', { year, month });
+    if (res.success) {
+      toast.success('Başarılı', res.message || 'Excel dosyası kaydedildi ve açıldı.');
+      modal.close();
+    } else {
+      toast.info('İptal', res.message || 'İşlem iptal edildi.');
+      modal.close();
+    }
+  } catch (err) {
+    toast.error('Oluşturma hatası', err.message);
+    btn.innerHTML = 'Devam / Oluştur';
+    btn.disabled = false;
   }
 };
 

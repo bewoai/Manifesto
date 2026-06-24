@@ -427,8 +427,6 @@ def _remember_values(s: settings_mod.Settings, fields: dict) -> bool:
 def api_lists_get() -> dict:
     """Kayıtlı tüm listeleri döndür (balonlar + operasyon değer listeleri)."""
     return _lists_payload(_load_settings())
-
-
 @app.get("/api/countries")
 def api_countries() -> dict:
     """Uyruk otomatik tamamlama için alpha-3 kod + ad listesi (country_map)."""
@@ -439,6 +437,52 @@ def api_countries() -> dict:
         key=lambda x: x["code"],
     )
     return {"countries": items}
+
+
+class GenerateMonthlyRequest(BaseModel):
+    year: int
+    month: int
+
+
+@app.post("/api/planning/generate-monthly")
+def api_generate_monthly(req: GenerateMonthlyRequest) -> dict[str, Any]:
+    """Native dialog ile yeni bir aylık plan dosyası oluştur."""
+    import tkinter as tk
+    from tkinter import filedialog
+    from app.flight_plan_generator import generate_monthly_flight_plan, MONTHS_TR
+    import os
+
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes('-topmost', True)
+
+    m_tr = MONTHS_TR[req.month].capitalize() if 1 <= req.month <= 12 else ""
+    default_name = f"Ucus_Plani_{req.year}_{req.month:02d}_{m_tr}.xlsx"
+
+    save_path = filedialog.asksaveasfilename(
+        title="Aylık Uçuş Planı Kaydet",
+        initialfile=default_name,
+        defaultextension=".xlsx",
+        filetypes=[("Excel Dosyaları", "*.xlsx")]
+    )
+    root.destroy()
+
+    if not save_path:
+        return {"success": False, "message": "İptal edildi"}
+
+    try:
+        generate_monthly_flight_plan(req.year, req.month, save_path)
+        # Sadece Windows'ta geçerli:
+        if os.name == 'nt':
+            os.startfile(save_path)
+        return {"success": True, "path": save_path, "message": "Uçuş planı oluşturuldu."}
+    except Exception as e:
+        raise HTTPException(500, f"Oluşturma hatası: {e}")
+
+
+# ═════════════════════════════════════════════════════════════════════
+#  Planlama: Blok Ekle / Sil
+# ═════════════════════════════════════════════════════════════════════
 
 
 @app.post("/api/lists/add")

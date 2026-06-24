@@ -106,6 +106,22 @@ window.__loadDay = async function() {
     state.revision = data.workbook_revision || '';
     state.readiness = data.readiness || null;
     try { state.lists = (await api.get('/api/lists')).options || {}; } catch (e) { state.lists = {}; }
+    
+    const filterSelect = document.getElementById('block-filter');
+    if (filterSelect) {
+      const currentVal = filterSelect.value;
+      let html = `<option value="">Tüm rezervasyonlar</option>
+                  <option value="missing">Pasaportu eksik</option>
+                  <option value="ready">Kimliği hazır</option>`;
+      state.balloons.forEach(b => {
+        if (b) html += `<option value="balloon_${b}">${b} balonu</option>`;
+      });
+      filterSelect.innerHTML = html;
+      if (Array.from(filterSelect.options).some(o => o.value === currentVal)) {
+        filterSelect.value = currentVal;
+      }
+    }
+
     renderBlocks();
     renderBalloonLoad();
     toast.success('Gün yüklendi', `${state.blocks.length} rezervasyon bloku bulundu`);
@@ -148,11 +164,16 @@ function renderBlocks() {
     }).join('');
     
     const detail = state.selectedBlock === i ? renderBlockDetails(b, i) : '';
+    const isRowSort = (document.getElementById('block-sort')?.value || 'row') === 'row';
+    const dragAttrs = isRowSort ? `draggable="true" ondragstart="window.__onDragStart(event, ${i})" ondragend="window.__onDragEnd(event)" ondragover="window.__onDragOver(event)" ondragleave="window.__onDragLeave(event)" ondrop="window.__onDrop(event, ${i})"` : '';
     return `
-    <div class="block-shell ${state.selectedBlock === i ? 'selected' : ''}" id="block-${i}">
+    <div class="block-shell ${state.selectedBlock === i ? 'selected' : ''}" id="block-${i}" ${dragAttrs}>
     <div class="block-item ${state.selectedBlock === i ? 'selected' : ''}"
          onclick="window.__selectBlock(${i})">
-      <div class="block-pax">PAX ${b.pax ?? '?'}</div>
+      <div class="block-pax" ${isRowSort ? 'style="cursor: grab;" title="Sıralamak için sürükleyin"' : ''}>
+        ${isRowSort ? '<span class="material-symbols-outlined text-[14px] mr-1 opacity-50">drag_indicator</span>' : ''}
+        PAX ${b.pax ?? '?'}
+      </div>
       <div class="block-main">
         <div class="block-info">
           <span class="flex items-center gap-1 font-bold text-on-surface">
@@ -202,6 +223,9 @@ function filteredBlocks() {
   }
   if (filter) {
     rows = rows.filter(({ block }) => {
+      if (filter.startsWith('balloon_')) {
+        return block.balloon === filter.replace('balloon_', '');
+      }
       const missing = (block.passengers || []).some(p => !p.name || !p.passport_no || !p.nationality || !p.sex);
       return filter === 'missing' ? missing : !missing;
     });
@@ -233,6 +257,48 @@ function renderBalloonLoad() {
 window.__selectBlock = function(index) {
   state.selectedBlock = state.selectedBlock === index ? null : index;
   renderBlocks();
+};
+
+window.__onDragStart = function(e, index) {
+  e.dataTransfer.setData('text/plain', index);
+  e.target.style.opacity = '0.5';
+};
+window.__onDragEnd = function(e) {
+  e.target.style.opacity = '1';
+};
+window.__onDragOver = function(e) {
+  e.preventDefault();
+  const shell = e.target.closest('.block-shell');
+  if (shell) shell.style.borderTop = '2px solid var(--primary)';
+};
+window.__onDragLeave = function(e) {
+  const shell = e.target.closest('.block-shell');
+  if (shell) shell.style.borderTop = '';
+};
+window.__onDrop = async function(e, targetIndex) {
+  e.preventDefault();
+  const shell = e.target.closest('.block-shell');
+  if (shell) shell.style.borderTop = '';
+  
+  const sourceIndex = parseInt(e.dataTransfer.getData('text/plain'), 10);
+  if (sourceIndex === targetIndex || isNaN(sourceIndex)) return;
+  
+  const sourceBlock = state.blocks[sourceIndex];
+  const targetBlock = state.blocks[targetIndex];
+  if (!sourceBlock || !targetBlock) return;
+  
+  try {
+    toast.info('Sıralanıyor', 'Excel satırları güncelleniyor...');
+    const res = await api.post('/api/planning/reorder-block', {
+      sheet: state.currentSheet,
+      source_rows: sourceBlock.rows,
+      target_row: targetBlock.lead_row,
+      expected_revision: state.revision
+    });
+    window.__loadDay();
+  } catch (err) {
+    toast.error('Sıralama hatası', err.message);
+  }
 };
 
 function renderBlockDetails(block, index) {
@@ -341,6 +407,13 @@ window.__saveOperation = async function() {
     toast.warning('Önce bir gün ve blok seçin');
     return;
   }
+  
+  const btn = document.querySelector('button[onclick="window.__saveOperation()"]');
+  if (btn) {
+    btn.innerHTML = '<span class="material-symbols-outlined animate-spin text-sm" style="vertical-align: text-bottom; margin-right: 4px;">progress_activity</span> Kaydediliyor...';
+    btn.disabled = true;
+  }
+
   const block = state.blocks[state.selectedBlock];
   const fields = {};
   for (const key of ['pax','room','hotel','pickup','reserved_by','agency','company','balloon','pilot','driver','coming_place','note']) {
@@ -368,9 +441,13 @@ window.__saveOperation = async function() {
           });
           toast.success('Kaydedildi', 'PAX ve operasyon bilgileri güncellendi');
           return window.__loadDay();
-        } catch (retryErr) { return toast.error('Kaydetme hatası', retryErr.message); }
+        } catch (retryErr) { 
+          if (btn) { btn.innerHTML = '<span class="material-symbols-outlined text-sm">save</span> Kaydet'; btn.disabled = false; }
+          return toast.error('Kaydetme hatası', retryErr.message); 
+        }
       }
     }
+    if (btn) { btn.innerHTML = '<span class="material-symbols-outlined text-sm">save</span> Kaydet'; btn.disabled = false; }
     toast.error('Kaydetme hatası', err.message);
   }
 };
@@ -459,6 +536,12 @@ window.__submitReservation = async function() {
   const pax = parseInt(document.getElementById('nr-pax')?.value, 10);
   if (!pax || pax < 1 || pax > 28) { toast.warning('PAX 1–28 arası olmalı'); return; }
 
+  const btn = document.querySelector('button[onclick="window.__submitReservation()"]');
+  if (btn) {
+    btn.innerHTML = '<span class="material-symbols-outlined animate-spin text-sm" style="vertical-align: text-bottom; margin-right: 4px;">progress_activity</span> Kaydediliyor...';
+    btn.disabled = true;
+  }
+
   const body = { sheet: state.currentSheet, pax };
   for (const key of ['hotel','agency','room','reserved_by','note']) {
     const v = document.getElementById(`nr-${key}`)?.value.trim();
@@ -476,6 +559,10 @@ window.__submitReservation = async function() {
     }
     window.__loadDay();
   } catch (err) {
+    if (btn) {
+      btn.innerHTML = 'Oluştur & Balon Ata';
+      btn.disabled = false;
+    }
     if (err.detail?.code === 'capacity_confirmation_required') {
       return showCapacityChoice(body, err.detail);
     }

@@ -340,6 +340,49 @@ def delete_reservation(planning_xlsx: Path, sheet: str, rows: list[int],
     return target
 
 
+def reorder_reservation(planning_xlsx: Path, sheet: str, source_rows: list[int], target_row: int, out_path: Optional[Path] = None) -> Path:
+    """Belirli bir rezervasyon bloğunu (source_rows) hedef satırın (target_row) üstüne taşır."""
+    if not source_rows or target_row in source_rows:
+        return planning_xlsx
+    
+    wb = openpyxl.load_workbook(planning_xlsx)
+    ws = wb[sheet]
+    lo, hi = min(source_rows), max(source_rows)
+    num_rows = hi - lo + 1
+    
+    _unmerge_rows(ws, lo, hi)
+    
+    ws.insert_rows(target_row, num_rows)
+    
+    new_lo = lo + num_rows if lo >= target_row else lo
+    
+    from copy import copy
+    for r_offset in range(num_rows):
+        old_r = new_lo + r_offset
+        new_r = target_row + r_offset
+        for col in range(1, ws.max_column + 1):
+            sc = ws.cell(row=old_r, column=col)
+            tc = ws.cell(row=new_r, column=col)
+            tc.value = sc.value
+            if sc.has_style:
+                tc.font = copy(sc.font)
+                tc.border = copy(sc.border)
+                tc.fill = copy(sc.fill)
+                tc.number_format = copy(sc.number_format)
+                tc.protection = copy(sc.protection)
+                tc.alignment = copy(sc.alignment)
+    
+    ws.delete_rows(new_lo, num_rows)
+    
+    final_target = target_row if target_row <= lo else target_row - num_rows
+    _merge_lead_columns(ws, final_target, final_target + num_rows - 1)
+    
+    target = out_path or planning_xlsx
+    wb.save(target)
+    wb.close()
+    return target
+
+
 def delete_passenger_from_reservation(
     planning_xlsx: Path,
     sheet: str,

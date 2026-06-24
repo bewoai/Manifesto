@@ -76,7 +76,7 @@ M_COL_PASSPORT = 4     # PASAPORT/KİMLİK NO
 SEX_TR = {"M": "Erkek", "F": "Kadın"}
 
 # Balon atama (brief §15 revize: balonu artık sistem otomatik atar)
-DEFAULT_BALLOON_CODES = ["BYF", "BTK", "BYJ", "BZR", "BZV"]
+DEFAULT_BALLOON_CODES = []
 DEFAULT_BALLOON_CAPACITY = 28   # balon başına maksimum yolcu (Sayfa2 KAPASİTE 112 = ~4×28)
 MAX_PAX = 28                    # tek rezervasyonun en fazla yolcu sayısı
 VEHICLE_CAPACITY = 16          # araç (ALIŞ ŞÖFÖR/kaptan) başına maksimum yolcu

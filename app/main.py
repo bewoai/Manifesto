@@ -46,6 +46,7 @@ from app.manifest.planning import (
     delete_reservation as planning_delete_reservation,
     list_sheets as planning_list_sheets,
     create_day_sheet as planning_create_day_sheet,
+    reorder_reservation as planning_reorder_reservation,
     delete_passenger_from_reservation as planning_delete_passenger,
     resize_reservation as planning_resize_reservation,
     write_identity as planning_write_identity,
@@ -815,6 +816,39 @@ def api_planning_create_block(body: dict, request: Request) -> dict:
         "workbook_revision": revision,
         "backup": backup.name,
     }
+
+
+@app.post("/api/planning/reorder-block")
+def api_planning_reorder_block(body: dict, request: Request) -> dict:
+    """Bir rezervasyon bloğunu (source_rows) hedef satırın (target_row) üstüne taşır."""
+    sheet = body.get("sheet", "").strip()
+    source_rows = body.get("source_rows", [])
+    target_row = body.get("target_row")
+    if not sheet:
+        raise HTTPException(status_code=422, detail="sheet alanı gerekli.")
+    if not source_rows or target_row is None:
+        raise HTTPException(status_code=422, detail="source_rows ve target_row gerekli.")
+    
+    s = _load_settings()
+    if s.uses_google_sheets():
+        raise HTTPException(status_code=400, detail="Yeniden sıralama şu an yalnızca Excel modunda.")
+    xlsx_path = s.planning_path()
+    if not xlsx_path.exists():
+        raise HTTPException(status_code=404, detail="Planlama dosyası bulunamadı.")
+    
+    try:
+        _, revision, backup = atomic_update(
+            xlsx_path,
+            expected_revision=body.get("expected_revision"),
+            reason="reorder_reservation",
+            mutator=lambda temp: planning_reorder_reservation(temp, sheet, source_rows, target_row),
+        )
+    except (WorkbookConflictError, WorkbookLockedError) as e:
+        raise _atomic_error(e)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Sıralama hatası: {e}")
+    
+    return {"success": True, "workbook_revision": revision, "backup": backup.name}
 
 
 @app.post("/api/planning/delete-block")

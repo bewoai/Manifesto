@@ -279,9 +279,11 @@ function renderFileList() {
 
 window.__removeFile = function(i) {
   if (state.records.length) syncCardsToState();
+  const fileToRemove = state.files[i];
   state.files.splice(i, 1);
-  if (state.records.length) {
-    state.records.splice(i, 1);
+  if (state.records.length && fileToRemove) {
+    // Aynı dosyadan üretilmiş tüm kayıtları (yolcuları) sil
+    state.records = state.records.filter(r => r._source_file_name !== fileToRemove.name);
     if (state.records.length) renderCards();
     else document.getElementById('cards-section').style.display = 'none';
   }
@@ -363,11 +365,12 @@ function renderCards() {
 
     // Try to create object URL for thumbnail
     let thumbHtml;
-    if (state.files[i]) {
-      const url = URL.createObjectURL(state.files[i]);
+    const sourceFile = state.files.find(f => f.name === rec._source_file_name);
+    if (sourceFile) {
+      const url = URL.createObjectURL(sourceFile);
       thumbHtml = `<img src="${url}" class="w-full md:w-32 h-32 object-cover rounded-2xl border border-white/5" alt="Passport ${i+1}" />`;
     } else {
-      thumbHtml = `<div class="w-full md:w-32 h-32 bg-surface-light rounded-2xl border border-white/5 flex flex-col items-center justify-center text-on-surface-variant"><span class="material-symbols-outlined text-3xl mb-1 opacity-50">image</span><span class="text-[10px] text-center px-2 w-full truncate opacity-70">${esc(rec.source || '')}</span></div>`;
+      thumbHtml = `<div class="w-full md:w-32 h-32 bg-surface-light rounded-2xl border border-white/5 flex flex-col items-center justify-center text-on-surface-variant"><span class="material-symbols-outlined text-3xl mb-1 opacity-50">image</span><span class="text-[10px] text-center px-2 w-full truncate opacity-70">${esc(rec._source_file_name || rec.source || '')}</span></div>`;
     }
 
     return `
@@ -436,7 +439,8 @@ function renderCards() {
 }
 
 window.__retryClaude = async function(i) {
-  const file = state.files[i];
+  const rec = state.records[i];
+  const file = state.files.find(f => f.name === rec._source_file_name);
   if (!file) return toast.warning('Görsel bulunamadı');
   syncCardsToState();
   const form = new FormData();
@@ -447,7 +451,10 @@ window.__retryClaude = async function(i) {
       const payload = await res.json().catch(() => ({ detail: res.statusText }));
       throw new Error(typeof payload.detail === 'string' ? payload.detail : payload.detail?.message);
     }
-    state.records[i] = await res.json();
+    const data = await res.json();
+    // Eger bu da birden fazla record döndürürse, sadece ilkini mevcut karta yazıyoruz:
+    state.records[i] = data.records ? data.records[0] : data;
+    state.records[i]._source_file_name = file.name;
     renderCards();
     toast.success('Yeniden tarandı', state.records[i].green ? 'Sonuç doğrulandı' : 'Sonuç hâlâ kontrol gerektiriyor');
   } catch (err) { toast.error('Claude taraması başarısız', err.message); }
@@ -467,11 +474,19 @@ function syncCardsToState() {
   }
 }
 
-// Tek tuşla bir taramayı kaldır (kart + ilgili dosya birlikte silinir)
+// Tek tuşla bir taramayı kaldır
 window.__removeCard = function(i) {
   syncCardsToState();
-  state.records.splice(i, 1);
-  state.files.splice(i, 1);
+  const rec = state.records.splice(i, 1)[0];
+  
+  // Eğer bu dosyaya ait başka kayıt kalmadıysa dosyayı da silebiliriz
+  if (rec && rec._source_file_name && !state.records.some(r => r._source_file_name === rec._source_file_name)) {
+    const fileIndex = state.files.findIndex(f => f.name === rec._source_file_name);
+    if (fileIndex !== -1) {
+      state.files.splice(fileIndex, 1);
+    }
+  }
+  
   renderFileList();
   if (!state.records.length) {
     document.getElementById('cards-list').innerHTML = '';

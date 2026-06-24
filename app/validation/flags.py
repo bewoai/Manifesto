@@ -20,6 +20,7 @@ class Flag(str, Enum):
     PAX_MISMATCH = "pax_mismatch"
     UNREADABLE = "unreadable"
     MRZ_INCONSISTENT = "mrz_inconsistent"  # uyruk ≠ issuing → satır/isim şüpheli
+    FREE_TEXT_UNVERIFIED = "free_text_unverified"  # MRZ yok, serbest metinden çıkarıldı
 
 
 @dataclass

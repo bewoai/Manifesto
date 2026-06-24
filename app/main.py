@@ -1350,7 +1350,7 @@ async def api_passport_upload(
                     detail="Claude modu aktif ama API anahtarı ayarlanmamış.",
                 )
             mt = media_type_for(Path(filename))
-            record = process_image(
+            records = process_image(
                 image_bytes,
                 source=filename,
                 media_type=mt,
@@ -1359,37 +1359,40 @@ async def api_passport_upload(
                 settings=s,
                 seen_document_numbers=seen_doc_numbers,
             )
-            field_data = record.to_fields()
-            conn = connect()
-            try:
-                cursor = conn.execute(
-                    """
-                    INSERT INTO passport_extraction(
-                        source_media_id, mrz_format, nationality, sex, name,
-                        document_number, birth_date, expiry_date, checks_ok, flags, status
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
-                    """,
-                    (
-                        str(staged_path),
-                        record.mrz.format if record.mrz else None,
-                        field_data.get("nationality"),
-                        field_data.get("sex"),
-                        field_data.get("name"),
-                        field_data.get("passport_no"),
-                        field_data.get("birth_date"),
-                        field_data.get("expiry_date"),
-                        int(bool(record.is_green)),
-                        ",".join(field_data.get("flags", [])),
-                    ),
-                )
-                conn.commit()
-                field_data["extraction_id"] = cursor.lastrowid
-            finally:
-                conn.close()
-            # Duplicate tespiti: başarılı okunan belge no'larını kaydet
-            if record.mrz and record.mrz.document_number:
-                seen_doc_numbers.add(record.mrz.document_number)
-            results.append(field_data)
+            for record in records:
+                field_data = record.to_fields()
+                # Frontend için source file index (varsa takip edebilmesi için ekstra flag)
+                field_data["_source_file_name"] = filename
+                conn = connect()
+                try:
+                    cursor = conn.execute(
+                        """
+                        INSERT INTO passport_extraction(
+                            source_media_id, mrz_format, nationality, sex, name,
+                            document_number, birth_date, expiry_date, checks_ok, flags, status
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+                        """,
+                        (
+                            str(staged_path),
+                            record.mrz.format if record.mrz else None,
+                            field_data.get("nationality"),
+                            field_data.get("sex"),
+                            field_data.get("name"),
+                            field_data.get("passport_no"),
+                            field_data.get("birth_date"),
+                            field_data.get("expiry_date"),
+                            int(bool(record.is_green)),
+                            ",".join(field_data.get("flags", [])),
+                        ),
+                    )
+                    conn.commit()
+                    field_data["extraction_id"] = cursor.lastrowid
+                finally:
+                    conn.close()
+                # Duplicate tespiti: başarılı okunan belge no'larını kaydet
+                if record.mrz and record.mrz.document_number:
+                    seen_doc_numbers.add(record.mrz.document_number)
+                results.append(field_data)
         else:
             # Manuel mod — boş kayıt döndür
             results.append({

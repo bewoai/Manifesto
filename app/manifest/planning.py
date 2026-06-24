@@ -261,6 +261,21 @@ def create_reservation(
     # yeni blok sınırlarımıza uymayan birleşik hücreler yazımı engeller).
     _unmerge_rows(ws, lead, last)
 
+    from copy import copy
+    ref_row = config.PLANNING_FIRST_DATA_ROW
+    for r in rows:
+        if r > ref_row:
+            for c in range(1, ws.max_column + 1):
+                sc = ws.cell(row=ref_row, column=c)
+                tc = ws.cell(row=r, column=c)
+                if sc.has_style:
+                    tc.font = copy(sc.font)
+                    tc.border = copy(sc.border)
+                    tc.fill = copy(sc.fill)
+                    tc.number_format = copy(sc.number_format)
+                    tc.protection = copy(sc.protection)
+                    tc.alignment = copy(sc.alignment)
+
     ws.cell(lead, config.COL_PAX).value = int(pax)
     for key, col in config.OPERATION_FIELD_TO_COL.items():
         if key == "pax" or key not in fields:
@@ -466,6 +481,22 @@ def resize_reservation(
                 raise ValueError(
                     "PAX artırılamadı; rezervasyonun altındaki satırlar başka veri içeriyor."
                 )
+        
+        from copy import copy
+        ref_row = config.PLANNING_FIRST_DATA_ROW
+        for row in range(old_last + 1, new_last + 1):
+            if row > ref_row:
+                for col in range(1, ws.max_column + 1):
+                    sc = ws.cell(row=ref_row, column=col)
+                    tc = ws.cell(row=row, column=col)
+                    if sc.has_style:
+                        tc.font = copy(sc.font)
+                        tc.border = copy(sc.border)
+                        tc.fill = copy(sc.fill)
+                        tc.number_format = copy(sc.number_format)
+                        tc.protection = copy(sc.protection)
+                        tc.alignment = copy(sc.alignment)
+
         for key in config.BLOCK_WIDE_OPERATION_FIELDS:
             col = config.OPERATION_FIELD_TO_COL[key]
             value = ws.cell(lead_row, col).value

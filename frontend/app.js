@@ -152,9 +152,9 @@ function renderSidebar(activeRoute) {
     ...(currentUser?.role === 'admin'
       ? [
           { id: 'admin', label: 'Yönetim', route: 'admin' },
-          { id: 'settings', label: 'Ayarlar', route: 'settings' },
         ]
       : []),
+    { id: 'settings', label: 'Ayarlar', route: 'settings' },
   ];
 
   const navHtml = (items) => items.map((item) => {
@@ -286,7 +286,7 @@ async function loadPage(name) {
 async function navigateTo(route) {
   const pageBody = document.getElementById('page-body');
   let pageName = route || 'dashboard';
-  if (['admin', 'settings'].includes(pageName) && currentUser?.role !== 'admin') {
+  if (['admin'].includes(pageName) && currentUser?.role !== 'admin') {
     pageName = 'dashboard';
     window.location.hash = '#/dashboard';
   }
@@ -369,7 +369,7 @@ async function bootWorkspace(authStatus = {}) {
   appStatus.skipped = status.skipped;
   appStatus.version = status.version || '';
 
-  if (!appStatus.licensed && !appStatus.skipped) {
+  if (!appStatus.licensed) {
     sidebar.style.display = 'none';
     header.style.display = 'none';
     if (main) main.classList.remove('md:ml-72');

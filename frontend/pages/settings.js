@@ -345,7 +345,10 @@ window.__saveSettings = async function() {
     const { appStatus } = await import('/app.js');
     const status = await api.get('/api/app/status');
     if (status.licensed !== appStatus.licensed) {
-      setTimeout(() => window.location.reload(), 1000);
+      setTimeout(() => {
+        if (window.__allowReload) window.__allowReload();
+        window.location.reload();
+      }, 1000);
     }
   } catch (err) {
     toast.error('Kaydetme hatası', err.message);

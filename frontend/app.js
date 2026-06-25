@@ -127,6 +127,8 @@ window.__closeModal = () => modal.close();
 
 let appShutdownRequested = false;
 
+window.__allowReload = () => { appShutdownRequested = true; };
+
 window.addEventListener('beforeunload', (event) => {
   if (appShutdownRequested) return;
   event.preventDefault();

@@ -43,6 +43,24 @@ DEFAULT_MODEL = "claude-sonnet-4-6"  # Ana MRZ/Liste okuma modeli (Settings'ten 
 FALLBACK_MODEL = "claude-opus-4-8"   # Premium fallback modeli
 
 
+def _stable_device_id(settings_path: Path, preferred: str = "") -> str:
+    """Ayarlar sıfırlansa bile bu Windows kullanıcısında cihaz kimliğini koru."""
+    device_path = settings_path.with_name("device_id")
+    try:
+        stored = device_path.read_text(encoding="ascii").strip()
+        if stored:
+            return stored
+    except OSError:
+        pass
+    device_id = preferred.strip() or str(uuid.uuid4())
+    try:
+        device_path.parent.mkdir(parents=True, exist_ok=True)
+        device_path.write_text(device_id, encoding="ascii")
+    except OSError:
+        pass
+    return device_id
+
+
 @dataclass
 class Settings:
     is_setup_complete: bool = False
@@ -171,12 +189,14 @@ def load(path: Optional[Path] = None) -> Settings:
         p = LEGACY_SETTINGS_PATH
     if not p.exists():
         settings = Settings()
-        settings.irtifa_device_id = str(uuid.uuid4())
+        settings.irtifa_device_id = _stable_device_id(p)
         return settings
     try:
         data = json.loads(p.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
-        return Settings()
+        settings = Settings()
+        settings.irtifa_device_id = _stable_device_id(p)
+        return settings
     known = {k: data[k] for k in Settings.__dataclass_fields__ if k in data}
     settings = Settings(**known).normalized()
     try:
@@ -188,8 +208,9 @@ def load(path: Optional[Path] = None) -> Settings:
     except Exception:
         pass
         
-    if not settings.irtifa_device_id:
-        settings.irtifa_device_id = str(uuid.uuid4())
+    settings.irtifa_device_id = _stable_device_id(
+        p, settings.irtifa_device_id
+    )
         
     return settings
 
@@ -198,8 +219,9 @@ def save(settings: Settings, path: Optional[Path] = None) -> Path:
     p = Path(path) if path else SETTINGS_PATH
     p.parent.mkdir(parents=True, exist_ok=True)
     
-    if not settings.irtifa_device_id:
-        settings.irtifa_device_id = str(uuid.uuid4())
+    settings.irtifa_device_id = _stable_device_id(
+        p, settings.irtifa_device_id
+    )
         
     data = asdict(settings)
     from app.secret_store import migrate_file_secret, set_secret

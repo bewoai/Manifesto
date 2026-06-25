@@ -1,44 +1,32 @@
-"""Irtifa OCR Server istemcisi."""
-import requests
-import json
-from dataclasses import dataclass
-from typing import Optional, Dict, Any, Tuple
+"""İrtifa OCR sunucusu istemcisi."""
+import logging
+from typing import Optional, Tuple
 import datetime as _dt
+import requests
+
 from app.mrz.parser import MRZResult
 from app.validation.flags import ValidationOutcome, Flag
 
-class IrtifaOcrError(Exception):
-    pass
+logger = logging.getLogger("irtifa_ocr")
 
 def call_irtifa_ocr_server(
     image_bytes: bytes,
     server_url: str,
     license_key: str,
     device_id: str,
-    timeout_seconds: int = 15
+    media_type: str = "image/jpeg",
+    timeout_seconds: int = 45,
 ) -> Tuple[Optional[MRZResult], ValidationOutcome, Optional[str], float, str, Optional[str]]:
     """
     Sunucuya OCR isteği gönderir ve Irtifa sistemine uygun sonuçları döner.
     Dönüş: (mrz, outcome, error_msg, confidence_score, processing_route, ai_model_used)
     """
-    import requests
-    from requests.exceptions import Timeout, RequestException
-    from app.mrz.parser import MRZResult
-    from app.validation.flags import ValidationOutcome, Flag
-
     if not license_key:
-        print("[OCR_DEBUG] No license key provided.")
         return None, ValidationOutcome(flags=[Flag.UNREADABLE]), "OCR için lisans anahtarı gerekli.", 0.0, "irtifa_server", None
-
-    # Mask license key for logging
-    last_4 = license_key[-4:] if len(license_key) > 4 else license_key
-    print(f"[OCR_DEBUG] Mode: VISION_MODE_IRTIFA_SERVER")
-    print(f"[OCR_DEBUG] License Exists: True (ends with {last_4})")
-    print(f"[OCR_DEBUG] Device ID Exists: {bool(device_id)}")
-    
-    endpoint = server_url.rstrip("/") + "/ocr/passport"
-    print(f"[OCR_DEBUG] Request URL: {endpoint}")
-    print(f"[OCR_DEBUG] Fallback Provider Used: False (Hard-disabled in Customer Build)")
+    if not image_bytes:
+        return None, ValidationOutcome(flags=[Flag.UNREADABLE]), "Görsel dosyası boş.", 0.0, "irtifa_server", None
+    if len(image_bytes) > 10 * 1024 * 1024:
+        return None, ValidationOutcome(flags=[Flag.UNREADABLE]), "Görsel en fazla 10 MB olabilir.", 0.0, "irtifa_server", None
 
     if not device_id:
         return None, ValidationOutcome(flags=[Flag.UNREADABLE]), "Cihaz kimliği oluşturulamadı.", 0.0, "irtifa_server", None
@@ -46,39 +34,29 @@ def call_irtifa_ocr_server(
     if not server_url:
         return None, ValidationOutcome(flags=[Flag.UNREADABLE]), "Sunucu adresi belirtilmedi.", 0.0, "irtifa_server", None
 
+    endpoint = server_url.rstrip("/") + "/ocr/passport"
     headers = {
-        "x-license-key": license_key.encode("utf-8") if isinstance(license_key, str) else license_key,
-        "x-device-id": device_id.encode("utf-8") if isinstance(device_id, str) else device_id,
+        "x-license-key": license_key,
+        "x-device-id": device_id,
     }
+    extension = {
+        "image/png": "png",
+        "image/webp": "webp",
+        "image/gif": "gif",
+    }.get(media_type, "jpg")
     files = {
-        "file": ("image.jpg", image_bytes, "image/jpeg")
+        "file": (f"passport.{extension}", image_bytes, media_type)
     }
-
-    import logging
-    logger = logging.getLogger("irtifa_ocr")
-    logger.setLevel(logging.INFO)
-    if not logger.handlers:
-        ch = logging.StreamHandler()
-        ch.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
-        logger.addHandler(ch)
-
-    logger.info(f"Calling OCR Server Endpoint: {endpoint}")
-    masked_key = f"{license_key[:3]}***{license_key[-3:]}" if license_key and len(license_key) > 6 else ("SET" if license_key else "MISSING")
-    logger.info(f"License Key: {masked_key}, Device ID: {'SET' if device_id else 'MISSING'}")
 
     try:
-        print(f"[OCR_DEBUG] Sending POST request...")
         response = requests.post(endpoint, headers=headers, files=files, timeout=timeout_seconds)
-        print(f"[OCR_DEBUG] Server Response Status: {response.status_code}")
-        logger.info(f"Response Status Code: {response.status_code}")
     except requests.exceptions.RequestException as e:
-        logger.error(f"Request failed: {str(e)}")
+        logger.warning("OCR sunucusuna ulaşılamadı: %s", e)
         return None, ValidationOutcome(flags=[Flag.UNREADABLE]), "OCR servisine ulaşılamıyor. İnternet bağlantınızı kontrol edin veya daha sonra tekrar deneyin.", 0.0, "irtifa_server", None
 
     if response.status_code != 200:
-        logger.error(f"Error Response Body: {response.text}")
         error_msg = "OCR servisi geçici bir hata verdi. Lütfen tekrar deneyin."
-        if response.status_code == 401:
+        if response.status_code in {401, 403}:
             try:
                 err_detail = response.json().get("detail", "").lower()
                 if "device" in err_detail:
@@ -93,6 +71,8 @@ def call_irtifa_ocr_server(
             error_msg = "Desteklenmeyen dosya türü."
         elif response.status_code == 413:
             error_msg = "Dosya boyutu çok büyük."
+        elif response.status_code == 429:
+            error_msg = "OCR kullanım kotası doldu. Daha sonra tekrar deneyin veya yöneticinizle iletişime geçin."
             
         return None, ValidationOutcome(flags=[Flag.UNREADABLE]), error_msg, 0.0, "irtifa_server", None
 

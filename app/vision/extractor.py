@@ -154,6 +154,29 @@ def _make_client(api_key: Optional[str] = None):
     return anthropic.Anthropic(api_key=api_key) if api_key else anthropic.Anthropic()
 
 
+def _normalize_anthropic_payload(payload: dict) -> dict:
+    """Eski tek-belge ve yeni çok-yolcu yanıtlarını aynı sözleşmeye çevir."""
+    if not isinstance(payload, dict):
+        return {"passengers": [], "overall_confidence": 0.0}
+    if isinstance(payload.get("passengers"), list):
+        return {
+            **payload,
+            "overall_confidence": float(payload.get("overall_confidence", 0.0) or 0.0),
+        }
+    if payload.get("format") or payload.get("lines"):
+        passenger = {
+            "format": payload.get("format", "NONE"),
+            "lines": payload.get("lines") or payload.get("mrz_lines") or [],
+            "confidence": float(payload.get("confidence", 1.0) or 0.0),
+            "fields": payload.get("fields") or {},
+        }
+        return {
+            "passengers": [passenger],
+            "overall_confidence": passenger["confidence"],
+        }
+    return {"passengers": [], "overall_confidence": 0.0}
+
+
 def call_anthropic(image_bytes: bytes, media_type: str, client, model: str, system_prompt: str) -> dict:
     b64 = base64.standard_b64encode(image_bytes).decode("utf-8")
     try:
@@ -178,10 +201,90 @@ def call_anthropic(image_bytes: bytes, media_type: str, client, model: str, syst
         )
         tool_use = next((b for b in resp.content if getattr(b, "type", None) == "tool_use"), None)
         if tool_use and isinstance(tool_use.input, dict):
-            return tool_use.input
+            return _normalize_anthropic_payload(tool_use.input)
+        text_block = next(
+            (
+                block for block in resp.content
+                if getattr(block, "type", None) == "text"
+                and getattr(block, "text", None)
+            ),
+            None,
+        )
+        if text_block:
+            return _normalize_anthropic_payload(json.loads(text_block.text))
     except Exception as e:
         print(f"Anthropic API Error ({model}): {e}")
-    return {}
+        return {"passengers": [], "overall_confidence": 0.0, "_error": str(e)}
+    return {
+        "passengers": [],
+        "overall_confidence": 0.0,
+        "_error": "Model geçerli bir yolcu sonucu döndürmedi.",
+    }
+
+
+def _process_with_injected_client(
+    image_bytes: bytes,
+    *,
+    source: str,
+    media_type: str,
+    client,
+    model: Optional[str],
+    settings: settings_mod.Settings,
+    seen_document_numbers: Optional[set[str]],
+    today: Optional[_dt.date],
+) -> list[PassportRecord]:
+    """Test ve geliştirici araçları için açıkça verilen istemciyi kullan."""
+    main_model = model or settings.model or settings_mod.DEFAULT_MODEL
+    fallback_model = settings.anthropic_fallback_model or settings_mod.FALLBACK_MODEL
+    result = call_anthropic(image_bytes, media_type, client, main_model, SYSTEM_PROMPT)
+    passengers = result.get("passengers", [])
+    overall_confidence = float(result.get("overall_confidence", 0.0) or 0.0)
+    main_error = result.get("_error")
+    ai_model = main_model
+    route = "google_vision_plus_sonnet"
+    fallback_reason = None
+
+    if not passengers or overall_confidence < settings.ai_confidence_threshold_fallback:
+        fallback_reason = (
+            f"{main_model} yolcu bulamadı"
+            if not passengers
+            else f"{main_model} güven skoru ({overall_confidence}) düşük"
+        )
+        ai_model = fallback_model
+        route = "google_vision_plus_opus"
+        result = call_anthropic(
+            image_bytes, media_type, client, fallback_model, SYSTEM_PROMPT
+        )
+        passengers = result.get("passengers", [])
+
+    if not passengers:
+        detail = result.get("_error") or main_error
+        error = "Yolcu/MRZ bulunamadı"
+        if detail:
+            error = f"{error}: {detail}"
+        return [PassportRecord(
+            source=source,
+            mrz=None,
+            outcome=ValidationOutcome(flags=[Flag.UNREADABLE]),
+            error=error,
+            confidence_score=0.0,
+            processing_route=route,
+            ai_model_used=ai_model,
+            fallback_reason=fallback_reason,
+            requires_manual_review=True,
+        )]
+
+    records = _parse_and_validate_mrz(
+        passengers, source, seen_document_numbers, today
+    )
+    for record in records:
+        record.processing_route = route
+        record.ai_model_used = ai_model
+        record.fallback_reason = fallback_reason
+        if record.confidence_score < settings.ai_confidence_threshold_manual_review:
+            record.requires_manual_review = True
+            record.outcome.add(Flag.LOW_CONFIDENCE)
+    return records
 
 def process_image(
     image_bytes: bytes,
@@ -200,6 +303,20 @@ def process_image(
     SADECE Irtifa sunucusu kullanılır.
     """
     settings = settings or settings_mod.Settings()
+
+    # Üretim sürümü merkezi OCR sunucusunu kullanır. Açıkça istemci verilmesi
+    # yalnız test/geliştirici doğrulaması içindir ve dağıtılan anahtarları etkilemez.
+    if client is not None:
+        return _process_with_injected_client(
+            image_bytes,
+            source=source,
+            media_type=media_type,
+            client=client,
+            model=model,
+            settings=settings,
+            seen_document_numbers=seen_document_numbers,
+            today=today,
+        )
     
     # Müşteri derlemesinde provider ne olursa olsun her zaman Irtifa Server kullanılır.
     from app.vision.irtifa_client import call_irtifa_ocr_server
@@ -207,9 +324,21 @@ def process_image(
         image_bytes=image_bytes,
         server_url=settings.irtifa_server_url,
         license_key=settings.irtifa_license_key,
-        device_id=settings.irtifa_device_id
+        device_id=settings.irtifa_device_id,
+        media_type=media_type,
     )
     
+    if mrz is not None:
+        local_outcome = validate_mrz(
+            mrz,
+            seen_document_numbers=seen_document_numbers,
+            today=today,
+        )
+        for flag in local_outcome.flags:
+            outcome.add(flag)
+        if not all((mrz.nationality, mrz.document_number, mrz.name, mrz.sex)):
+            outcome.add(Flag.MISSING_REQUIRED_FIELDS)
+
     req_manual = False
     if error_msg or conf < settings.ai_confidence_threshold_manual_review:
         req_manual = True
@@ -230,6 +359,7 @@ def process_image(
 
 def _parse_and_validate_mrz(passengers: list[dict], source: str, seen_document_numbers: Optional[set[str]], today: Optional[_dt.date]) -> list[PassportRecord]:
     records = []
+    seen_in_batch = set(seen_document_numbers or ())
     for p in passengers:
         fmt = p.get("format", "NONE")
         lines = [ln for ln in p.get("lines", []) if ln.strip()]
@@ -252,9 +382,11 @@ def _parse_and_validate_mrz(passengers: list[dict], source: str, seen_document_n
                 checks={},
                 raw_lines=[]
             )
-            outcome = validate_mrz(mrz, seen_document_numbers=seen_document_numbers, today=today)
+            outcome = validate_mrz(mrz, seen_document_numbers=seen_in_batch, today=today)
             outcome.add(Flag.FREE_TEXT_UNVERIFIED)
             records.append(PassportRecord(source=source, mrz=mrz, outcome=outcome, confidence_score=conf))
+            if mrz.document_number:
+                seen_in_batch.add(mrz.document_number)
             continue
 
         try:
@@ -356,8 +488,10 @@ def _parse_and_validate_mrz(passengers: list[dict], source: str, seen_document_n
                                   error=f"parse: {e}", confidence_score=conf))
             continue
 
-        outcome = validate_mrz(mrz, seen_document_numbers=seen_document_numbers, today=today)
+        outcome = validate_mrz(mrz, seen_document_numbers=seen_in_batch, today=today)
         records.append(PassportRecord(source=source, mrz=mrz, outcome=outcome, confidence_score=conf))
+        if mrz.document_number:
+            seen_in_batch.add(mrz.document_number)
 
     return records
 

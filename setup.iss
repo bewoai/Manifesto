@@ -4,7 +4,7 @@
 [Setup]
 ; App Information
 AppName=İrtifa Balon Operasyon
-AppVersion=0.2.1
+AppVersion=1.1.2
 AppPublisher=BewoAI
 AppPublisherURL=https://bewoai.com
 AppSupportURL=https://bewoai.com

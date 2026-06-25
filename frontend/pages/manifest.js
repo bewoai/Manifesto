@@ -98,7 +98,7 @@ async function loadSheets() {
     const data = await api.get('/api/planning/sheets');
     state.sheets = data.sheets || [];
     const sel = document.getElementById('mf-sheet');
-    sel.innerHTML = state.sheets.map(s => `<option value="${s}">${s}</option>`).join('');
+    sel.innerHTML = state.sheets.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
     if (state.sheets.length) {
       sel.value = state.sheets[state.sheets.length - 1];
       // Load balloons for the last sheet
@@ -144,7 +144,7 @@ function renderDriverSummary() {
   root.innerHTML = state.driverSummary.length ? state.driverSummary.map(row => `
     <div class="grid grid-cols-[80px_1fr] gap-3 items-center">
       <strong class="text-primary">${esc(row.balloon)}</strong>
-      <input class="form-input py-2" data-balloon="${esc(row.balloon)}" value="${esc(row.driver)}" />
+      <input class="form-input py-2" data-balloon="${escAttr(row.balloon)}" value="${escAttr(row.driver)}" />
     </div>`).join('') : '<div class="empty-desc">Balon/şoför ataması bulunamadı.</div>';
 }
 
@@ -162,7 +162,7 @@ async function loadBalloons(sheet) {
     state.balloons = data.balloon_codes || [];
     const sel = document.getElementById('mf-balloon');
     sel.innerHTML = state.balloons.length
-      ? state.balloons.map(b => `<option value="${b}">${b}</option>`).join('')
+      ? state.balloons.map(b => `<option value="${esc(b)}">${esc(b)}</option>`).join('')
       : '<option value="">Balon bulunamadı</option>';
   } catch (err) { /* silent */ }
 }
@@ -293,5 +293,11 @@ async function downloadFetch(url, options, fallbackName) {
 }
 
 function esc(s) {
-  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  return String(s || '')
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;')
+    .replace(/'/g,'&#39;');
 }
+const escAttr = esc;

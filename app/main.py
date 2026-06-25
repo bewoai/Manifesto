@@ -86,6 +86,17 @@ app.add_middleware(
 
 @app.middleware("http")
 async def _no_cache_static(request, call_next):
+    if request.url.path.startswith("/api/") and not request.url.path.startswith("/api/auth/"):
+        if not auth_mod.setup_required():
+            user = auth_mod.user_for_session(
+                request.cookies.get(auth_mod.SESSION_COOKIE)
+            )
+            if not user:
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "Oturum açmanız gerekiyor."},
+                )
+            request.state.user = user
     response = await call_next(request)
     path = request.url.path
     if path == "/" or path.startswith("/assets/") or path.endswith((".html", ".js", ".css")):
@@ -133,11 +144,18 @@ def _mask_api_key(key: str) -> str:
 
 
 def _actor(request: Request | None) -> str:
-    return "local"
+    user = getattr(getattr(request, "state", None), "user", None)
+    return user["username"] if user else "system"
 
 
 def _require_admin(request: Request) -> dict:
-    return {"role": "admin"}
+    user = getattr(request.state, "user", None)
+    if not user or user["role"] != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Bu işlem için yönetici yetkisi gerekli.",
+        )
+    return user
 
 
 def _atomic_error(exc: Exception) -> HTTPException:
@@ -203,6 +221,71 @@ def api_app_shutdown() -> dict:
 #  Kimlik doğrulama
 # ═════════════════════════════════════════════════════════════════════
 
+@app.get("/api/auth/status")
+def api_auth_status(request: Request) -> dict:
+    s = _load_settings()
+    user = auth_mod.user_for_session(
+        request.cookies.get(auth_mod.SESSION_COOKIE)
+    )
+    return {
+        "setup_required": auth_mod.setup_required(),
+        "authenticated": bool(user),
+        "user": user,
+        "is_setup_complete": s.is_setup_complete,
+    }
+
+
+@app.post("/api/auth/setup")
+def api_auth_setup(body: dict, response: Response) -> dict:
+    try:
+        user, recovery_code = auth_mod.create_initial_admin(
+            body.get("username", ""),
+            body.get("display_name", ""),
+            body.get("password", ""),
+        )
+    except (ValueError, sqlite3.IntegrityError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    token = auth_mod.create_session(user["id"])
+    response.set_cookie(
+        auth_mod.SESSION_COOKIE,
+        token,
+        httponly=True,
+        samesite="strict",
+        max_age=auth_mod.SESSION_DAYS * 86400,
+    )
+    audit_mod.record("initial_admin_created", actor=user["username"])
+    return {"user": user, "recovery_code": recovery_code}
+
+
+@app.post("/api/auth/login")
+def api_auth_login(body: dict, response: Response) -> dict:
+    user = auth_mod.authenticate(
+        body.get("username", ""), body.get("password", "")
+    )
+    if not user:
+        raise HTTPException(
+            status_code=401,
+            detail="Kullanıcı adı veya parola hatalı.",
+        )
+    token = auth_mod.create_session(user["id"])
+    response.set_cookie(
+        auth_mod.SESSION_COOKIE,
+        token,
+        httponly=True,
+        samesite="strict",
+        max_age=auth_mod.SESSION_DAYS * 86400,
+    )
+    audit_mod.record("login", actor=user["username"])
+    return {"user": user}
+
+
+@app.post("/api/auth/logout")
+def api_auth_logout(request: Request, response: Response) -> dict:
+    auth_mod.delete_session(request.cookies.get(auth_mod.SESSION_COOKIE))
+    response.delete_cookie(auth_mod.SESSION_COOKIE)
+    return {"success": True}
+
+
 @app.get("/api/app/status")
 def api_app_status() -> dict:
     s = _load_settings()
@@ -211,11 +294,13 @@ def api_app_status() -> dict:
         "licensed": has_license,
         "skipped": s.irtifa_license_skipped,
         "is_setup_complete": s.is_setup_complete,
+        "version": APP_VERSION,
     }
 
 
 @app.post("/api/app/skip_license")
-def api_app_skip_license() -> dict:
+def api_app_skip_license(request: Request) -> dict:
+    _require_admin(request)
     s = _load_settings()
     s.irtifa_license_skipped = True
     settings_mod.save(s)
@@ -305,8 +390,9 @@ def get_settings() -> dict:
 
 
 @app.put("/api/settings")
-def update_settings(body: dict) -> dict:
+def update_settings(body: dict, request: Request) -> dict:
     """Ayarları güncelle, doğrula ve kaydet. Güncel halini döndür."""
+    _require_admin(request)
     current = _load_settings()
     current_dict = asdict(current)
 
@@ -452,8 +538,9 @@ def api_generate_monthly(req: GenerateMonthlyRequest) -> dict[str, Any]:
         raise HTTPException(500, f"Oluşturma hatası: {e}")
 
 @app.post("/api/planning/import-existing")
-def api_import_existing() -> dict[str, Any]:
+def api_import_existing(request: Request) -> dict[str, Any]:
     """Native dialog ile var olan bir Excel dosyasını seç ve ayarla."""
+    _require_admin(request)
     import tkinter as tk
     from tkinter import filedialog
     import os
@@ -481,8 +568,9 @@ def api_import_existing() -> dict[str, Any]:
         raise HTTPException(500, f"İçe aktarma hatası: {e}")
 
 @app.post("/api/settings/import-directory")
-def api_import_directory() -> dict[str, Any]:
+def api_import_directory(request: Request) -> dict[str, Any]:
     """Native dialog ile klasör seç."""
+    _require_admin(request)
     import tkinter as tk
     from tkinter import filedialog
 
@@ -1094,6 +1182,22 @@ def _clean_identities(raw: list) -> list[dict]:
     return identities
 
 
+def _is_operational_ocr_error(error: object) -> bool:
+    text = str(error or "").casefold()
+    markers = (
+        "lisans",
+        "ulaşılamıyor",
+        "kullanım kotası",
+        "sunucu adresi",
+        "cihaz kimliği",
+        "geçersiz yanıt",
+        "geçici bir hata",
+        "en fazla 10 mb",
+        "dosya boyutu",
+    )
+    return any(marker in text for marker in markers)
+
+
 def _mark_extractions_approved(identities: list[dict], sheet: str, rows: list[int]) -> None:
     conn = connect()
     try:
@@ -1293,6 +1397,13 @@ async def api_passport_upload(
         filename = upload_file.filename or "unknown"
         try:
             image_bytes = await upload_file.read()
+            content_type = (upload_file.content_type or "").lower()
+            if content_type not in {"image/jpeg", "image/png", "image/webp"}:
+                raise ValueError("Yalnız JPG, PNG ve WEBP görseller desteklenir.")
+            if not image_bytes:
+                raise ValueError("Görsel dosyası boş.")
+            if len(image_bytes) > 10 * 1024 * 1024:
+                raise ValueError("Görsel en fazla 10 MB olabilir.")
             staged_path = save_image(image_bytes, filename)
         except Exception as e:
             results.append({
@@ -1338,38 +1449,44 @@ async def api_passport_upload(
                 # yükleme sırasını ve görünen adı birlikte döndür.
                 field_data["_source_file_name"] = filename
                 field_data["_source_file_index"] = file_index
-                conn = connect()
-                try:
-                    cursor = conn.execute(
-                        """
-                        INSERT INTO passport_extraction(
-                            source_media_id, mrz_format, nationality, sex, name,
-                            document_number, birth_date, expiry_date, checks_ok, flags, status,
-                            confidence_score, processing_route, ai_model_used, fallback_reason, requires_manual_review
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)
-                        """,
-                        (
-                            str(staged_path),
-                            record.mrz.format if record.mrz else None,
-                            field_data.get("nationality"),
-                            field_data.get("sex"),
-                            field_data.get("name"),
-                            field_data.get("passport_no"),
-                            field_data.get("birth_date"),
-                            field_data.get("expiry_date"),
-                            int(bool(record.is_green)),
-                            ",".join(field_data.get("flags", [])),
-                            field_data.get("confidence_score", 1.0),
-                            field_data.get("processing_route", "google_vision"),
-                            field_data.get("ai_model_used"),
-                            field_data.get("fallback_reason"),
-                            int(field_data.get("requires_manual_review", False)),
-                        ),
-                    )
-                    conn.commit()
-                    field_data["extraction_id"] = cursor.lastrowid
-                finally:
-                    conn.close()
+                if not _is_operational_ocr_error(field_data.get("error")):
+                    conn = connect()
+                    try:
+                        cursor = conn.execute(
+                            """
+                            INSERT INTO passport_extraction(
+                                source_media_id, mrz_format, nationality, sex, name,
+                                document_number, birth_date, expiry_date, checks_ok, flags, status,
+                                confidence_score, processing_route, ai_model_used, fallback_reason, requires_manual_review
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)
+                            """,
+                            (
+                                str(staged_path),
+                                record.mrz.format if record.mrz else None,
+                                field_data.get("nationality"),
+                                field_data.get("sex"),
+                                field_data.get("name"),
+                                field_data.get("passport_no"),
+                                field_data.get("birth_date"),
+                                field_data.get("expiry_date"),
+                                int(bool(record.is_green)),
+                                ",".join(field_data.get("flags", [])),
+                                field_data.get("confidence_score", 1.0),
+                                field_data.get("processing_route", "irtifa_server"),
+                                field_data.get("ai_model_used"),
+                                field_data.get("fallback_reason"),
+                                int(field_data.get("requires_manual_review", False)),
+                            ),
+                        )
+                        conn.commit()
+                        field_data["extraction_id"] = cursor.lastrowid
+                    finally:
+                        conn.close()
+                else:
+                    try:
+                        staged_path.unlink()
+                    except OSError:
+                        pass
                 # Duplicate tespiti: başarılı okunan belge no'larını kaydet
                 if record.mrz and record.mrz.document_number:
                     seen_doc_numbers.add(record.mrz.document_number)
@@ -1391,13 +1508,12 @@ async def api_passport_upload(
     }
 
 
-@app.post("/api/passport/retry-claude")
-async def api_passport_retry_claude(
+@app.post("/api/passport/retry-ocr")
+@app.post("/api/passport/retry-claude", include_in_schema=False)
+async def api_passport_retry_ocr(
     file: UploadFile = File(...),
 ) -> dict:
     s = _load_settings()
-    if not s.has_api_key():
-        raise HTTPException(status_code=400, detail="Claude API anahtarı ayarlanmamış.")
     image_bytes = await file.read()
     filename = file.filename or "passport.jpg"
     staged_path = save_image(image_bytes, filename)
@@ -1405,7 +1521,7 @@ async def api_passport_retry_claude(
         image_bytes,
         source=filename,
         media_type=media_type_for(Path(filename)),
-        provider=settings_mod.VISION_MODE_CLAUDE,
+        provider=settings_mod.VISION_MODE_IRTIFA_SERVER,
         settings=s,
         model=s.model,
     )
@@ -1416,6 +1532,12 @@ async def api_passport_retry_claude(
     # Frontend ilk kaydı alır genelde. (Veya hepsini liste dönebiliriz, orijinal kod record = process_image(...) diyordu ama array döndüğünü unuttuğu için patlayabilirdi. Onu da düzelttik.)
     record = records[0]
     fields = record.to_fields()
+    if _is_operational_ocr_error(fields.get("error")):
+        try:
+            staged_path.unlink()
+        except OSError:
+            pass
+        raise HTTPException(status_code=503, detail=fields["error"])
     conn = connect()
     try:
         cursor = conn.execute(
@@ -1585,7 +1707,19 @@ def api_passport_manual_review_resolve(req: ResolveManualReviewRequest, request:
 
 @app.post("/api/passport/cleanup")
 def api_passport_cleanup(request: Request, body: dict) -> dict:
-    result = cleanup_passport_day(body.get("day"))
+    requested_day = str(body.get("day") or "").strip()
+    sheet = str(body.get("sheet") or "").strip()
+    if not requested_day and sheet:
+        try:
+            requested_day = _dt.datetime.strptime(
+                sheet, "%d.%m.%Y"
+            ).date().isoformat()
+        except ValueError:
+            raise HTTPException(
+                status_code=422,
+                detail="Seçilen sayfa adı tarih biçiminde değil. Günlük temizlik yapılamadı.",
+            )
+    result = cleanup_passport_day(requested_day or None)
     conn = connect()
     try:
         conn.execute(
@@ -1598,7 +1732,7 @@ def api_passport_cleanup(request: Request, body: dict) -> dict:
     audit_mod.record(
         "passport_temp_data_cleaned",
         actor=_actor(request),
-        sheet=body.get("sheet"),
+        sheet=sheet or None,
         detail=result,
     )
     return {"success": True, **result}
@@ -1838,7 +1972,8 @@ def api_admin_restore_backup(request: Request, body: dict) -> dict:
 
 
 @app.post("/api/settings/test")
-def api_settings_test(body: dict) -> dict:
+def api_settings_test(body: dict, request: Request) -> dict:
+    _require_admin(request)
     target = body.get("target")
     s = _load_settings()
     try:
@@ -1862,17 +1997,23 @@ def api_settings_test(body: dict) -> dict:
 
             endpoint = test_url.rstrip("/") + "/ocr/passport"
             headers = {
-                "x-license-key": test_key.encode("utf-8") if isinstance(test_key, str) else test_key,
-                "x-device-id": test_device.encode("utf-8") if isinstance(test_device, str) else test_device
+                "x-license-key": str(test_key),
+                "x-device-id": str(test_device),
             }
             files = {"file": ("test.jpg", b"1", "image/jpeg")}
             try:
                 resp = requests.post(endpoint, headers=headers, files=files, timeout=15)
-                if resp.status_code == 401:
+                if resp.status_code in {401, 403}:
                     raise ValueError("Lisans anahtarı geçersiz.")
                 if resp.status_code == 404:
                     raise ValueError("Sunucu adresi geçersiz veya endpoint bulunamadı.")
-            except requests.exceptions.RequestException as e:
+                if resp.status_code >= 500:
+                    raise ValueError("OCR sunucusu geçici olarak hizmet veremiyor.")
+                if resp.status_code not in {200, 400, 413, 415, 422, 429}:
+                    raise ValueError(
+                        f"OCR sunucusu beklenmeyen yanıt verdi ({resp.status_code})."
+                    )
+            except requests.exceptions.RequestException:
                 raise ValueError("Sunucuya ulaşılamıyor. URL'yi kontrol edin.")
             return {"success": True, "message": "İrtifa OCR Servisi ile bağlantı başarılı."}
         raise ValueError("Geçersiz bağlantı testi.")
@@ -1881,7 +2022,8 @@ def api_settings_test(body: dict) -> dict:
 
 
 @app.get("/api/update/status")
-def api_update_status() -> dict:
+def api_update_status(request: Request) -> dict:
+    _require_admin(request)
     s = _load_settings()
     try:
         return updater_mod.check(s.update_manifest_url)

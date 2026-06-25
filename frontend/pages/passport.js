@@ -2,7 +2,7 @@
    Pasaport Tarama — Drag & drop, MRZ okuma, kontrol kartları
    Brief §8: sol görsel, sağ 4 alan, yeşil/sarı status
    ═══════════════════════════════════════════════════════════════════ */
-import { api, toast, renderHeader, modal, helpIcon } from '/app.js';
+import { api, toast, renderHeader, modal, helpIcon, appStatus } from '/app.js';
 import { attachCombobox } from '/combobox.js';
 
 let state = {
@@ -90,7 +90,7 @@ export async function render(container) {
       </div>
       <div class="text-lg text-on-surface mb-2"><strong>Pasaport fotoğraflarını sürükle</strong> veya tıkla</div>
       <div class="text-sm text-on-surface-variant">JPG, PNG, WEBP • Birden fazla dosya seçilebilir</div>
-      <input type="file" id="file-input" multiple accept="image/*" style="display:none"
+      <input type="file" id="file-input" multiple accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" style="display:none"
              onchange="window.__handleFiles(this.files)" />
     </div>
 
@@ -143,6 +143,12 @@ export async function render(container) {
     </div>
   `;
 
+  if (!appStatus.licensed && appStatus.skipped) {
+    const processButton = document.getElementById('btn-process');
+    if (processButton) {
+      processButton.innerHTML = '<span class="material-symbols-outlined text-[20px]">edit_document</span> Manuel Kartları Oluştur';
+    }
+  }
   consumeManualReviewQueue();
   loadContext();
   setupPaste();
@@ -271,10 +277,34 @@ window.__handleFiles = function(files) {
 };
 
 function addFiles(fileList) {
+  const allowed = new Set(['image/jpeg', 'image/png', 'image/webp']);
+  let unsupported = 0;
+  let tooLarge = 0;
+  let duplicates = 0;
   for (const f of fileList) {
-    if (f.type.startsWith('image/')) state.files.push(f);
+    if (!allowed.has(f.type)) {
+      unsupported++;
+      continue;
+    }
+    if (!f.size || f.size > 10 * 1024 * 1024) {
+      tooLarge++;
+      continue;
+    }
+    const duplicate = state.files.some(
+      existing => existing.name === f.name
+        && existing.size === f.size
+        && existing.lastModified === f.lastModified
+    );
+    if (duplicate) {
+      duplicates++;
+      continue;
+    }
+    state.files.push(f);
   }
   renderFileList();
+  if (unsupported) toast.warning('Desteklenmeyen dosya', `${unsupported} dosya eklenmedi. JPG, PNG veya WEBP kullanın.`);
+  if (tooLarge) toast.warning('Dosya çok büyük', `${tooLarge} dosya eklenmedi. Üst sınır 10 MB.`);
+  if (duplicates) toast.info('Tekrar dosya atlandı', `${duplicates} dosya zaten listede.`);
 }
 
 window.__clearFiles = function() {
@@ -346,6 +376,10 @@ window.__createManualCards = function() {
 // ─── Process ───
 window.__processFiles = async function() {
   if (!state.files.length) return;
+  if (!appStatus.licensed && appStatus.skipped) {
+    window.__createManualCards();
+    return;
+  }
   state.processing = true;
 
   const btn = document.getElementById('btn-process');
@@ -368,8 +402,11 @@ window.__processFiles = async function() {
     let newRecords = data.records || data || [];
 
     // Check for license errors first
-    if (newRecords.length > 0 && newRecords[0].error && newRecords[0].error.toLowerCase().includes('lisans')) {
-        const isMissing = newRecords[0].error.toLowerCase().includes('gerekli');
+    const licenseError = newRecords.find(
+      record => record.error && record.error.toLocaleLowerCase('tr-TR').includes('lisans')
+    );
+    if (licenseError) {
+        const isMissing = licenseError.error.toLocaleLowerCase('tr-TR').includes('gerekli');
         const msg = isMissing
             ? "OCR/MRZ okuma için lisans anahtarı gerekli. Fotoğrafları manuel giriş olarak kullanabilirsiniz."
             : "Lisans anahtarı geçersiz. OCR işlemi başlatılamaz.";
@@ -381,6 +418,23 @@ window.__processFiles = async function() {
              <button class="btn-primary px-4 py-2 rounded-xl transition-colors font-medium" onclick="window.__closeModal(); window.__createManualCards()">Manuel Devam Et</button>`
         );
         return; // Early return, don't create OCR cards
+    }
+    const serviceError = newRecords.find(record => {
+      const message = (record.error || '').toLocaleLowerCase('tr-TR');
+      return message.includes('ulaşılamıyor')
+        || message.includes('kota')
+        || message.includes('geçici bir hata')
+        || message.includes('geçersiz yanıt');
+    });
+    if (serviceError) {
+      modal.open(
+        'OCR Servisi Kullanılamıyor',
+        `<div class="py-4 text-on-surface">${esc(serviceError.error)}</div>
+         <div class="text-sm text-on-surface-variant">İnternet gerektirmeyen manuel girişle çalışmaya devam edebilirsiniz.</div>`,
+        `<button class="btn-secondary" onclick="window.__closeModal()">Kapat</button>
+         <button class="btn-primary" onclick="window.__closeModal(); window.__createManualCards()">Manuel Devam Et</button>`
+      );
+      return;
     }
 
     state.records = newRecords;
@@ -416,7 +470,8 @@ window.__processFiles = async function() {
       nationality: '', sex: '', name: '', passport_no: '',
       green: false, flags: ['unreadable'],
       error: 'API bağlantısı kurulamadı — elle doldurun',
-      _fileIndex: i,
+      _source_file_index: i,
+      _source_file_name: f.name,
     }));
     renderCards();
   } finally {
@@ -520,7 +575,7 @@ function renderCards() {
               <input type="checkbox" class="w-4 h-4 rounded border-white/10 bg-surface text-primary focus:ring-primary focus:ring-offset-surface group-hover:border-primary/50" id="pc-approve-${i}" ${(rec._approved !== undefined ? rec._approved : isGreen) ? 'checked' : ''} />
               Onayla ve Ekle
             </label>
-            ${(!isGreen && !rec.is_manual) ? `<button class="btn-secondary w-full mt-2 flex items-center justify-center gap-2" onclick="window.__retryClaude(${i})"><span class="material-symbols-outlined text-sm">auto_fix_high</span> Claude ile Tekrar Tara</button>` : ''}
+            ${(!isGreen && !rec.is_manual) ? `<button class="btn-secondary w-full mt-2 flex items-center justify-center gap-2" onclick="window.__retryOcr(${i})"><span class="material-symbols-outlined text-sm">refresh</span> OCR ile Tekrar Tara</button>` : ''}
           </div>
         </div>
       </div>
@@ -534,7 +589,7 @@ function renderCards() {
   }
 }
 
-window.__retryClaude = async function(i) {
+window.__retryOcr = async function(i) {
   const rec = state.records[i];
   const file = Number.isInteger(rec._source_file_index)
     ? state.files[rec._source_file_index]
@@ -544,7 +599,7 @@ window.__retryClaude = async function(i) {
   const form = new FormData();
   form.append('file', file);
   try {
-    const res = await fetch('/api/passport/retry-claude', { method: 'POST', body: form });
+    const res = await fetch('/api/passport/retry-ocr', { method: 'POST', body: form });
     if (!res.ok) {
       const payload = await res.json().catch(() => ({ detail: res.statusText }));
       throw new Error(typeof payload.detail === 'string' ? payload.detail : payload.detail?.message);
@@ -556,7 +611,7 @@ window.__retryClaude = async function(i) {
     state.records[i]._source_file_index = rec._source_file_index;
     renderCards();
     toast.success('Yeniden tarandı', state.records[i].green ? 'Sonuç doğrulandı' : 'Sonuç hâlâ kontrol gerektiriyor');
-  } catch (err) { toast.error('Claude taraması başarısız', err.message); }
+  } catch (err) { toast.error('OCR taraması başarısız', err.message); }
 };
 
 // DOM'daki kart düzenlemelerini state.records'a geri yaz (re-render'da kaybolmasın)

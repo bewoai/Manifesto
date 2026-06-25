@@ -55,7 +55,8 @@ const api = {
   downloadUrl(url) { return url; },
 };
 
-let appStatus = { licensed: false, skipped: false };
+let currentUser = null;
+let appStatus = { licensed: false, skipped: false, version: '' };
 
 // ─── Toast Notification System ───
 const toast = {
@@ -75,8 +76,8 @@ const toast = {
     el.innerHTML = `
       <span class="toast-icon">${icons[type] || icons.info}</span>
       <div class="flex-1 min-w-0">
-        <div class="toast-title">${title}</div>
-        ${message ? `<div class="toast-message">${message}</div>` : ''}
+        <div class="toast-title">${escapeHtml(title)}</div>
+        ${message ? `<div class="toast-message">${escapeHtml(message)}</div>` : ''}
       </div>
       <button class="toast-close" onclick="this.closest('.toast').remove()">
         <span class="material-symbols-outlined text-sm">close</span>
@@ -148,8 +149,12 @@ function renderSidebar(activeRoute) {
     { id: 'lists',     label: 'Listeler', route: 'lists' },
   ];
   const bottomItems = [
-    { id: 'admin', label: 'Yönetim', route: 'admin' },
-    { id: 'settings', label: 'Ayarlar', route: 'settings' },
+    ...(currentUser?.role === 'admin'
+      ? [
+          { id: 'admin', label: 'Yönetim', route: 'admin' },
+          { id: 'settings', label: 'Ayarlar', route: 'settings' },
+        ]
+      : []),
   ];
 
   const navHtml = (items) => items.map((item) => {
@@ -175,11 +180,14 @@ function renderSidebar(activeRoute) {
     <nav class="flex-1 px-4 space-y-1.5 mt-6">${navHtml(navItems)}</nav>
     <div class="px-4 mt-auto space-y-2">
       ${navHtml(bottomItems)}
-      ${!appStatus.licensed ? '<div class="w-full bg-warning/20 text-warning py-2.5 rounded-2xl text-sm font-medium flex items-center justify-center gap-2 mb-2 mt-2"><span class="material-symbols-outlined text-base">warning</span> Lisanssız Mod</div>' : ''}
+      ${!appStatus.licensed ? '<div class="w-full bg-warning/20 text-warning py-2.5 rounded-2xl text-sm font-medium flex items-center justify-center gap-2 mb-2 mt-2"><span class="material-symbols-outlined text-base">edit_document</span> Manuel Mod</div>' : ''}
+      <button class="w-full bg-white/5 text-on-surface-variant py-2.5 rounded-2xl text-sm font-medium hover:bg-white/10 transition-all flex items-center justify-center gap-2" onclick="window.__logout()">
+        <span class="material-symbols-outlined text-base">logout</span> Çıkış
+      </button>
       <button class="w-full mt-3 bg-error-container/70 text-on-error-container py-2.5 rounded-2xl text-sm font-medium hover:bg-error-container transition-all flex items-center justify-center gap-2" onclick="window.__shutdownApp()">
         <span class="material-symbols-outlined text-base">power_settings_new</span> Kapat
       </button>
-      <div class="px-3 pt-1"><span class="text-xs text-on-surface-variant/40">v0.1.0 — Faz 1</span></div>
+      <div class="px-3 pt-1"><span class="text-xs text-on-surface-variant/40">v${escapeHtml(appStatus.version || '—')}</span></div>
     </div>
   `;
 }
@@ -195,9 +203,24 @@ window.__shutdownApp = async function() {
   }
 };
 
+window.__logout = async function() {
+  try {
+    await api.post('/api/auth/logout', {});
+  } finally {
+    currentUser = null;
+    appStatus = { licensed: false, skipped: false, version: '' };
+    await bootAuth();
+  }
+};
+
 window.__validateLicense = async function() {
   const key = document.getElementById('auth-license').value.trim();
   if (!key) return toast.error('Hata', 'Lisans anahtarı boş olamaz.');
+  const button = document.getElementById('license-submit');
+  if (button) {
+    button.disabled = true;
+    button.innerHTML = '<span class="material-symbols-outlined animate-spin">progress_activity</span> Doğrulanıyor...';
+  }
   try {
     const res = await api.post('/api/settings/test', {
       target: 'irtifa_server',
@@ -212,19 +235,24 @@ window.__validateLicense = async function() {
         vision_mode: 'irtifa_server'
       });
       toast.success('Başarılı', 'Lisans doğrulandı.');
-      await bootApp();
+      await bootWorkspace();
     } else {
       toast.error('Hata', 'Lisans anahtarı geçersiz. Lütfen kontrol edin.');
     }
   } catch (err) {
     toast.error('Hata', err.message || 'Lisans doğrulama başarısız.');
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = 'Lisansı Doğrula ve Devam Et';
+    }
   }
 };
 
 window.__skipLicense = async function() {
   try {
     await api.post('/api/app/skip_license', {});
-    await bootApp();
+    await bootWorkspace();
   } catch (err) { toast.error('Hata', err.message); }
 };
 
@@ -240,7 +268,7 @@ function renderHeader(title, subtitle = '') {
         <span class="material-symbols-outlined">refresh</span>
       </button>
       <div class="w-9 h-9 rounded-full bg-primary-container/30 flex items-center justify-center">
-        <span class="material-symbols-outlined text-primary text-lg" title="Kullanıcı">person</span>
+        <span class="material-symbols-outlined text-primary text-lg" title="${escapeHtml(currentUser?.display_name || currentUser?.username || 'Kullanıcı')}">person</span>
       </div>
     </div>
   `;
@@ -257,7 +285,11 @@ async function loadPage(name) {
 
 async function navigateTo(route) {
   const pageBody = document.getElementById('page-body');
-  const pageName = route || 'dashboard';
+  let pageName = route || 'dashboard';
+  if (['admin', 'settings'].includes(pageName) && currentUser?.role !== 'admin') {
+    pageName = 'dashboard';
+    window.location.hash = '#/dashboard';
+  }
 
   renderSidebar(pageName);
 
@@ -284,9 +316,9 @@ async function navigateTo(route) {
     console.error('Page load error:', err);
     pageBody.innerHTML = `
       <div class="empty-state">
-        <div class="empty-icon">😵</div>
+        <div class="empty-icon material-symbols-outlined">error</div>
         <div class="empty-title">Sayfa yüklenemedi</div>
-        <div class="empty-desc">${err.message}</div>
+        <div class="empty-desc">${escapeHtml(err.message)}</div>
       </div>
     `;
   }
@@ -302,38 +334,112 @@ window.addEventListener('hashchange', () => navigateTo(getRoute()));
 
 document.addEventListener('DOMContentLoaded', () => {
   toast.init();
-  bootApp();
+  bootAuth();
 });
 
-async function bootApp() {
+async function bootAuth() {
   const sidebar = document.getElementById('sidebar');
   const header = document.getElementById('page-header');
   const body = document.getElementById('page-body');
+  const main = document.querySelector('main');
   try {
-    const status = await api.get('/api/app/status');
-    appStatus.licensed = status.licensed;
-    appStatus.skipped = status.skipped;
-    
-    const main = document.querySelector('main');
-    if (appStatus.licensed || appStatus.skipped) {
-      sidebar.style.display = '';
-      header.style.display = '';
-      if (main) main.classList.add('md:ml-72');
-      body.classList.add('pt-24', 'pb-12');
-      await navigateTo(getRoute());
+    const status = await api.get('/api/auth/status');
+    currentUser = status.user || null;
+    if (currentUser) {
+      await bootWorkspace(status);
       return;
     }
     sidebar.style.display = 'none';
     header.style.display = 'none';
     if (main) main.classList.remove('md:ml-72');
     body.classList.remove('pt-24', 'pb-12');
-    renderOnboarding(body);
+    renderAuth(body, status.setup_required);
   } catch (err) {
     body.innerHTML = `<div class="empty-state"><div class="empty-title">İrtifa başlatılamadı</div><div class="empty-desc">${escapeHtml(err.message)}</div></div>`;
   }
 }
 
-async function renderOnboarding(container) {
+async function bootWorkspace(authStatus = {}) {
+  const sidebar = document.getElementById('sidebar');
+  const header = document.getElementById('page-header');
+  const body = document.getElementById('page-body');
+  const main = document.querySelector('main');
+  const status = await api.get('/api/app/status');
+  appStatus.licensed = status.licensed;
+  appStatus.skipped = status.skipped;
+  appStatus.version = status.version || '';
+
+  if (!appStatus.licensed && !appStatus.skipped) {
+    sidebar.style.display = 'none';
+    header.style.display = 'none';
+    if (main) main.classList.remove('md:ml-72');
+    body.classList.remove('pt-24', 'pb-12');
+    await renderLicense(body, currentUser?.role === 'admin');
+    return;
+  }
+
+  sidebar.style.display = '';
+  header.style.display = '';
+  if (main) main.classList.add('md:ml-72');
+  body.classList.add('pt-24', 'pb-12');
+  if (!status.is_setup_complete && getRoute() !== 'onboarding') {
+    await navigateTo('onboarding');
+  } else {
+    await navigateTo(getRoute());
+  }
+}
+
+function renderAuth(container, setupRequired) {
+  container.innerHTML = `
+    <div class="min-h-[80vh] flex items-center justify-center">
+      <div class="glass-panel rounded-3xl p-8 w-full max-w-md">
+        <div class="flex items-center gap-4 mb-7">
+          <img src="/irtifa-logo.png" class="w-16 h-16 rounded-2xl" alt="İrtifa" />
+          <div><h1 class="font-headline text-3xl text-on-surface">İrtifa</h1><p class="text-on-surface-variant">${setupRequired ? 'İlk yönetici kurulumu' : 'Oturum aç'}</p></div>
+        </div>
+        ${setupRequired ? `
+          <div class="form-group"><label class="form-label">Kullanıcı adı</label><input id="auth-user" class="form-input" value="admin" autocomplete="username" /></div>
+          <div class="form-group"><label class="form-label">Ad soyad</label><input id="auth-name" class="form-input" autocomplete="name" /></div>
+          <div class="form-group"><label class="form-label">Parola</label><input id="auth-pass" type="password" class="form-input" autocomplete="new-password" onkeydown="if(event.key==='Enter')window.__setupAdmin()" /></div>
+          <button class="btn-primary w-full mt-4" onclick="window.__setupAdmin()">Yönetici Hesabını Oluştur</button>
+        ` : `
+          <div class="form-group"><label class="form-label">Kullanıcı adı</label><input id="auth-user" class="form-input" autocomplete="username" autofocus /></div>
+          <div class="form-group"><label class="form-label">Parola</label><input id="auth-pass" type="password" class="form-input" autocomplete="current-password" onkeydown="if(event.key==='Enter')window.__login()" /></div>
+          <button class="btn-primary w-full mt-4" onclick="window.__login()">Giriş Yap</button>
+        `}
+      </div>
+    </div>`;
+}
+
+window.__setupAdmin = async function() {
+  try {
+    const data = await api.post('/api/auth/setup', {
+      username: document.getElementById('auth-user').value.trim(),
+      display_name: document.getElementById('auth-name').value.trim(),
+      password: document.getElementById('auth-pass').value,
+    });
+    alert(`Kurtarma kodunuz:\n\n${data.recovery_code}\n\nBu kod yalnızca bir kez gösterilir. Güvenli bir yerde saklayın.`);
+    currentUser = data.user;
+    await bootWorkspace();
+  } catch (err) {
+    toast.error('Kurulum başarısız', err.message);
+  }
+};
+
+window.__login = async function() {
+  try {
+    const data = await api.post('/api/auth/login', {
+      username: document.getElementById('auth-user').value.trim(),
+      password: document.getElementById('auth-pass').value,
+    });
+    currentUser = data.user;
+    await bootWorkspace();
+  } catch (err) {
+    toast.error('Giriş başarısız', err.message);
+  }
+};
+
+async function renderLicense(container, canConfigure) {
   let deviceId = '';
   try {
     const settings = await api.get('/api/settings');
@@ -349,9 +455,11 @@ async function renderOnboarding(container) {
             <h1 class="font-headline text-3xl text-on-surface">İrtifa'ya Hoş Geldiniz</h1>
           </div>
         </div>
-        <p class="text-sm text-on-surface-variant mb-6 leading-relaxed">Otomatik MRZ/OCR okuma özelliğini kullanmak için lisans anahtarınızı girin. Lisansınız yoksa manuel giriş ile devam edebilirsiniz.</p>
+        <p class="text-sm text-on-surface-variant mb-6 leading-relaxed">${canConfigure
+          ? 'Otomatik MRZ/OCR okuma özelliğini kullanmak için lisans anahtarınızı girin. Lisansınız yoksa manuel giriş ile devam edebilirsiniz.'
+          : 'Bu bilgisayarda OCR lisansı henüz yapılandırılmamış. Lisans ayarı için bir yöneticiyle oturum açın.'}</p>
         
-        <div class="form-group">
+        <div class="form-group" style="${canConfigure ? '' : 'display:none'}">
           <label class="form-label">Lisans Anahtarı</label>
           <input id="auth-license" class="form-input" placeholder="Örn: IRTIFA-DEMO-001" onkeydown="if(event.key==='Enter')window.__validateLicense()" />
         </div>
@@ -361,8 +469,12 @@ async function renderOnboarding(container) {
         </div>
         
         <div class="flex flex-col gap-3 mt-6">
-          <button class="btn-primary w-full" onclick="window.__validateLicense()">Lisansı Doğrula ve Devam Et</button>
-          <button class="btn-secondary w-full" onclick="window.__skipLicense()">Lisanssız Devam Et</button>
+          ${canConfigure ? `
+            <button class="btn-primary w-full flex items-center justify-center gap-2" id="license-submit" onclick="window.__validateLicense()">Lisansı Doğrula ve Devam Et</button>
+            <button class="btn-secondary w-full" onclick="window.__skipLicense()">Manuel Modda Devam Et</button>
+          ` : `
+            <button class="btn-secondary w-full" onclick="window.__logout()">Farklı Kullanıcıyla Giriş Yap</button>
+          `}
         </div>
       </div>
     </div>`;
@@ -377,4 +489,4 @@ function escapeHtml(value) {
 }
 
 // Export for pages
-export { api, toast, modal, renderHeader, helpIcon, appStatus };
+export { api, toast, modal, renderHeader, helpIcon, appStatus, currentUser };

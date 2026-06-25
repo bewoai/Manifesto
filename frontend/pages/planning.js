@@ -75,7 +75,7 @@ async function loadSheets() {
     const sel = document.getElementById('sheet-select');
     if (!sel) return;
     sel.innerHTML = state.sheets.length
-      ? state.sheets.map(s => `<option value="${s}">${s}</option>`).join('')
+      ? state.sheets.map(s => `<option value="${escHtml(s)}">${escHtml(s)}</option>`).join('')
       : '<option value="">Sayfa bulunamadı</option>';
     if (state.sheets.length) sel.value = state.sheets[state.sheets.length - 1];
   } catch (err) {
@@ -114,7 +114,7 @@ window.__loadDay = async function() {
                   <option value="missing">Pasaportu eksik</option>
                   <option value="ready">Kimliği hazır</option>`;
       state.balloons.forEach(b => {
-        if (b) html += `<option value="balloon_${b}">${b} balonu</option>`;
+        if (b) html += `<option value="balloon_${escHtml(b)}">${escHtml(b)} balonu</option>`;
       });
       filterSelect.innerHTML = html;
       if (Array.from(filterSelect.options).some(o => o.value === currentVal)) {
@@ -177,19 +177,19 @@ function renderBlocks() {
       <div class="block-main">
         <div class="block-info">
           <span class="flex items-center gap-1 font-bold text-on-surface">
-            ${b.lead_name || '(isim yok)'}
+            ${escHtml(b.lead_name || '(isim yok)')}
           </span>
           <span class="flex items-center gap-1">
-            <span class="material-symbols-outlined text-[16px]">hotel</span> ${b.hotel || '—'}
+            <span class="material-symbols-outlined text-[16px]">hotel</span> ${escHtml(b.hotel || '—')}
           </span>
           <span class="flex items-center gap-1">
-            <span class="material-symbols-outlined text-[16px]">domain</span> ${b.agency || '—'}
+            <span class="material-symbols-outlined text-[16px]">domain</span> ${escHtml(b.agency || '—')}
           </span>
           <span class="flex items-center gap-1">
-            <span class="material-symbols-outlined text-[16px]">schedule</span> ${b.pickup || '—'}
+            <span class="material-symbols-outlined text-[16px]">schedule</span> ${escHtml(b.pickup || '—')}
           </span>
           <span class="flex items-center gap-1">
-            <span class="material-symbols-outlined text-[16px]">directions_bus</span> Şoför ${b.driver || '—'}
+            <span class="material-symbols-outlined text-[16px]">directions_bus</span> Şoför ${escHtml(b.driver || '—')}
           </span>
         </div>
         ${passengers ? `<div class="block-passengers">${passengers}</div>` : ''}
@@ -198,7 +198,7 @@ function renderBlocks() {
         <span class="badge badge-blue flex items-center gap-1">
           <span class="material-symbols-outlined text-[16px]">person</span> ${count} kişi
         </span>
-        ${b.balloon ? `<div class="block-balloon">${b.balloon}</div>` : ''}
+        ${b.balloon ? `<div class="block-balloon">${escHtml(b.balloon)}</div>` : ''}
         <button class="btn-ghost btn-icon" title="Rezervasyonu sil"
                 onclick="event.stopPropagation(); window.__deleteBlock(${i})">
           <span class="material-symbols-outlined">delete</span>
@@ -250,7 +250,7 @@ function renderBalloonLoad() {
     const used = (state.balloonLoad || {})[code] || 0;
     const full = used >= cap;
     const cls = full ? 'badge-red' : (used > 0 ? 'badge-green' : 'badge-blue');
-    return `<span class="badge ${cls}">${code} ${used}/${cap}</span>`;
+    return `<span class="badge ${cls}">${escHtml(code)} ${used}/${cap}</span>`;
   }).join('');
 }
 
@@ -717,7 +717,7 @@ function showCapacityChoice(body, detail) {
     <p class="text-on-surface-variant mb-4">Grup hiçbir balona kapasite içinde sığmıyor. Hedef balonu seçip kapasite aşımını açıkça onaylayın veya iptal edin.</p>
     <div class="space-y-2">${(detail.balloon_codes || []).map(code => `
       <label class="flex items-center justify-between rounded-lg border border-white/10 p-3 cursor-pointer">
-        <span><input type="radio" name="overflow-balloon" value="${code}" class="mr-3" />${code}</span>
+        <span><input type="radio" name="overflow-balloon" value="${escHtml(code)}" class="mr-3" />${escHtml(code)}</span>
         <strong>${detail.balloon_load?.[code] || 0}/${detail.capacity}</strong>
       </label>`).join('')}</div>
   `, `
@@ -750,7 +750,7 @@ window.__createDay = function() {
     <div class="form-group mt-4">
       <label class="form-label">Kaynak gün (kopyalanacak)</label>
       <select class="form-select" id="new-day-source">
-        ${state.sheets.map(s => `<option value="${s}">${s}</option>`).join('')}
+        ${state.sheets.map(s => `<option value="${escHtml(s)}">${escHtml(s)}</option>`).join('')}
       </select>
     </div>
   `, `

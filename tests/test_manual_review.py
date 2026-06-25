@@ -19,6 +19,16 @@ def test_passport_cleanup_route_is_registered():
     )
 
 
+def test_passport_cleanup_rejects_non_date_sheet():
+    try:
+        from app.main import api_passport_cleanup
+        api_passport_cleanup(_request(), {"sheet": "Sayfa2"})
+    except HTTPException as exc:
+        assert exc.status_code == 422
+    else:
+        raise AssertionError("Tarih olmayan sayfa için temizlik kabul edildi.")
+
+
 def test_manual_review_approval_returns_planning_record(tmp_path, monkeypatch):
     db_path = tmp_path / "review.db"
     monkeypatch.setenv("IRTIFA_DB_PATH", str(db_path))

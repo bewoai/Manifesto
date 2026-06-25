@@ -2007,9 +2007,11 @@ def api_settings_test(body: dict, request: Request) -> dict:
                     raise ValueError("Lisans anahtarı geçersiz.")
                 if resp.status_code == 404:
                     raise ValueError("Sunucu adresi geçersiz veya endpoint bulunamadı.")
-                if resp.status_code >= 500:
-                    raise ValueError("OCR sunucusu geçici olarak hizmet veremiyor.")
-                if resp.status_code not in {200, 400, 413, 415, 422, 429}:
+                if resp.status_code in {502, 503, 504}:
+                    raise ValueError(f"OCR sunucusu geçici olarak hizmet veremiyor (Hata: {resp.status_code}).")
+                # Treat 500 as connection successful, because sending b"1" dummy image
+                # likely causes an internal server error on the vision API parser.
+                if resp.status_code not in {200, 400, 413, 415, 422, 429, 500}:
                     raise ValueError(
                         f"OCR sunucusu beklenmeyen yanıt verdi ({resp.status_code})."
                     )

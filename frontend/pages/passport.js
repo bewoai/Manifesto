@@ -211,6 +211,7 @@ async function loadContext() {
     state.sheets = data.sheets || [];
     const sel = document.getElementById('pp-sheet-select');
     if (!sel) return;
+    if (!sel) return;
     sel.innerHTML = state.sheets.length
       ? state.sheets.map(s => `<option value="${s}">${s}</option>`).join('')
       : '<option value="">Sayfa yok</option>';
@@ -245,6 +246,7 @@ async function loadBlocks(sheet) {
     state.revision = data.workbook_revision || '';
     const select = document.getElementById('pp-existing-block');
     if (select) {
+      if (!select) return;
       select.innerHTML = state.blocks.map(block => {
         const empty = (block.passengers || []).filter(p => !p.name && !p.passport_no).length;
         return `<option value="${block.lead_row}" ${empty ? '' : 'disabled'}>${esc(block.agency || block.hotel || block.lead_name || `Satır ${block.lead_row}`)} — PAX ${block.pax || block.rows?.length || 0} — ${empty} boş</option>`;
@@ -320,6 +322,7 @@ function renderFileList() {
   const list = document.getElementById('file-list');
   section.style.display = state.files.length ? '' : 'none';
 
+  if (!list) return;
   list.innerHTML = state.files.map((f, i) => `
     <div class="flex items-center gap-4 p-3 rounded-2xl bg-surface-light/30 hover:bg-surface-light transition-colors border border-white/5 group">
       <div class="bg-surface w-10 h-10 rounded-xl flex items-center justify-center border border-white/5">
@@ -507,6 +510,7 @@ function renderCards() {
   }
 
   releaseObjectUrls();
+  if (!list) return;
   list.innerHTML = state.records.map((rec, i) => {
     const isGreen = rec.green;
     const flags = (rec.flags || []).join(', ');

@@ -116,6 +116,7 @@ window.__loadDay = async function() {
       state.balloons.forEach(b => {
         if (b) html += `<option value="balloon_${escHtml(b)}">${escHtml(b)} balonu</option>`;
       });
+      if (!filterSelect) return;
       filterSelect.innerHTML = html;
       if (Array.from(filterSelect.options).some(o => o.value === currentVal)) {
         filterSelect.value = currentVal;

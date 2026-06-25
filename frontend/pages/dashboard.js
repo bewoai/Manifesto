@@ -143,6 +143,7 @@ async function loadWeather() {
   try {
     const data = await api.get('/api/weather/status');
     const decision = data.decision || {};
+    if (!root) return;
     root.innerHTML = `
       <div class="glass-panel rounded-2xl px-5 py-3 flex flex-wrap items-center gap-4">
         <span class="material-symbols-outlined text-primary">partly_cloudy_day</span>
@@ -166,7 +167,9 @@ function renderSteps(data) {
     ['4', 'Hazır Kontrolü', readiness.ready ? 'Hazır' : `${readiness.issue_count || 0} uyarı`, 'planning', readiness.ready],
     ['5', 'Çıktılar', 'Manifesto ve şoför listeleri', 'manifest', readiness.ready],
   ];
-  document.getElementById('operation-steps').innerHTML = steps.map(([no, title, sub, route, done]) => `
+  const el = document.getElementById('operation-steps');
+  if (!el) return;
+  el.innerHTML = steps.map(([no, title, sub, route, done]) => `
     <a href="#/${route}" class="rounded-lg border ${done ? 'border-success/30 bg-success/5' : 'border-warning/25 bg-warning/5'} p-4">
       <div class="flex items-center justify-between mb-2">
         <span class="w-7 h-7 rounded-full flex items-center justify-center ${done ? 'bg-success text-surface' : 'bg-warning text-surface'} font-bold">${no}</span>
@@ -180,6 +183,7 @@ function renderSteps(data) {
 function renderIssues(readiness) {
   const root = document.getElementById('dash-issues');
   const issues = readiness.issues || [];
+  if (!root) return;
   if (!issues.length) {
     root.innerHTML = `<div class="empty-state py-8"><span class="material-symbols-outlined text-success text-5xl">task_alt</span><div class="empty-title">Operasyon hazır</div><div class="empty-desc">Zorunlu kontrollerde eksik bulunmadı.</div></div>`;
     return;
@@ -199,7 +203,9 @@ function renderSummary(data) {
     ['Hazır Durum', readiness.ready ? 'Hazır' : 'Kontrol gerekli'],
     ['Dosya Revizyonu', (data.workbook_revision || '').slice(0, 8) || '—'],
   ];
-  document.getElementById('dash-summary').innerHTML = items.map(([label, value]) => `
+  const el = document.getElementById('dash-summary');
+  if (!el) return;
+  el.innerHTML = items.map(([label, value]) => `
     <div class="flex justify-between gap-4 border-b border-white/5 pb-3">
       <span class="text-on-surface-variant">${label}</span><strong class="text-on-surface">${esc(value)}</strong>
     </div>`).join('');

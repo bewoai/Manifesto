@@ -98,6 +98,7 @@ async function loadSheets() {
     const data = await api.get('/api/planning/sheets');
     state.sheets = data.sheets || [];
     const sel = document.getElementById('mf-sheet');
+    if (!sel) return;
     sel.innerHTML = state.sheets.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
     if (state.sheets.length) {
       sel.value = state.sheets[state.sheets.length - 1];
@@ -130,9 +131,11 @@ function renderReadiness() {
   const root = document.getElementById('mf-readiness');
   const data = state.readiness || {};
   if (data.ready) {
+    if (!root) return;
     root.innerHTML = `<div class="rounded-lg bg-success/10 border border-success/20 p-4 text-success flex gap-3"><span class="material-symbols-outlined">task_alt</span><div><strong>Uçuşa hazır</strong><div class="text-sm opacity-80">${data.total_passengers || 0} yolcu kontrol edildi.</div></div></div>`;
     return;
   }
+  if (!root) return;
   root.innerHTML = `
     <div class="rounded-lg bg-warning/10 border border-warning/20 p-3 text-warning mb-3">${data.issue_count || 0} uyarı bulundu. Çıktı alınabilir ancak gerekçe istenir.</div>
     <div class="max-h-52 overflow-auto space-y-2">${(data.issues || []).slice(0, 20).map(issue => `<div class="text-sm text-on-surface-variant border-b border-white/5 pb-2">${esc(issue.message)}</div>`).join('')}</div>
@@ -141,6 +144,7 @@ function renderReadiness() {
 
 function renderDriverSummary() {
   const root = document.getElementById('driver-summary');
+  if (!root) return;
   root.innerHTML = state.driverSummary.length ? state.driverSummary.map(row => `
     <div class="grid grid-cols-[80px_1fr] gap-3 items-center">
       <strong class="text-primary">${esc(row.balloon)}</strong>
@@ -161,6 +165,7 @@ async function loadBalloons(sheet) {
     const data = await api.get(`/api/planning/load?sheet=${encodeURIComponent(sheet)}`);
     state.balloons = data.balloon_codes || [];
     const sel = document.getElementById('mf-balloon');
+    if (!sel) return;
     sel.innerHTML = state.balloons.length
       ? state.balloons.map(b => `<option value="${esc(b)}">${esc(b)}</option>`).join('')
       : '<option value="">Balon bulunamadı</option>';
@@ -202,6 +207,7 @@ function renderTable() {
   empty.style.display = 'none';
   count.textContent = `${state.rows.length} yolcu`;
 
+  if (!tbl) return;
   tbl.innerHTML = `
     <table class="w-full text-left border-collapse">
       <thead>

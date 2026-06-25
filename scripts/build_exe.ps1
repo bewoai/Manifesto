@@ -62,6 +62,7 @@ python -m PyInstaller `
     --icon "assets\irtifa.ico" `
     --add-data "data;data" `
     --add-data "frontend/dist;frontend/dist" `
+    --add-data "app/templates;app/templates" `
     --collect-all anthropic `
     --collect-all webview `
     --collect-all pythonnet `

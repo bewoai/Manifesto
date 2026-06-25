@@ -190,91 +190,42 @@ def process_image(
     media_type: str = "image/jpeg",
     client=None,
     model: Optional[str] = None,
-    provider: str = settings_mod.VISION_MODE_CLAUDE,
+    provider: str = settings_mod.VISION_MODE_IRTIFA_SERVER,
     settings: Optional[settings_mod.Settings] = None,
     seen_document_numbers: Optional[set[str]] = None,
     today: Optional[_dt.date] = None,
 ) -> list[PassportRecord]:
-    """Uçtan uca: görsel -> Google Vision -> Classifier -> (Optional) Claude Sonnet -> (Optional) Claude Opus -> list[PassportRecord]."""
+    """Uçtan uca: görsel -> Irtifa OCR Sunucusu -> list[PassportRecord].
+    Müşteri sürümünde (Customer Build) yerel Google Vision veya Claude fallback devre dışıdır.
+    SADECE Irtifa sunucusu kullanılır.
+    """
     settings = settings or settings_mod.Settings()
     
-    # 1. Google Vision (Her zaman ilk çağrılır)
-    fmt = "NONE"
-    lines = []
-    fields = {}
-    raw_text = ""
-    try:
-        if settings.google_credentials_json:
-            fmt, lines, fields = extract_with_google_vision(
-                image_bytes,
-                credentials_json=settings.google_credentials_json,
-                use_document_text=settings.google_vision_document_text,
-            )
-            raw_text = fields.get("raw_text", "")
-    except Exception as e:
-        # Google Vision fail olsa da Claude'a fallback yapabiliriz.
-        pass
-
-    # 2. Classifier
-    from app.vision.document_classifier import classify_document
-    doc_type = classify_document(raw_text)
+    # Müşteri derlemesinde provider ne olursa olsun her zaman Irtifa Server kullanılır.
+    from app.vision.irtifa_client import call_irtifa_ocr_server
+    mrz, outcome, error_msg, conf, route, ai_model = call_irtifa_ocr_server(
+        image_bytes=image_bytes,
+        server_url=settings.irtifa_server_url,
+        license_key=settings.irtifa_license_key,
+        device_id=settings.irtifa_device_id
+    )
     
-    # Eğer pasaport/kimlik ise ve MRZ sorunsuz okunduysa Claude'a gitmeye gerek yok!
-    if doc_type in ("passport", "national_id") and fmt != "NONE" and lines:
-        records = _parse_and_validate_mrz([{"format": fmt, "lines": lines, "fields": fields, "confidence": 1.0}], source, seen_document_numbers, today)
-        if records and all(r.is_green for r in records):
-            # Mükemmel sonuç, erken dön!
-            for r in records:
-                r.processing_route = "google_vision_direct"
-                r.confidence_score = 1.0
-            return records
+    req_manual = False
+    if error_msg or conf < settings.ai_confidence_threshold_manual_review:
+        req_manual = True
+        if not error_msg:
+            outcome.add(Flag.LOW_CONFIDENCE)
             
-    # Sadece Google Vision kullanılıyorsa Claude'a gitme
-    if provider == settings_mod.VISION_MODE_GOOGLE_VISION:
-        if fmt != "NONE":
-             return _parse_and_validate_mrz([{"format": fmt, "lines": lines, "fields": fields, "confidence": 1.0}], source, seen_document_numbers, today)
-        return [PassportRecord(source=source, mrz=None, outcome=ValidationOutcome(flags=[Flag.UNREADABLE]), error="Yolcu/MRZ bulunamadı (Google Vision Mode)")]
-
-    # Eğer buraya geldiysek ya belge tipi liste/WhatsApp, ya da MRZ okunamadı/hatalı. Claude'a gitmeliyiz.
-    client = client or _make_client(settings.anthropic_api_key)
-    main_model = model or settings.model or settings_mod.DEFAULT_MODEL
-    fallback_model = settings.anthropic_fallback_model or settings_mod.FALLBACK_MODEL
-    
-    # 3. Claude Sonnet (Ana AI Modeli)
-    anthropic_result = call_anthropic(image_bytes, media_type, client, main_model, SYSTEM_PROMPT)
-    overall_conf = anthropic_result.get("overall_confidence", 0.0)
-    passengers = anthropic_result.get("passengers", [])
-    
-    # 4. Fallback değerlendirmesi
-    ai_model_used = main_model
-    processing_route = "google_vision_plus_sonnet"
-    fallback_reason = None
-    
-    if passengers and overall_conf < settings.ai_confidence_threshold_fallback:
-        # Fallback to Opus
-        fallback_reason = f"Sonnet confidence ({overall_conf}) < {settings.ai_confidence_threshold_fallback}"
-        ai_model_used = fallback_model
-        processing_route = "google_vision_plus_opus"
-        
-        anthropic_result = call_anthropic(image_bytes, media_type, client, fallback_model, SYSTEM_PROMPT)
-        overall_conf = anthropic_result.get("overall_confidence", 0.0)
-        passengers = anthropic_result.get("passengers", [])
-        
-    if not passengers:
-        return [PassportRecord(source=source, mrz=None, outcome=ValidationOutcome(flags=[Flag.UNREADABLE]), error="Yolcu/MRZ bulunamadı", ai_model_used=ai_model_used, processing_route=processing_route, requires_manual_review=True, fallback_reason=fallback_reason)]
-
-    records = _parse_and_validate_mrz(passengers, source, seen_document_numbers, today)
-    
-    # Check manual review
-    for r in records:
-        r.ai_model_used = ai_model_used
-        r.processing_route = processing_route
-        r.fallback_reason = fallback_reason
-        if r.confidence_score < settings.ai_confidence_threshold_manual_review:
-            r.requires_manual_review = True
-            r.outcome.add(Flag.LOW_CONFIDENCE)
-            
-    return records
+    return [PassportRecord(
+        source=source,
+        mrz=mrz,
+        outcome=outcome,
+        error=error_msg,
+        confidence_score=conf,
+        processing_route=route,
+        ai_model_used=ai_model,
+        requires_manual_review=req_manual
+    )]
 
 
 def _parse_and_validate_mrz(passengers: list[dict], source: str, seen_document_numbers: Optional[set[str]], today: Optional[_dt.date]) -> list[PassportRecord]:

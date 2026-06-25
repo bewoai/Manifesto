@@ -10,6 +10,15 @@ let state = {
   countries: [],
 };
 
+function esc(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 export async function render(container) {
   renderHeader('Manuel Kontrol', 'Yapay zeka tarafından düşük güven skorlu olarak işaretlenen kimlik ve pasaportları doğrulayın');
 
@@ -77,10 +86,10 @@ function renderContent(container) {
                 <span class="material-symbols-outlined text-yellow-400">warning</span>
                 <h3 class="text-lg font-semibold text-on-surface">Kontrol Gerekli</h3>
                 <span class="text-sm px-2 py-1 bg-surface-light rounded-md border border-white/5 font-mono text-on-surface-variant">
-                  ${item.fallback_reason || 'Düşük Güven Skoru'}
+                  ${esc(item.fallback_reason || 'Düşük Güven Skoru')}
                 </span>
                 <span class="text-sm px-2 py-1 bg-primary/20 text-primary rounded-md border border-primary/20 ml-auto font-medium">
-                  Güven: ${Math.round(item.confidence_score * 100)}%
+                  Güven: ${Math.round(Number(item.confidence_score || 0) * 100)}%
                 </span>
               </div>
               
@@ -88,9 +97,9 @@ function renderContent(container) {
                 <!-- Uyruk -->
                 <div class="form-group">
                   <label class="form-label">Uyruk</label>
-                  <input type="text" class="form-input font-mono uppercase tracking-widest" id="nat-${item.id}" value="${item.nationality || ''}" list="dl-nat-${item.id}" placeholder="TUR" maxlength="3" />
+                  <input type="text" class="form-input font-mono uppercase tracking-widest" id="nat-${item.id}" value="${esc(item.nationality || '')}" list="dl-nat-${item.id}" placeholder="TUR" maxlength="3" />
                   <datalist id="dl-nat-${item.id}">
-                    ${state.countries.map(c => `<option value="${c.code}">${c.name}</option>`).join('')}
+                    ${state.countries.map(c => `<option value="${esc(c.code)}">${esc(c.name)}</option>`).join('')}
                   </datalist>
                 </div>
                 <!-- Cinsiyet -->
@@ -105,12 +114,12 @@ function renderContent(container) {
                 <!-- İsim -->
                 <div class="form-group col-span-2">
                   <label class="form-label">İsim Soyisim</label>
-                  <input type="text" class="form-input font-mono uppercase tracking-wide" id="name-${item.id}" value="${item.name || ''}" placeholder="ÖR. AHMET YILMAZ" />
+                  <input type="text" class="form-input font-mono uppercase tracking-wide" id="name-${item.id}" value="${esc(item.name || '')}" placeholder="ÖR. AHMET YILMAZ" />
                 </div>
                 <!-- Pasaport No -->
                 <div class="form-group col-span-2">
                   <label class="form-label">Pasaport / Kimlik No</label>
-                  <input type="text" class="form-input font-mono uppercase tracking-wider" id="pass-${item.id}" value="${item.document_number || ''}" placeholder="A1234567" />
+                  <input type="text" class="form-input font-mono uppercase tracking-wider" id="pass-${item.id}" value="${esc(item.document_number || '')}" placeholder="A1234567" />
                 </div>
               </div>
             </div>
@@ -179,8 +188,24 @@ window.__resolveManualReview = async function(id, action) {
   container.style.pointerEvents = 'none';
 
   try {
-    await api.post('/api/passport/manual-review/resolve', { id, action, corrected_data });
-    toast.success(action === 'approve' ? 'Onaylandı' : 'Reddedildi', 'Kayıt başarıyla güncellendi.');
+    const response = await api.post(
+      '/api/passport/manual-review/resolve',
+      { id, action, corrected_data },
+    );
+    if (action === 'approve' && response.record) {
+      const queueKey = 'irtifa_manual_review_queue';
+      const queue = JSON.parse(localStorage.getItem(queueKey) || '[]');
+      if (!queue.some(item => item.extraction_id === response.record.extraction_id)) {
+        queue.push({ ...response.record, _approved: true });
+        localStorage.setItem(queueKey, JSON.stringify(queue));
+      }
+      toast.success(
+        'Onaylandı',
+        'Kayıt Pasaport ekranındaki rezervasyona yazma kuyruğuna eklendi.',
+      );
+    } else {
+      toast.success('Reddedildi', 'Kayıt manuel kontrol listesinden çıkarıldı.');
+    }
     
     // Animasyonlu sil
     container.style.transform = 'scale(0.95)';

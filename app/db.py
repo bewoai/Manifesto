@@ -144,15 +144,22 @@ def init_db(db_path: Path | None = None) -> None:
         if "reservation_row" not in columns_audit:
             conn.execute("ALTER TABLE audit_log ADD COLUMN reservation_row INTEGER")
             
-        # passport_extraction v2 migration
+        # Her kolonu bağımsız kontrol et; yarım kalan yükseltmeler yeniden
+        # başlatıldığında eksik kolonlardan güvenle devam edebilsin.
         columns_pe = {row["name"] for row in conn.execute("PRAGMA table_info(passport_extraction)")}
-        if "confidence_score" not in columns_pe:
-            conn.execute("ALTER TABLE passport_extraction ADD COLUMN confidence_score REAL")
-            conn.execute("ALTER TABLE passport_extraction ADD COLUMN processing_route TEXT")
-            conn.execute("ALTER TABLE passport_extraction ADD COLUMN ai_model_used TEXT")
-            conn.execute("ALTER TABLE passport_extraction ADD COLUMN fallback_reason TEXT")
-            conn.execute("ALTER TABLE passport_extraction ADD COLUMN requires_manual_review INTEGER NOT NULL DEFAULT 0")
-            conn.execute("ALTER TABLE passport_extraction ADD COLUMN manual_review_reason TEXT")
+        passport_columns = {
+            "confidence_score": "REAL",
+            "processing_route": "TEXT",
+            "ai_model_used": "TEXT",
+            "fallback_reason": "TEXT",
+            "requires_manual_review": "INTEGER NOT NULL DEFAULT 0",
+            "manual_review_reason": "TEXT",
+        }
+        for column, definition in passport_columns.items():
+            if column not in columns_pe:
+                conn.execute(
+                    f"ALTER TABLE passport_extraction ADD COLUMN {column} {definition}"
+                )
             
         conn.execute("CREATE INDEX IF NOT EXISTS idx_extraction_manual ON passport_extraction(requires_manual_review)")
         conn.execute("DELETE FROM audit_log WHERE ts < datetime('now', '-365 days')")

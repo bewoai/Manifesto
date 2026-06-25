@@ -32,7 +32,7 @@ def test_process_image_green_for_valid_passport():
     client = FakeClient({"format": "TD3", "lines": [TD3_L1, TD3_L2]})
     # expiry 2012 -> bugünü 2010 alıp expired flag'ini devre dışı bırak
     rec = process_image(b"fake-bytes", source="p.jpg", client=client,
-                        today=dt.date(2010, 1, 1))
+                        today=dt.date(2010, 1, 1))[0]
     assert rec.mrz is not None
     f = rec.to_fields()
     assert f["nationality"] == "UTO"
@@ -45,7 +45,7 @@ def test_process_image_green_for_valid_passport():
 
 def test_expired_passport_is_yellow():
     client = FakeClient({"format": "TD3", "lines": [TD3_L1, TD3_L2]})
-    rec = process_image(b"x", client=client, today=dt.date(2026, 6, 22))
+    rec = process_image(b"x", client=client, today=dt.date(2026, 6, 22))[0]
     assert not rec.is_green
     assert Flag.EXPIRED in rec.flags
 
@@ -53,13 +53,13 @@ def test_expired_passport_is_yellow():
 def test_duplicate_document_flagged():
     client = FakeClient({"format": "TD3", "lines": [TD3_L1, TD3_L2]})
     rec = process_image(b"x", client=client, today=dt.date(2010, 1, 1),
-                        seen_document_numbers={"L898902C3"})
+                        seen_document_numbers={"L898902C3"})[0]
     assert Flag.DUPLICATE in rec.flags
 
 
 def test_no_mrz_is_unreadable():
     client = FakeClient({"format": "NONE", "lines": []})
-    rec = process_image(b"x", client=client)
+    rec = process_image(b"x", client=client)[0]
     assert rec.mrz is None
     assert Flag.UNREADABLE in rec.flags
     assert rec.to_fields()["green"] is False
@@ -68,7 +68,7 @@ def test_no_mrz_is_unreadable():
 def test_checksum_fail_is_yellow():
     bad_l2 = TD3_L2[:9] + "5" + TD3_L2[10:]   # belge no check digit bozuk
     client = FakeClient({"format": "TD3", "lines": [TD3_L1, bad_l2]})
-    rec = process_image(b"x", client=client, today=dt.date(2010, 1, 1))
+    rec = process_image(b"x", client=client, today=dt.date(2010, 1, 1))[0]
     assert Flag.CHECKSUM_FAIL in rec.flags
     assert not rec.is_green
 
@@ -79,9 +79,62 @@ def test_api_error_does_not_crash():
             self.messages = SimpleNamespace(create=self._raise)
         def _raise(self, **kw):
             raise RuntimeError("network down")
-    rec = process_image(b"x", client=Boom())
+    rec = process_image(b"x", client=Boom())[0]
     assert Flag.UNREADABLE in rec.flags
     assert "network down" in (rec.error or "")
+
+
+def test_empty_primary_result_uses_fallback_model():
+    calls: list[str] = []
+
+    class FallbackClient:
+        def __init__(self):
+            self.messages = SimpleNamespace(create=self._create)
+
+        def _create(self, **kwargs):
+            calls.append(kwargs["model"])
+            payload = (
+                {"passengers": [], "overall_confidence": 0.0}
+                if len(calls) == 1
+                else {
+                    "passengers": [{
+                        "format": "TD3",
+                        "lines": [TD3_L1, TD3_L2],
+                        "confidence": 0.98,
+                        "fields": {},
+                    }],
+                    "overall_confidence": 0.98,
+                }
+            )
+            return SimpleNamespace(
+                content=[SimpleNamespace(type="tool_use", input=payload)]
+            )
+
+    rec = process_image(
+        b"x",
+        client=FallbackClient(),
+        today=dt.date(2010, 1, 1),
+    )[0]
+    assert rec.mrz is not None
+    assert len(calls) == 2
+    assert rec.processing_route == "google_vision_plus_opus"
+
+
+def test_duplicate_within_same_image_is_flagged():
+    payload = {
+        "passengers": [
+            {"format": "TD3", "lines": [TD3_L1, TD3_L2], "confidence": 0.99, "fields": {}},
+            {"format": "TD3", "lines": [TD3_L1, TD3_L2], "confidence": 0.99, "fields": {}},
+        ],
+        "overall_confidence": 0.99,
+    }
+    records = process_image(
+        b"x",
+        client=FakeClient(payload),
+        today=dt.date(2010, 1, 1),
+    )
+    assert Flag.DUPLICATE not in records[0].flags
+    assert Flag.DUPLICATE in records[1].flags
 
 
 def test_mrz_lines_from_noisy_ocr_text():

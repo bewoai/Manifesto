@@ -10,45 +10,37 @@ export async function render(container) {
 
   container.innerHTML = `
     <div class="max-w-3xl pb-12">
-      <!-- Vision Modu -->
+      <!-- Irtifa OCR Servisi -->
       <div class="glass-panel rounded-3xl p-6 mb-6 animate-in">
         <div class="flex items-center gap-3 mb-6">
-          <span class="material-symbols-outlined text-primary text-3xl">visibility</span>
-          <h2 class="font-headline text-headline-sm text-on-surface">Pasaport Okuma Modu</h2>
+          <span class="material-symbols-outlined text-primary text-3xl">document_scanner</span>
+          <h2 class="font-headline text-headline-sm text-on-surface">İrtifa OCR Servisi</h2>
+        </div>
+        <div class="form-group" style="display:none;">
+          <input type="hidden" id="s-vision-mode" value="irtifa_server" />
         </div>
         <div class="form-group">
-          <label class="form-label">Okuma yöntemi</label>
-          <select class="form-select" id="s-vision-mode">
-            <option value="google_vision">Google Cloud Vision / Ucuz Otomatik Okuma</option>
-            <option value="claude">Claude Vision / Otomatik Okuma</option>
-            <option value="manual">API'siz / Elle Giriş</option>
-          </select>
-          <div class="form-help">Google Vision varsayılan ekonomik yöntemdir. Sarı kartlar pasaport ekranından tek tek Claude ile yeniden taranabilir.</div>
+          <label class="form-label">Sunucu Adresi</label>
+          <input class="form-input" id="s-irtifa-url" type="url" placeholder="https://..." />
+          <div class="form-help">İrtifa merkezi OCR sunucu adresi.</div>
         </div>
         <div class="form-group">
-          <label class="form-label">Claude API Anahtarı</label>
-          <input class="form-input" id="s-api-key" type="password" placeholder="sk-ant-..." />
-          <div class="form-help">console.anthropic.com → API Keys. Sadece Claude modunda gerekir.</div>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Model</label>
-          <input class="form-input" id="s-model" placeholder="claude-opus-4-8" />
-          <div class="form-help">MRZ okuma için kullanılacak Claude modeli. Emin değilseniz varsayılanı koruyun.</div>
+          <label class="form-label">Lisans Anahtarı</label>
+          <input class="form-input" id="s-irtifa-key" type="password" placeholder="Lisans anahtarınızı girin..." />
+          <div class="form-help">Uygulama sağlayıcınız tarafından verilen lisans kodu.</div>
         </div>
         <div class="form-row">
-          <div class="form-group">
-            <label class="flex items-center gap-3 cursor-pointer mt-8">
-              <input type="checkbox" id="s-google-doc-text" class="w-5 h-5 rounded border-on-surface-variant/30 bg-surface/50 text-primary focus:ring-primary focus:ring-offset-surface" />
-              <span class="text-on-surface">Google belge OCR kullan</span>
-            </label>
-            <div class="form-help">Normal fotoğraflar için kapalı kalsın; çok yoğun/karmaşık görsellerde açılabilir.</div>
+          <div class="form-group flex-1">
+            <label class="form-label">Cihaz Kimliği</label>
+            <input class="form-input font-mono text-sm" id="s-irtifa-device" readonly />
+            <div class="form-help">Bu bilgisayara özel otomatik oluşturulan cihaz kimliği. (Salt Okunur)</div>
           </div>
           <div class="form-group flex items-end">
-            <button class="btn-secondary" onclick="window.__testConnection('google_vision')">Google Vision Bağlantısını Test Et</button>
+            <button class="btn-secondary" onclick="window.__testConnection('irtifa_server')">Servis Bağlantısını Test Et</button>
           </div>
         </div>
       </div>
-      <!-- Firma ve Operasyon Ayarları -->
+      <!-- Firma ve Operasyon Ayarları -->
       <div class="glass-panel rounded-3xl p-6 mb-6 animate-in" style="animation-delay: 25ms">
         <div class="flex items-center gap-3 mb-6">
           <span class="material-symbols-outlined text-primary text-3xl">storefront</span>
@@ -72,13 +64,6 @@ export async function render(container) {
         </div>
       </div>
 
-      <!-- Veri Kaynağı -->
-      <div class="glass-panel rounded-3xl p-6 mb-6 animate-in" style="animation-delay: 50ms">
-        <div class="flex items-center gap-3 mb-6">
-          <span class="material-symbols-outlined text-primary text-3xl">database</span>
-          <h2 class="font-headline text-headline-sm text-on-surface">Veri Kaynağı</h2>
-        </div>
-        <div class="form-group">
       <!-- Veri Kaynağı -->
       <div class="glass-panel rounded-3xl p-6 mb-6 animate-in" style="animation-delay: 50ms">
         <div class="flex items-center gap-3 mb-6">
@@ -245,10 +230,9 @@ function fillForm(s) {
   const val = (id, v) => { const el = document.getElementById(id); if (el) el.value = (v === null || v === undefined) ? '' : v; };
   const chk = (id, v) => { const el = document.getElementById(id); if (el) el.checked = !!v; };
 
-  val('s-vision-mode', s.vision_mode);
-  val('s-api-key', '');  // Don't show masked key, keep empty unless user types new one
-  val('s-model', s.model);
-  chk('s-google-doc-text', s.google_vision_document_text);
+  val('s-irtifa-url', s.irtifa_server_url);
+  val('s-irtifa-key', ''); // Don't show masked key
+  val('s-irtifa-device', s.irtifa_device_id);
   val('s-data-source', s.data_source);
   val('s-planning-xlsx', s.planning_xlsx);
   val('s-gsheet-json', s.google_credentials_json);
@@ -312,10 +296,9 @@ window.__saveSettings = async function() {
   const gc = (id) => document.getElementById(id)?.checked || false;
 
   const body = {
-    vision_mode: gv('s-vision-mode'),
+    vision_mode: 'irtifa_server',
+    irtifa_server_url: gv('s-irtifa-url'),
     data_source: gv('s-data-source'),
-    model: gv('s-model'),
-    google_vision_document_text: gc('s-google-doc-text'),
     planning_xlsx: gv('s-planning-xlsx'),
     google_credentials_json: gv('s-gsheet-json'),
     company_name: gv('s-company-name'),
@@ -345,8 +328,9 @@ window.__saveSettings = async function() {
   if (poll) body.weather_poll_minutes = poll;
 
   // Only include API key if user typed something new
-  const keyInput = gv('s-api-key');
-  if (keyInput) body.anthropic_api_key = keyInput;
+  const irtifaKey = gv('s-irtifa-key');
+  if (irtifaKey) body.irtifa_license_key = irtifaKey;
+  
   const weatherKey = gv('s-weather-key');
   if (weatherKey) body.weather_api_key = weatherKey;
 
@@ -366,7 +350,15 @@ window.__reloadSettings = function() {
 
 window.__testConnection = async function(target) {
   try {
-    const data = await api.post('/api/settings/test', { target });
+    const payload = { target };
+    if (target === 'irtifa_server') {
+      payload.irtifa_server_url = document.getElementById('s-irtifa-url')?.value?.trim();
+      payload.irtifa_license_key = document.getElementById('s-irtifa-key')?.value?.trim();
+    }
+    const data = await api.post('/api/settings/test', payload);
     toast.success('Bağlantı başarılı', data.message);
+    
+    // Test başarılıysa otomatik kaydet
+    await window.__saveSettings();
   } catch (err) { toast.error('Bağlantı testi başarısız', err.message); }
 };

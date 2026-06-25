@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import uuid
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -26,10 +27,12 @@ LEGACY_SETTINGS_PATH = Path(os.getenv("APPDATA") or os.path.expanduser("~/.confi
 VISION_MODE_GOOGLE_VISION = "google_vision"
 VISION_MODE_CLAUDE = "claude"
 VISION_MODE_MANUAL = "manual"
+VISION_MODE_IRTIFA_SERVER = "irtifa_server"
 VISION_MODES = (
     VISION_MODE_GOOGLE_VISION,
     VISION_MODE_CLAUDE,
     VISION_MODE_MANUAL,
+    VISION_MODE_IRTIFA_SERVER,
 )
 
 DATA_SOURCE_EXCEL = "excel"
@@ -44,7 +47,10 @@ FALLBACK_MODEL = "claude-opus-4-8"   # Premium fallback modeli
 class Settings:
     is_setup_complete: bool = False
     company_name: str = ""
-    vision_mode: str = VISION_MODE_CLAUDE
+    vision_mode: str = VISION_MODE_IRTIFA_SERVER
+    irtifa_server_url: str = "https://irtifa-ocr-server-1011336814601.europe-west1.run.app"
+    irtifa_license_key: str = ""
+    irtifa_device_id: str = ""
     data_source: str = DATA_SOURCE_EXCEL
     anthropic_api_key: str = ""
     model: str = DEFAULT_MODEL
@@ -172,26 +178,38 @@ def load(path: Optional[Path] = None) -> Settings:
     settings = Settings(**known).normalized()
     try:
         from app.secret_store import get_secret
-        for key in ("anthropic_api_key", "google_credentials_json", "weather_api_key"):
+        for key in ("anthropic_api_key", "google_credentials_json", "weather_api_key", "irtifa_license_key"):
             stored = get_secret(key)
             if stored:
                 setattr(settings, key, stored)
     except Exception:
         pass
+        
+    if not settings.irtifa_device_id:
+        settings.irtifa_device_id = str(uuid.uuid4())
+        
     return settings
 
 
 def save(settings: Settings, path: Optional[Path] = None) -> Path:
     p = Path(path) if path else SETTINGS_PATH
     p.parent.mkdir(parents=True, exist_ok=True)
+    
+    if not settings.irtifa_device_id:
+        settings.irtifa_device_id = str(uuid.uuid4())
+        
     data = asdict(settings)
     from app.secret_store import migrate_file_secret, set_secret
     set_secret("anthropic_api_key", settings.anthropic_api_key)
     set_secret("weather_api_key", settings.weather_api_key)
+    set_secret("irtifa_license_key", settings.irtifa_license_key)
+    
     if settings.google_credentials_json:
         migrate_file_secret("google_credentials_json", settings.google_credentials_json)
+        
     data["anthropic_api_key"] = "dpapi:anthropic_api_key" if settings.anthropic_api_key else ""
     data["weather_api_key"] = "dpapi:weather_api_key" if settings.weather_api_key else ""
+    data["irtifa_license_key"] = "dpapi:irtifa_license_key" if settings.irtifa_license_key else ""
     data["google_credentials_json"] = (
         "dpapi:google_credentials_json" if settings.google_credentials_json else ""
     )

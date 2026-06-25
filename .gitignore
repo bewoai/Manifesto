@@ -21,6 +21,7 @@ data/incoming/
 node_modules/
 dist/
 build/
+.tools/
 
 # Sırlar & yerel hata-ayıklama PII — ASLA commit'lenmez
 # (Google servis hesabı anahtarları vb.; data/country_map.json etkilenmez)

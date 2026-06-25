@@ -16,6 +16,7 @@ let state = {
   agencies: [],
   blocks: [],
   revision: '',
+  objectUrls: [],
 };
 
 export async function render(container) {
@@ -74,7 +75,7 @@ export async function render(container) {
       
       <div class="mt-6 text-xs text-on-surface-variant bg-primary/5 border border-primary/10 p-4 rounded-2xl flex items-start gap-3">
         <span class="material-symbols-outlined text-primary text-[20px]">info</span>
-        <div class="leading-relaxed">Balon PAX'a göre <strong class="text-primary font-semibold">otomatik atanır</strong>. Kaptan ve pickup saati en son (rota belli olunca) Planlama'dan girilir.</div>
+        <div class="leading-relaxed">Balon PAX\'a göre <strong class="text-primary font-semibold">otomatik atanır</strong>. Kaptan ve pickup saati en son (rota belli olunca) Planlama\'dan girilir.</div>
       </div>
     </div>
 
@@ -104,8 +105,11 @@ export async function render(container) {
           <button class="btn-secondary flex items-center gap-2" onclick="window.__clearFiles()">
             <span class="material-symbols-outlined text-[20px]">delete_sweep</span> Temizle
           </button>
+          <button class="btn-secondary flex items-center gap-2" onclick="window.__createManualCards()">
+            <span class="material-symbols-outlined text-[20px]">add_task</span> Manuel Kart Oluştur
+          </button>
           <button class="btn-primary flex items-center gap-2" id="btn-process" onclick="window.__processFiles()">
-            <span class="material-symbols-outlined text-[20px]">play_arrow</span> MRZ Oku
+            <span class="material-symbols-outlined text-[20px]">document_scanner</span> MRZ Oku
           </button>
         </div>
       </div>
@@ -139,8 +143,30 @@ export async function render(container) {
     </div>
   `;
 
+  consumeManualReviewQueue();
   loadContext();
   setupPaste();
+}
+
+function consumeManualReviewQueue() {
+  const queueKey = 'irtifa_manual_review_queue';
+  try {
+    const queued = JSON.parse(localStorage.getItem(queueKey) || '[]');
+    if (!Array.isArray(queued) || !queued.length) return;
+    const existingIds = new Set(state.records.map(item => item.extraction_id).filter(Boolean));
+    const additions = queued.filter(item => !existingIds.has(item.extraction_id));
+    state.records.push(...additions);
+    localStorage.removeItem(queueKey);
+    if (additions.length) {
+      renderCards();
+      toast.info(
+        'Manuel kontrol kayıtları hazır',
+        `${additions.length} onaylı yolcu rezervasyona yazılmak üzere eklendi.`,
+      );
+    }
+  } catch {
+    localStorage.removeItem(queueKey);
+  }
 }
 
 // ─── Clipboard paste (WhatsApp Desktop: kopyala → Ctrl+V) ───
@@ -252,6 +278,7 @@ function addFiles(fileList) {
 }
 
 window.__clearFiles = function() {
+  releaseObjectUrls();
   state.files = [];
   state.records = [];
   renderFileList();
@@ -283,11 +310,37 @@ window.__removeFile = function(i) {
   state.files.splice(i, 1);
   if (state.records.length && fileToRemove) {
     // Aynı dosyadan üretilmiş tüm kayıtları (yolcuları) sil
-    state.records = state.records.filter(r => r._source_file_name !== fileToRemove.name);
+    state.records = state.records
+      .filter(r => Number.isInteger(r._source_file_index)
+        ? r._source_file_index !== i
+        : r._source_file_name !== fileToRemove.name)
+      .map(r => ({
+        ...r,
+        _source_file_index: Number.isInteger(r._source_file_index) && r._source_file_index > i
+          ? r._source_file_index - 1
+          : r._source_file_index,
+      }));
     if (state.records.length) renderCards();
     else document.getElementById('cards-section').style.display = 'none';
   }
   renderFileList();
+};
+
+window.__createManualCards = function() {
+  if (!state.files.length) return;
+  
+  state.records = state.files.map((f, i) => ({
+    source: f.name,
+    nationality: '', sex: '', name: '', passport_no: '',
+    green: false, flags: [],
+    error: '',
+    _source_file_index: i,
+    _source_file_name: f.name,
+    is_manual: true
+  }));
+  
+  renderCards();
+  toast.success('Manuel Giriş', `${state.records.length} adet manuel giriş kartı oluşturuldu.`);
 };
 
 // ─── Process ───
@@ -312,7 +365,25 @@ window.__processFiles = async function() {
     text.textContent = `${state.files.length} fotoğraf gönderiliyor...`;
 
     const data = await api.upload('/api/passport/upload', state.files);
-    state.records = data.records || data || [];
+    let newRecords = data.records || data || [];
+
+    // Check for license errors first
+    if (newRecords.length > 0 && newRecords[0].error && newRecords[0].error.toLowerCase().includes('lisans')) {
+        const isMissing = newRecords[0].error.toLowerCase().includes('gerekli');
+        const msg = isMissing
+            ? "OCR/MRZ okuma için lisans anahtarı gerekli. Fotoğrafları manuel giriş olarak kullanabilirsiniz."
+            : "Lisans anahtarı geçersiz. OCR işlemi başlatılamaz.";
+
+        modal.open(
+            'Lisans Uyarısı',
+            `<div class="py-4 text-on-surface">${msg}</div>`,
+            `<button class="btn-ghost px-4 py-2 rounded-xl hover:bg-white/5 transition-colors text-on-surface-variant font-medium" onclick="window.__closeModal()">Kapat</button>
+             <button class="btn-primary px-4 py-2 rounded-xl transition-colors font-medium" onclick="window.__closeModal(); window.__createManualCards()">Manuel Devam Et</button>`
+        );
+        return; // Early return, don't create OCR cards
+    }
+
+    state.records = newRecords;
 
     fill.style.width = '100%';
     text.textContent = `${state.records.length} pasaport işlendi`;
@@ -321,6 +392,23 @@ window.__processFiles = async function() {
     toast.success('İşlem tamamlandı',
       `${state.records.filter(r => r.green).length} yeşil, ${state.records.filter(r => !r.green).length} sarı`);
   } catch (err) {
+    // Check if it's a license error
+    const errMsg = (err.message || '').toLowerCase();
+    if (errMsg.includes('lisans') || err.status === 401 || err.status === 403) {
+        const isMissing = errMsg.includes('gerekli') || errMsg.includes('bulunamadı');
+        const msg = isMissing
+            ? "OCR/MRZ okuma için lisans anahtarı gerekli. Fotoğrafları manuel giriş olarak kullanabilirsiniz."
+            : "Lisans anahtarı geçersiz. OCR işlemi başlatılamaz.";
+
+        modal.open(
+            'Lisans Uyarısı',
+            `<div class="py-4 text-on-surface">${msg}</div>`,
+            `<button class="btn-ghost px-4 py-2 rounded-xl hover:bg-white/5 transition-colors text-on-surface-variant font-medium" onclick="window.__closeModal()">Kapat</button>
+             <button class="btn-primary px-4 py-2 rounded-xl transition-colors font-medium" onclick="window.__closeModal(); window.__createManualCards()">Manuel Devam Et</button>`
+        );
+        return;
+    }
+
     toast.error('İşlem hatası', err.message);
     // If API not available, create empty manual records
     state.records = state.files.map((f, i) => ({
@@ -347,8 +435,12 @@ function renderCards() {
   section.style.display = '';
 
   const greens = state.records.filter(r => r.green).length;
+  const manuals = state.records.filter(r => r.is_manual).length;
   const total = state.records.length;
-  summary.innerHTML = `<span class="text-success font-bold">${greens} yeşil</span> <span class="opacity-50">/</span> <span class="text-warning font-bold">${total - greens} sarı</span> <span class="opacity-50">—</span> toplam ${total}`;
+  const warnings = total - greens - manuals;
+  summary.innerHTML = manuals > 0
+    ? `<span class="text-info font-bold">${manuals} manuel</span> <span class="opacity-50">/</span> <span class="text-success font-bold">${greens} yeşil</span> <span class="opacity-50">/</span> <span class="text-warning font-bold">${warnings} sarı</span> <span class="opacity-50">—</span> toplam ${total}`
+    : `<span class="text-success font-bold">${greens} yeşil</span> <span class="opacity-50">/</span> <span class="text-warning font-bold">${total - greens} sarı</span> <span class="opacity-50">—</span> toplam ${total}`;
 
   // PAX'ı veri içeren pasaport sayısına göre otomatik öner (kullanıcı değiştirmediyse)
   const dataCount = state.records.filter(r => r.name || r.passport_no).length || total;
@@ -359,15 +451,19 @@ function renderCards() {
     paxEl.onchange = () => { paxEl.dataset.auto = 'off'; };
   }
 
+  releaseObjectUrls();
   list.innerHTML = state.records.map((rec, i) => {
     const isGreen = rec.green;
     const flags = (rec.flags || []).join(', ');
 
     // Try to create object URL for thumbnail
     let thumbHtml;
-    const sourceFile = state.files.find(f => f.name === rec._source_file_name);
+    const sourceFile = Number.isInteger(rec._source_file_index)
+      ? state.files[rec._source_file_index]
+      : state.files.find(f => f.name === rec._source_file_name);
     if (sourceFile) {
       const url = URL.createObjectURL(sourceFile);
+      state.objectUrls.push(url);
       thumbHtml = `<img src="${url}" class="w-full md:w-32 h-32 object-cover rounded-2xl border border-white/5" alt="Passport ${i+1}" />`;
     } else {
       thumbHtml = `<div class="w-full md:w-32 h-32 bg-surface-light rounded-2xl border border-white/5 flex flex-col items-center justify-center text-on-surface-variant"><span class="material-symbols-outlined text-3xl mb-1 opacity-50">image</span><span class="text-[10px] text-center px-2 w-full truncate opacity-70">${esc(rec._source_file_name || rec.source || '')}</span></div>`;
@@ -376,7 +472,7 @@ function renderCards() {
     return `
       <div class="glass-panel p-5 flex flex-col md:flex-row gap-5 relative animate-fade-in overflow-hidden" id="pcard-${i}">
         <!-- Status Indicator Edge -->
-        <div class="absolute left-0 top-0 bottom-0 w-1.5 ${isGreen ? 'bg-success' : 'bg-warning'} shadow-[0_0_10px_rgba(${isGreen ? '74,222,128' : '250,204,21'},0.5)]"></div>
+        <div class="absolute left-0 top-0 bottom-0 w-1.5 ${rec.is_manual ? 'bg-info shadow-[0_0_10px_rgba(56,189,248,0.5)]' : isGreen ? 'bg-success shadow-[0_0_10px_rgba(74,222,128,0.5)]' : 'bg-warning shadow-[0_0_10px_rgba(250,204,21,0.5)]'}"></div>
 
         <!-- Bu taramayı sil -->
         <button onclick="window.__removeCard(${i})" title="Bu taramayı sil" aria-label="Bu taramayı sil"
@@ -412,9 +508,9 @@ function renderCards() {
           
           <div class="md:w-56 flex flex-col border-t md:border-t-0 md:border-l border-white/5 pt-5 md:pt-0 md:pl-5 justify-between">
             <div class="w-full">
-              <div class="font-medium text-sm flex items-center justify-end gap-1.5 mb-3 px-3 py-1.5 rounded-lg border ${isGreen ? 'bg-success/10 text-success border-success/20' : 'bg-warning/10 text-warning border-warning/20'}">
-                <span class="material-symbols-outlined text-[18px]">${isGreen ? 'check_circle' : 'warning'}</span> 
-                ${isGreen ? 'YEŞİL — DOĞRULANDI' : 'SARI — KONTROL ET'}
+              <div class="font-medium text-sm flex items-center justify-end gap-1.5 mb-3 px-3 py-1.5 rounded-lg border ${rec.is_manual ? 'bg-info/10 text-info border-info/20' : isGreen ? 'bg-success/10 text-success border-success/20' : 'bg-warning/10 text-warning border-warning/20'}">
+                <span class="material-symbols-outlined text-[18px]">${rec.is_manual ? 'edit_document' : isGreen ? 'check_circle' : 'warning'}</span> 
+                ${rec.is_manual ? 'MANUEL GİRİŞ' : isGreen ? 'YEŞİL — DOĞRULANDI' : 'SARI — KONTROL ET'}
               </div>
               ${flags ? `<div class="flex flex-wrap justify-end gap-1.5 mb-2">${flags.split(', ').map(f => `<span class="bg-surface-light border border-white/5 text-on-surface-variant text-[11px] font-medium px-2 py-1 rounded-md uppercase tracking-wide">${f}</span>`).join('')}</div>` : ''}
               ${rec.error ? `<div class="text-[11px] text-danger font-medium mt-1 text-right bg-danger/10 px-2 py-1.5 rounded-md border border-danger/20">${esc(rec.error)}</div>` : ''}
@@ -424,7 +520,7 @@ function renderCards() {
               <input type="checkbox" class="w-4 h-4 rounded border-white/10 bg-surface text-primary focus:ring-primary focus:ring-offset-surface group-hover:border-primary/50" id="pc-approve-${i}" ${(rec._approved !== undefined ? rec._approved : isGreen) ? 'checked' : ''} />
               Onayla ve Ekle
             </label>
-            ${!isGreen ? `<button class="btn-secondary w-full mt-2 flex items-center justify-center gap-2" onclick="window.__retryClaude(${i})"><span class="material-symbols-outlined text-sm">auto_fix_high</span> Claude ile Tekrar Tara</button>` : ''}
+            ${(!isGreen && !rec.is_manual) ? `<button class="btn-secondary w-full mt-2 flex items-center justify-center gap-2" onclick="window.__retryClaude(${i})"><span class="material-symbols-outlined text-sm">auto_fix_high</span> Claude ile Tekrar Tara</button>` : ''}
           </div>
         </div>
       </div>
@@ -440,7 +536,9 @@ function renderCards() {
 
 window.__retryClaude = async function(i) {
   const rec = state.records[i];
-  const file = state.files.find(f => f.name === rec._source_file_name);
+  const file = Number.isInteger(rec._source_file_index)
+    ? state.files[rec._source_file_index]
+    : state.files.find(f => f.name === rec._source_file_name);
   if (!file) return toast.warning('Görsel bulunamadı');
   syncCardsToState();
   const form = new FormData();
@@ -455,6 +553,7 @@ window.__retryClaude = async function(i) {
     // Eger bu da birden fazla record döndürürse, sadece ilkini mevcut karta yazıyoruz:
     state.records[i] = data.records ? data.records[0] : data;
     state.records[i]._source_file_name = file.name;
+    state.records[i]._source_file_index = rec._source_file_index;
     renderCards();
     toast.success('Yeniden tarandı', state.records[i].green ? 'Sonuç doğrulandı' : 'Sonuç hâlâ kontrol gerektiriyor');
   } catch (err) { toast.error('Claude taraması başarısız', err.message); }
@@ -480,10 +579,24 @@ window.__removeCard = function(i) {
   const rec = state.records.splice(i, 1)[0];
   
   // Eğer bu dosyaya ait başka kayıt kalmadıysa dosyayı da silebiliriz
-  if (rec && rec._source_file_name && !state.records.some(r => r._source_file_name === rec._source_file_name)) {
-    const fileIndex = state.files.findIndex(f => f.name === rec._source_file_name);
+  const sameSourceRemains = rec && state.records.some(r =>
+    Number.isInteger(rec._source_file_index)
+      ? r._source_file_index === rec._source_file_index
+      : r._source_file_name === rec._source_file_name
+  );
+  if (rec && (Number.isInteger(rec._source_file_index) || rec._source_file_name) && !sameSourceRemains) {
+    const fileIndex = Number.isInteger(rec._source_file_index)
+      ? rec._source_file_index
+      : state.files.findIndex(f => f.name === rec._source_file_name);
     if (fileIndex !== -1) {
       state.files.splice(fileIndex, 1);
+      state.records = state.records.map(item => ({
+        ...item,
+        _source_file_index: Number.isInteger(item._source_file_index)
+          && item._source_file_index > fileIndex
+          ? item._source_file_index - 1
+          : item._source_file_index,
+      }));
     }
   }
   
@@ -620,4 +733,9 @@ window.__confirmPassportOverflow = async function() {
 
 function esc(s) {
   return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function releaseObjectUrls() {
+  for (const url of state.objectUrls) URL.revokeObjectURL(url);
+  state.objectUrls = [];
 }

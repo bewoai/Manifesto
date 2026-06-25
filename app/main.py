@@ -55,7 +55,12 @@ from app.manifest.planning import (
 from app.manifest.writer import ManifestRow, build_rows, export, write_manifest
 from app.vision.extractor import PassportRecord, process_image, media_type_for
 from app.validation.flags import Flag, ValidationOutcome
-from app.passport_store import cleanup_day as cleanup_passport_day, cleanup_stale, save_image
+from app.passport_store import (
+    ROOT as PASSPORT_IMAGE_ROOT,
+    cleanup_day as cleanup_passport_day,
+    cleanup_stale,
+    save_image,
+)
 from app.readiness import check_workbook
 from app.reports import (
     driver_rows,
@@ -329,6 +334,7 @@ def get_settings() -> dict:
     # API anahtarını güvenlik için maskele
     data["anthropic_api_key"] = _mask_api_key(s.anthropic_api_key)
     data["weather_api_key"] = _mask_api_key(s.weather_api_key)
+    data["irtifa_license_key"] = _mask_api_key(s.irtifa_license_key)
     data["google_credentials_json"] = (
         "Korumalı depoda kayıtlı" if s.google_credentials_json else ""
     )
@@ -361,6 +367,8 @@ def update_settings(body: dict) -> dict:
                 continue
             if key == "weather_api_key" and body[key] and "*" in body[key]:
                 continue
+            if key == "irtifa_license_key" and body[key] and "*" in body[key]:
+                continue
             if key == "google_credentials_json" and body[key] == "Korumalı depoda kayıtlı":
                 continue
             current_dict[key] = body[key]
@@ -381,6 +389,7 @@ def update_settings(body: dict) -> dict:
     data = asdict(updated)
     data["anthropic_api_key"] = _mask_api_key(updated.anthropic_api_key)
     data["weather_api_key"] = _mask_api_key(updated.weather_api_key)
+    data["irtifa_license_key"] = _mask_api_key(updated.irtifa_license_key)
     data["google_credentials_json"] = (
         "Korumalı depoda kayıtlı" if updated.google_credentials_json else ""
     )
@@ -1329,7 +1338,7 @@ async def api_passport_upload(
     # Duplicate tespiti için set (aynı yükleme içinde)
     seen_doc_numbers: set[str] = set()
 
-    for upload_file in files:
+    for file_index, upload_file in enumerate(files):
         filename = upload_file.filename or "unknown"
         try:
             image_bytes = await upload_file.read()
@@ -1350,19 +1359,34 @@ async def api_passport_upload(
                     detail="Claude modu aktif ama API anahtarı ayarlanmamış.",
                 )
             mt = media_type_for(Path(filename))
-            records = process_image(
-                image_bytes,
-                source=filename,
-                media_type=mt,
-                model=s.model,
-                provider=s.vision_mode,
-                settings=s,
-                seen_document_numbers=seen_doc_numbers,
-            )
+            try:
+                records = process_image(
+                    image_bytes,
+                    source=filename,
+                    media_type=mt,
+                    model=s.model,
+                    provider=s.vision_mode,
+                    settings=s,
+                    seen_document_numbers=seen_doc_numbers,
+                )
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                results.append({
+                    "nationality": "", "sex": "", "name": "", "passport_no": "",
+                    "green": False, "flags": [Flag.UNREADABLE.value],
+                    "error": f"İşleme hatası: {str(e)}", "source": filename,
+                    "_source_file_name": filename,
+                    "_source_file_index": file_index
+                })
+                continue
+                
             for record in records:
                 field_data = record.to_fields()
-                # Frontend için source file index (varsa takip edebilmesi için ekstra flag)
+                # Aynı dosya adına sahip görselleri de güvenle ayırabilmek için
+                # yükleme sırasını ve görünen adı birlikte döndür.
                 field_data["_source_file_name"] = filename
+                field_data["_source_file_index"] = file_index
                 conn = connect()
                 try:
                     cursor = conn.execute(
@@ -1501,8 +1525,11 @@ def api_passport_get_image(id: int):
         row = conn.execute("SELECT source_media_id FROM passport_extraction WHERE id = ?", (id,)).fetchone()
         if not row or not row["source_media_id"]:
             raise HTTPException(404, "Image not found")
-        path = Path(row["source_media_id"])
-        if not path.exists():
+        path = Path(row["source_media_id"]).resolve()
+        root = PASSPORT_IMAGE_ROOT.resolve()
+        if path != root and root not in path.parents:
+            raise HTTPException(403, "Görsel yolu geçersiz.")
+        if not path.is_file():
             raise HTTPException(404, "File not found on disk")
         return FileResponse(path)
     finally:
@@ -1514,29 +1541,98 @@ class ResolveManualReviewRequest(BaseModel):
     corrected_data: Optional[dict] = None
 
 @app.post("/api/passport/manual-review/resolve")
-def api_passport_manual_review_resolve(req: ResolveManualReviewRequest) -> dict:
+def api_passport_manual_review_resolve(req: ResolveManualReviewRequest, request: Request) -> dict:
+    if req.action not in {"approve", "reject"}:
+        raise HTTPException(status_code=422, detail="Geçersiz manuel kontrol işlemi.")
+
     conn = connect()
     try:
-        if req.action == "approve" and req.corrected_data:
-            d = req.corrected_data
+        row = conn.execute(
+            """
+            SELECT id, status, requires_manual_review, source_media_id
+            FROM passport_extraction
+            WHERE id = ?
+            """,
+            (req.id,),
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Kontrol kaydı bulunamadı.")
+        if row["status"] != "pending" or not row["requires_manual_review"]:
+            raise HTTPException(status_code=409, detail="Bu kayıt daha önce işlenmiş.")
+
+        if req.action == "approve":
+            d = req.corrected_data or {}
+            nationality = str(d.get("nationality", "")).strip().upper()
+            sex = str(d.get("sex", "")).strip().upper()
+            name = str(d.get("name", "")).strip().upper()
+            document_number = str(d.get("document_number", "")).strip().upper()
+            if len(nationality) != 3 or not nationality.isalpha():
+                raise HTTPException(status_code=422, detail="Uyruk üç harfli kod olmalı.")
+            if sex not in {"M", "F", "X"}:
+                raise HTTPException(status_code=422, detail="Cinsiyet M, F veya X olmalı.")
+            if not name or not document_number:
+                raise HTTPException(
+                    status_code=422,
+                    detail="İsim ve pasaport/kimlik numarası zorunlu.",
+                )
+            duplicate = conn.execute(
+                """
+                SELECT id FROM passport_extraction
+                WHERE document_number = ? AND id != ? AND status != 'rejected'
+                LIMIT 1
+                """,
+                (document_number, req.id),
+            ).fetchone()
+            if duplicate:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Bu pasaport/kimlik numarası başka bir kayıtta bulunuyor.",
+                )
             conn.execute(
                 """
-                UPDATE passport_extraction 
+                UPDATE passport_extraction
                 SET nationality = ?, sex = ?, name = ?, document_number = ?, 
-                    requires_manual_review = 0, checks_ok = 1
+                    requires_manual_review = 0, checks_ok = 1,
+                    flags = '', manual_review_reason = 'operator_approved'
                 WHERE id = ?
                 """,
-                (d.get("nationality"), d.get("sex"), d.get("name"), d.get("document_number"), req.id)
+                (nationality, sex, name, document_number, req.id),
             )
+            result = {
+                "extraction_id": req.id,
+                "nationality": nationality,
+                "sex": sex,
+                "name": name,
+                "passport_no": document_number,
+                "green": True,
+                "flags": [],
+                "requires_manual_review": False,
+                "manual_reviewed": True,
+                "source": (
+                    Path(row["source_media_id"]).name
+                    if row["source_media_id"]
+                    else ""
+                ),
+            }
         elif req.action == "reject":
             conn.execute(
                 "UPDATE passport_extraction SET status = 'rejected', requires_manual_review = 0 WHERE id = ?",
-                (req.id,)
+                (req.id,),
             )
+            result = None
         conn.commit()
-        return {"success": True}
     finally:
         conn.close()
+
+    audit_mod.record(
+        "manual_review_approved" if req.action == "approve" else "manual_review_rejected",
+        actor=_actor(request),
+        detail={"extraction_id": req.id},
+    )
+    return {"success": True, "record": result}
+
+
+@app.post("/api/passport/cleanup")
 def api_passport_cleanup(request: Request, body: dict) -> dict:
     result = cleanup_passport_day(body.get("day"))
     conn = connect()
@@ -1801,19 +1897,33 @@ def api_settings_test(body: dict) -> dict:
                 raise FileNotFoundError(path)
             sheets = planning_list_sheets(path)
             return {"success": True, "message": f"{len(sheets)} uçuş günü okundu."}
-        if target == "google_vision":
-            from google.cloud import vision
-            from google.oauth2 import service_account
-            import json
-            value = s.google_credentials_json.strip()
-            if value.startswith("{"):
-                credentials = service_account.Credentials.from_service_account_info(
-                    json.loads(value)
-                )
-            else:
-                credentials = service_account.Credentials.from_service_account_file(value)
-            vision.ImageAnnotatorClient(credentials=credentials)
-            return {"success": True, "message": "Google Vision kimlik bilgileri geçerli."}
+        if target == "irtifa_server":
+            import requests
+            # Eğer ön yüzden güncel değerler gönderildiyse (kaydedilmemiş form state), onları kullan:
+            test_url = body.get("irtifa_server_url") or s.irtifa_server_url
+            test_key = body.get("irtifa_license_key") or s.irtifa_license_key
+            test_device = s.irtifa_device_id
+
+            if not test_key:
+                raise ValueError("Lisans anahtarı gerekli. Lütfen ayarlara lisansınızı girin.")
+            if not test_url:
+                raise ValueError("Sunucu adresi gerekli.")
+
+            endpoint = test_url.rstrip("/") + "/ocr/passport"
+            headers = {
+                "x-license-key": test_key.encode("utf-8") if isinstance(test_key, str) else test_key,
+                "x-device-id": test_device.encode("utf-8") if isinstance(test_device, str) else test_device
+            }
+            files = {"file": ("test.jpg", b"1", "image/jpeg")}
+            try:
+                resp = requests.post(endpoint, headers=headers, files=files, timeout=15)
+                if resp.status_code == 401:
+                    raise ValueError("Lisans anahtarı geçersiz.")
+                if resp.status_code == 404:
+                    raise ValueError("Sunucu adresi geçersiz veya endpoint bulunamadı.")
+            except requests.exceptions.RequestException as e:
+                raise ValueError("Sunucuya ulaşılamıyor. URL'yi kontrol edin.")
+            return {"success": True, "message": "İrtifa OCR Servisi ile bağlantı başarılı."}
         raise ValueError("Geçersiz bağlantı testi.")
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Bağlantı kurulamadı: {exc}")

@@ -4,7 +4,7 @@
 [Setup]
 ; App Information
 AppName=İrtifa Balon Operasyon
-AppVersion=1.0.0
+AppVersion=0.2.1
 AppPublisher=BewoAI
 AppPublisherURL=https://bewoai.com
 AppSupportURL=https://bewoai.com
@@ -27,6 +27,9 @@ SolidCompression=yes
 
 ; Look and Feel
 WizardStyle=modern
+
+[Languages]
+Name: "turkish"; MessagesFile: "compiler:Languages\Turkish.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked

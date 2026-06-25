@@ -548,17 +548,25 @@ class ManifestoApp:
         for i, ph in enumerate(self.photos, 1):
             self.root.after(0, self.prog.config, {"text": f"{i}/{total}"})
             try:
-                rec = process_file(ph, client=client, model=self.settings.model,
-                                   seen_document_numbers=seen)
-                if rec.mrz and rec.mrz.document_number:
-                    seen.add(rec.mrz.document_number)
+                records = process_file(
+                    ph,
+                    client=client,
+                    model=self.settings.model,
+                    seen_document_numbers=seen,
+                )
+                for rec in records:
+                    if rec.mrz and rec.mrz.document_number:
+                        seen.add(rec.mrz.document_number)
             except Exception as e:  # beklenmedik — kartı hata olarak göster
                 from app.vision.extractor import PassportRecord
                 from app.validation.flags import Flag, ValidationOutcome
-                rec = PassportRecord(source=ph, mrz=None,
-                                     outcome=ValidationOutcome(flags=[Flag.UNREADABLE]),
-                                     error=str(e))
-            results.append(rec)
+                records = [PassportRecord(
+                    source=ph,
+                    mrz=None,
+                    outcome=ValidationOutcome(flags=[Flag.UNREADABLE]),
+                    error=str(e),
+                )]
+            results.extend(records)
         self.root.after(0, self._process_done, results)
 
     def _process_done(self, results):

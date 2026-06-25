@@ -55,7 +55,7 @@ const api = {
   downloadUrl(url) { return url; },
 };
 
-let currentUser = null;
+let appStatus = { licensed: false, skipped: false };
 
 // ─── Toast Notification System ───
 const toast = {
@@ -148,7 +148,7 @@ function renderSidebar(activeRoute) {
     { id: 'lists',     label: 'Listeler', route: 'lists' },
   ];
   const bottomItems = [
-    ...(currentUser?.role === 'admin' ? [{ id: 'admin', label: 'Yönetim', route: 'admin' }] : []),
+    { id: 'admin', label: 'Yönetim', route: 'admin' },
     { id: 'settings', label: 'Ayarlar', route: 'settings' },
   ];
 
@@ -175,9 +175,7 @@ function renderSidebar(activeRoute) {
     <nav class="flex-1 px-4 space-y-1.5 mt-6">${navHtml(navItems)}</nav>
     <div class="px-4 mt-auto space-y-2">
       ${navHtml(bottomItems)}
-      <button class="w-full bg-white/5 text-on-surface-variant py-2.5 rounded-2xl text-sm font-medium hover:bg-white/10 transition-all flex items-center justify-center gap-2" onclick="window.__logout()">
-        <span class="material-symbols-outlined text-base">logout</span> Çıkış
-      </button>
+      ${!appStatus.licensed ? '<div class="w-full bg-warning/20 text-warning py-2.5 rounded-2xl text-sm font-medium flex items-center justify-center gap-2 mb-2 mt-2"><span class="material-symbols-outlined text-base">warning</span> Lisanssız Mod</div>' : ''}
       <button class="w-full mt-3 bg-error-container/70 text-on-error-container py-2.5 rounded-2xl text-sm font-medium hover:bg-error-container transition-all flex items-center justify-center gap-2" onclick="window.__shutdownApp()">
         <span class="material-symbols-outlined text-base">power_settings_new</span> Kapat
       </button>
@@ -197,10 +195,37 @@ window.__shutdownApp = async function() {
   }
 };
 
-window.__logout = async function() {
-  await api.post('/api/auth/logout', {});
-  currentUser = null;
-  await bootAuth();
+window.__validateLicense = async function() {
+  const key = document.getElementById('auth-license').value.trim();
+  if (!key) return toast.error('Hata', 'Lisans anahtarı boş olamaz.');
+  try {
+    const res = await api.post('/api/settings/test', {
+      target: 'irtifa_server',
+      irtifa_server_url: 'https://irtifa-ocr-server-1011336814601.europe-west1.run.app',
+      irtifa_license_key: key
+    });
+    if (res.success) {
+      await api.put('/api/settings', {
+        irtifa_server_url: 'https://irtifa-ocr-server-1011336814601.europe-west1.run.app',
+        irtifa_license_key: key,
+        irtifa_license_skipped: false,
+        vision_mode: 'irtifa_server'
+      });
+      toast.success('Başarılı', 'Lisans doğrulandı.');
+      await bootApp();
+    } else {
+      toast.error('Hata', 'Lisans anahtarı geçersiz. Lütfen kontrol edin.');
+    }
+  } catch (err) {
+    toast.error('Hata', err.message || 'Lisans doğrulama başarısız.');
+  }
+};
+
+window.__skipLicense = async function() {
+  try {
+    await api.post('/api/app/skip_license', {});
+    await bootApp();
+  } catch (err) { toast.error('Hata', err.message); }
 };
 
 function renderHeader(title, subtitle = '') {
@@ -215,13 +240,11 @@ function renderHeader(title, subtitle = '') {
         <span class="material-symbols-outlined">refresh</span>
       </button>
       <div class="w-9 h-9 rounded-full bg-primary-container/30 flex items-center justify-center">
-        <span class="material-symbols-outlined text-primary text-lg" title="${currentUser?.display_name || ''}">person</span>
+        <span class="material-symbols-outlined text-primary text-lg" title="Kullanıcı">person</span>
       </div>
     </div>
   `;
 }
-
-// ─── Router ───
 const pages = {};
 
 async function loadPage(name) {
@@ -279,79 +302,71 @@ window.addEventListener('hashchange', () => navigateTo(getRoute()));
 
 document.addEventListener('DOMContentLoaded', () => {
   toast.init();
-  bootAuth();
+  bootApp();
 });
 
-async function bootAuth() {
+async function bootApp() {
   const sidebar = document.getElementById('sidebar');
   const header = document.getElementById('page-header');
   const body = document.getElementById('page-body');
   try {
-    const status = await api.get('/api/auth/status');
-    currentUser = status.user || null;
-    if (currentUser) {
+    const status = await api.get('/api/app/status');
+    appStatus.licensed = status.licensed;
+    appStatus.skipped = status.skipped;
+    
+    const main = document.querySelector('main');
+    if (appStatus.licensed || appStatus.skipped) {
       sidebar.style.display = '';
       header.style.display = '';
-      if (!status.is_setup_complete && getRoute() !== 'onboarding') {
-        await navigateTo('onboarding');
-      } else {
-        await navigateTo(getRoute());
-      }
+      if (main) main.classList.add('md:ml-72');
+      body.classList.add('pt-24', 'pb-12');
+      await navigateTo(getRoute());
       return;
     }
     sidebar.style.display = 'none';
     header.style.display = 'none';
-    renderAuth(body, status.setup_required);
+    if (main) main.classList.remove('md:ml-72');
+    body.classList.remove('pt-24', 'pb-12');
+    renderOnboarding(body);
   } catch (err) {
     body.innerHTML = `<div class="empty-state"><div class="empty-title">İrtifa başlatılamadı</div><div class="empty-desc">${escapeHtml(err.message)}</div></div>`;
   }
 }
 
-function renderAuth(container, setupRequired) {
+async function renderOnboarding(container) {
+  let deviceId = '';
+  try {
+    const settings = await api.get('/api/settings');
+    deviceId = settings.irtifa_device_id || '';
+  } catch(e) {}
+
   container.innerHTML = `
     <div class="min-h-[80vh] flex items-center justify-center">
       <div class="glass-panel rounded-3xl p-8 w-full max-w-md">
         <div class="flex items-center gap-4 mb-7">
           <img src="/irtifa-logo.png" class="w-16 h-16 rounded-2xl" alt="İrtifa" />
-          <div><h1 class="font-headline text-3xl text-on-surface">İrtifa</h1><p class="text-on-surface-variant">${setupRequired ? 'İlk yönetici kurulumu' : 'Oturum aç'}</p></div>
+          <div>
+            <h1 class="font-headline text-3xl text-on-surface">İrtifa'ya Hoş Geldiniz</h1>
+          </div>
         </div>
-        ${setupRequired ? `
-          <div class="form-group"><label class="form-label">Kullanıcı adı</label><input id="auth-user" class="form-input" value="admin" /></div>
-          <div class="form-group"><label class="form-label">Ad soyad</label><input id="auth-name" class="form-input" /></div>
-          <div class="form-group"><label class="form-label">Parola</label><input id="auth-pass" type="password" class="form-input" /></div>
-          <button class="btn-primary w-full mt-4" onclick="window.__setupAdmin()">Yönetici Hesabını Oluştur</button>
-        ` : `
-          <div class="form-group"><label class="form-label">Kullanıcı adı</label><input id="auth-user" class="form-input" /></div>
-          <div class="form-group"><label class="form-label">Parola</label><input id="auth-pass" type="password" class="form-input" onkeydown="if(event.key==='Enter')window.__login()" /></div>
-          <button class="btn-primary w-full mt-4" onclick="window.__login()">Giriş Yap</button>
-        `}
+        <p class="text-sm text-on-surface-variant mb-6 leading-relaxed">Otomatik MRZ/OCR okuma özelliğini kullanmak için lisans anahtarınızı girin. Lisansınız yoksa manuel giriş ile devam edebilirsiniz.</p>
+        
+        <div class="form-group">
+          <label class="form-label">Lisans Anahtarı</label>
+          <input id="auth-license" class="form-input" placeholder="Örn: IRTIFA-DEMO-001" onkeydown="if(event.key==='Enter')window.__validateLicense()" />
+        </div>
+        <div class="form-group opacity-60">
+          <label class="form-label">Cihaz Kimliği (Salt Okunur)</label>
+          <input class="form-input" value="${escapeHtml(deviceId)}" readonly />
+        </div>
+        
+        <div class="flex flex-col gap-3 mt-6">
+          <button class="btn-primary w-full" onclick="window.__validateLicense()">Lisansı Doğrula ve Devam Et</button>
+          <button class="btn-secondary w-full" onclick="window.__skipLicense()">Lisanssız Devam Et</button>
+        </div>
       </div>
     </div>`;
 }
-
-window.__setupAdmin = async function() {
-  try {
-    const data = await api.post('/api/auth/setup', {
-      username: document.getElementById('auth-user').value.trim(),
-      display_name: document.getElementById('auth-name').value.trim(),
-      password: document.getElementById('auth-pass').value,
-    });
-    alert(`Kurtarma kodunuz:\n\n${data.recovery_code}\n\nBu kod yalnızca bir kez gösterilir. Güvenli bir yerde saklayın.`);
-    currentUser = data.user;
-    await bootAuth();
-  } catch (err) { toast.error('Kurulum başarısız', err.message); }
-};
-
-window.__login = async function() {
-  try {
-    const data = await api.post('/api/auth/login', {
-      username: document.getElementById('auth-user').value.trim(),
-      password: document.getElementById('auth-pass').value,
-    });
-    currentUser = data.user;
-    await bootAuth();
-  } catch (err) { toast.error('Giriş başarısız', err.message); }
-};
 
 function helpIcon(text) {
   return `<button type="button" class="help-icon" aria-label="Alan açıklaması" data-help="${escapeHtml(text)}">?</button>`;
@@ -362,4 +377,4 @@ function escapeHtml(value) {
 }
 
 // Export for pages
-export { api, toast, modal, renderHeader, helpIcon, currentUser };
+export { api, toast, modal, renderHeader, helpIcon, appStatus };

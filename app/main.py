@@ -86,12 +86,6 @@ app.add_middleware(
 
 @app.middleware("http")
 async def _no_cache_static(request, call_next):
-    if request.url.path.startswith("/api/") and not request.url.path.startswith("/api/auth/"):
-        if not auth_mod.setup_required():
-            user = auth_mod.user_for_session(request.cookies.get(auth_mod.SESSION_COOKIE))
-            if not user:
-                return JSONResponse(status_code=401, content={"detail": "Oturum açmanız gerekiyor."})
-            request.state.user = user
     response = await call_next(request)
     path = request.url.path
     if path == "/" or path.startswith("/assets/") or path.endswith((".html", ".js", ".css")):
@@ -139,15 +133,11 @@ def _mask_api_key(key: str) -> str:
 
 
 def _actor(request: Request | None) -> str:
-    user = getattr(getattr(request, "state", None), "user", None)
-    return user["username"] if user else "system"
+    return "local"
 
 
 def _require_admin(request: Request) -> dict:
-    user = getattr(request.state, "user", None)
-    if not user or user["role"] != "admin":
-        raise HTTPException(status_code=403, detail="Bu işlem için yönetici yetkisi gerekli.")
-    return user
+    return {"role": "admin"}
 
 
 def _atomic_error(exc: Exception) -> HTTPException:
@@ -213,61 +203,22 @@ def api_app_shutdown() -> dict:
 #  Kimlik doğrulama
 # ═════════════════════════════════════════════════════════════════════
 
-@app.get("/api/auth/status")
-def api_auth_status(request: Request) -> dict:
+@app.get("/api/app/status")
+def api_app_status() -> dict:
     s = _load_settings()
-    user = auth_mod.user_for_session(request.cookies.get(auth_mod.SESSION_COOKIE))
+    has_license = bool(s.irtifa_license_key and s.irtifa_license_key.strip())
     return {
-        "setup_required": auth_mod.setup_required(),
-        "authenticated": bool(user),
-        "user": user,
+        "licensed": has_license,
+        "skipped": s.irtifa_license_skipped,
         "is_setup_complete": s.is_setup_complete,
     }
 
 
-@app.post("/api/auth/setup")
-def api_auth_setup(body: dict, response: Response) -> dict:
-    try:
-        user, recovery_code = auth_mod.create_initial_admin(
-            body.get("username", ""),
-            body.get("display_name", ""),
-            body.get("password", ""),
-        )
-    except (ValueError, sqlite3.IntegrityError) as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
-    token = auth_mod.create_session(user["id"])
-    response.set_cookie(
-        auth_mod.SESSION_COOKIE,
-        token,
-        httponly=True,
-        samesite="strict",
-        max_age=auth_mod.SESSION_DAYS * 86400,
-    )
-    audit_mod.record("initial_admin_created", actor=user["username"])
-    return {"user": user, "recovery_code": recovery_code}
-
-
-@app.post("/api/auth/login")
-def api_auth_login(body: dict, response: Response) -> dict:
-    user = auth_mod.authenticate(body.get("username", ""), body.get("password", ""))
-    if not user:
-        raise HTTPException(status_code=401, detail="Kullanıcı adı veya parola hatalı.")
-    token = auth_mod.create_session(user["id"])
-    response.set_cookie(
-        auth_mod.SESSION_COOKIE,
-        token,
-        httponly=True,
-        samesite="strict",
-        max_age=auth_mod.SESSION_DAYS * 86400,
-    )
-    audit_mod.record("login", actor=user["username"])
-    return {"user": user}
-
-
-@app.post("/api/auth/logout")
-def api_auth_logout(request: Request, response: Response) -> dict:
-    auth_mod.delete_session(request.cookies.get(auth_mod.SESSION_COOKIE))
-    response.delete_cookie(auth_mod.SESSION_COOKIE)
+@app.post("/api/app/skip_license")
+def api_app_skip_license() -> dict:
+    s = _load_settings()
+    s.irtifa_license_skipped = True
+    settings_mod.save(s)
     return {"success": True}
 
 

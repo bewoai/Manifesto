@@ -51,6 +51,7 @@ class Settings:
     irtifa_server_url: str = "https://irtifa-ocr-server-1011336814601.europe-west1.run.app"
     irtifa_license_key: str = ""
     irtifa_device_id: str = ""
+    irtifa_license_skipped: bool = False
     data_source: str = DATA_SOURCE_EXCEL
     anthropic_api_key: str = ""
     model: str = DEFAULT_MODEL
@@ -169,7 +170,9 @@ def load(path: Optional[Path] = None) -> Settings:
     if path is None and not p.exists() and LEGACY_SETTINGS_PATH.exists():
         p = LEGACY_SETTINGS_PATH
     if not p.exists():
-        return Settings()
+        settings = Settings()
+        settings.irtifa_device_id = str(uuid.uuid4())
+        return settings
     try:
         data = json.loads(p.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):

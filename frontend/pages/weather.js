@@ -89,7 +89,10 @@ function renderWeather(data) {
   const status = decision.flight_status || current.flight_status || 'unknown';
   const risk = decision.risk_level || current.risk_level || 'unknown';
 
-  document.getElementById('weather-title').textContent = decision.title || statusLabel(status);
+  const titleEl = document.getElementById('weather-title');
+  if (!titleEl) return;
+
+  titleEl.textContent = decision.title || statusLabel(status);
   document.getElementById('weather-summary').textContent = decision.summary || current.summary || 'Veri bekleniyor.';
   document.getElementById('weather-updated').textContent = data.updated_at ? `Son: ${fmtTime(data.updated_at)}` : 'Ölçüm yok';
 

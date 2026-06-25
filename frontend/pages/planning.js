@@ -269,16 +269,38 @@ window.__onDragEnd = function(e) {
 window.__onDragOver = function(e) {
   e.preventDefault();
   const shell = e.target.closest('.block-shell');
-  if (shell) shell.style.borderTop = '2px solid var(--primary)';
+  if (shell) {
+    const rect = shell.getBoundingClientRect();
+    const isTopHalf = e.clientY < rect.top + rect.height / 2;
+    if (isTopHalf) {
+      shell.style.borderTop = '2px solid var(--primary)';
+      shell.style.borderBottom = '';
+      shell.dataset.dropPos = 'before';
+    } else {
+      shell.style.borderTop = '';
+      shell.style.borderBottom = '2px solid var(--primary)';
+      shell.dataset.dropPos = 'after';
+    }
+  }
 };
 window.__onDragLeave = function(e) {
   const shell = e.target.closest('.block-shell');
-  if (shell) shell.style.borderTop = '';
+  if (shell) {
+    shell.style.borderTop = '';
+    shell.style.borderBottom = '';
+    delete shell.dataset.dropPos;
+  }
 };
 window.__onDrop = async function(e, targetIndex) {
   e.preventDefault();
   const shell = e.target.closest('.block-shell');
-  if (shell) shell.style.borderTop = '';
+  let dropPos = 'before';
+  if (shell) {
+    dropPos = shell.dataset.dropPos || 'before';
+    shell.style.borderTop = '';
+    shell.style.borderBottom = '';
+    delete shell.dataset.dropPos;
+  }
   
   const sourceIndex = parseInt(e.dataTransfer.getData('text/plain'), 10);
   if (sourceIndex === targetIndex || isNaN(sourceIndex)) return;
@@ -287,12 +309,17 @@ window.__onDrop = async function(e, targetIndex) {
   const targetBlock = state.blocks[targetIndex];
   if (!sourceBlock || !targetBlock) return;
   
+  let targetRow = targetBlock.lead_row;
+  if (dropPos === 'after') {
+    targetRow = targetBlock.rows[targetBlock.rows.length - 1] + 1;
+  }
+
   try {
     toast.info('Sıralanıyor', 'Excel satırları güncelleniyor...');
     const res = await api.post('/api/planning/reorder-block', {
       sheet: state.currentSheet,
       source_rows: sourceBlock.rows,
-      target_row: targetBlock.lead_row,
+      target_row: targetRow,
       expected_revision: state.revision
     });
     window.__loadDay();

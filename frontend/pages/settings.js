@@ -36,7 +36,10 @@ export async function render(container) {
             <div class="form-help">Bu bilgisayara özel otomatik oluşturulan cihaz kimliği. (Salt Okunur)</div>
           </div>
           <div class="form-group flex items-end">
-            <button class="btn-secondary" onclick="window.__testConnection('irtifa_server')">Servis Bağlantısını Test Et</button>
+            <button class="btn-secondary" onclick="window.__testConnection('irtifa_server')">
+              <span class="material-symbols-outlined text-base">verified</span>
+              Bağlantıyı Test Et ve Kaydet
+            </button>
           </div>
         </div>
       </div>
@@ -338,6 +341,12 @@ window.__saveSettings = async function() {
     const saved = await api.put('/api/settings', body);
     currentSettings = saved;
     toast.success('Ayarlar kaydedildi', 'Tüm değişiklikler uygulandı');
+    
+    const { appStatus } = await import('/app.js');
+    const status = await api.get('/api/app/status');
+    if (status.licensed !== appStatus.licensed) {
+      setTimeout(() => window.location.reload(), 1000);
+    }
   } catch (err) {
     toast.error('Kaydetme hatası', err.message);
   }

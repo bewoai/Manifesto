@@ -15,25 +15,51 @@ let state = {
   readiness: null,
 };
 
+let calState = {
+  currentYear: new Date().getFullYear(),
+  currentMonth: new Date().getMonth() + 1, // 1-12
+};
+
+const monthsTR = [
+  "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran",
+  "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"
+];
+
 export async function render(container) {
   renderHeader('Planlama', 'Uçuş günü yönetimi ve rezervasyon blokları');
 
   container.innerHTML = `
-    <!-- 1) Gün Seçimi -->
-    <div class="card mb-6 animate-in">
-      <div class="card-body p-5">
-        <div class="flex flex-wrap items-end gap-3">
-          <div class="form-group w-64 mb-0">
-            <label class="form-label mb-2 block text-xs font-semibold uppercase tracking-wider text-on-surface-variant">Uçuş Günü Seçin</label>
-            <select class="form-select w-full" id="sheet-select">
-              <option value="">Yükleniyor...</option>
-            </select>
-          </div>
-          <button class="btn-primary flex items-center gap-2 px-5 py-2.5 h-[42px] rounded-xl text-sm font-medium transition-all" id="btn-load-day" onclick="window.__loadDay()">
-            <span class="material-symbols-outlined text-sm">download</span> Günü Yükle
+    <!-- 1) Gün Seçimi (Takvim) -->
+    <div class="flex justify-center mb-6">
+      <div class="calendar-widget rounded-3xl p-6 w-full max-w-[360px] animate-in">
+        <!-- Takvim Başlığı -->
+        <div class="text-center font-bold text-lg mb-4 text-on-surface" id="calendar-month-year">
+          Yükleniyor...
+        </div>
+        
+        <!-- Gün Kısaltmaları -->
+        <div class="calendar-grid mb-2">
+          <div class="calendar-day-header">Pz</div>
+          <div class="calendar-day-header">Sa</div>
+          <div class="calendar-day-header">Ça</div>
+          <div class="calendar-day-header">Pe</div>
+          <div class="calendar-day-header">Cu</div>
+          <div class="calendar-day-header">Ct</div>
+          <div class="calendar-day-header">Pa</div>
+        </div>
+        
+        <!-- Günler Matrisi -->
+        <div class="calendar-grid mb-4" id="calendar-days-grid">
+          <!-- Dinamik olarak dolacak -->
+        </div>
+        
+        <!-- Gezinme Butonları -->
+        <div class="flex justify-center gap-4">
+          <button class="calendar-nav-btn" onclick="window.__prevMonth()">
+            <span class="material-symbols-outlined text-[18px]">chevron_left</span>
           </button>
-          <button class="btn-secondary flex items-center gap-2 px-5 py-2.5 h-[42px] rounded-xl text-sm font-medium transition-all ml-auto" id="btn-new-day" onclick="window.__createDay()">
-            <span class="material-symbols-outlined text-sm">add</span> Yeni Gün
+          <button class="calendar-nav-btn" onclick="window.__nextMonth()">
+            <span class="material-symbols-outlined text-[18px]">chevron_right</span>
           </button>
         </div>
       </div>
@@ -75,30 +101,124 @@ export async function render(container) {
   loadSheets();
 }
 
+function parseSheetDate(sheetName) {
+  const parts = sheetName.split('.');
+  if (parts.length === 3) {
+    return {
+      day: parseInt(parts[0], 10),
+      month: parseInt(parts[1], 10),
+      year: parseInt(parts[2], 10)
+    };
+  }
+  return null;
+}
+
+function getDaysInMonth(year, month) {
+  return new Date(year, month, 0).getDate();
+}
+
+function getFirstDayOfWeek(year, month) {
+  let day = new Date(year, month - 1, 1).getDay();
+  // Pazar 0'dır, onu 6 yapıp Pazartesi'yi 0 yapalım (Mo ile başlar)
+  return day === 0 ? 6 : day - 1;
+}
+
+function formatCalendarDate(day, month, year) {
+  const dd = String(day).padStart(2, '0');
+  const mm = String(month).padStart(2, '0');
+  return `${dd}.${mm}.${year}`;
+}
+
+window.__prevMonth = function() {
+  calState.currentMonth--;
+  if (calState.currentMonth < 1) {
+    calState.currentMonth = 12;
+    calState.currentYear--;
+  }
+  renderCalendar();
+};
+
+window.__nextMonth = function() {
+  calState.currentMonth++;
+  if (calState.currentMonth > 12) {
+    calState.currentMonth = 1;
+    calState.currentYear++;
+  }
+  renderCalendar();
+};
+
+function renderCalendar() {
+  const monthYearEl = document.getElementById('calendar-month-year');
+  const daysGridEl = document.getElementById('calendar-days-grid');
+  if (!monthYearEl || !daysGridEl) return;
+
+  monthYearEl.textContent = `${monthsTR[calState.currentMonth - 1]} ${calState.currentYear}`;
+
+  const daysInMonth = getDaysInMonth(calState.currentYear, calState.currentMonth);
+  const firstDay = getFirstDayOfWeek(calState.currentYear, calState.currentMonth);
+
+  let html = '';
+
+  // Önceki aydan kalan boşluklar
+  for (let i = 0; i < firstDay; i++) {
+    html += '<div class="calendar-day empty"></div>';
+  }
+
+  // Ayın günleri
+  for (let day = 1; day <= daysInMonth; day++) {
+    const formatted = formatCalendarDate(day, calState.currentMonth, calState.currentYear);
+    const hasPlan = state.sheets.includes(formatted);
+    const isSelected = state.currentSheet === formatted;
+
+    let cls = 'calendar-day';
+    if (isSelected) {
+      cls += ' selected';
+    } else if (hasPlan) {
+      cls += ' has-plan';
+    } else {
+      cls += ' no-plan';
+    }
+
+    if (hasPlan) {
+      html += `<div class="${cls}" onclick="window.__loadDayDate('${formatted}')" title="Günü Yükle: ${formatted}">${day}</div>`;
+    } else {
+      html += `<div class="${cls}" onclick="window.__createDayDate('${formatted}')" title="Yeni Gün Oluştur: ${formatted}">${day}</div>`;
+    }
+  }
+
+  daysGridEl.innerHTML = html;
+}
+
 async function loadSheets() {
   try {
     const data = await api.get('/api/planning/sheets');
     state.sheets = data.sheets || [];
     state.source = data.source || 'excel';
-    const sel = document.getElementById('sheet-select');
-    if (!sel) return;
-    sel.innerHTML = state.sheets.length
-      ? state.sheets.map(s => `<option value="${escHtml(s)}">${escHtml(s)}</option>`).join('')
-      : '<option value="">Sayfa bulunamadı</option>';
-    if (state.sheets.length) sel.value = state.sheets[state.sheets.length - 1];
+    
+    // Takvim başlangıç tarihini son uçuş gününe eşitleyelim
+    if (state.sheets.length) {
+      const lastSheet = state.sheets[state.sheets.length - 1];
+      const parsed = parseSheetDate(lastSheet);
+      if (parsed) {
+        calState.currentYear = parsed.year;
+        calState.currentMonth = parsed.month;
+      }
+    }
+    
+    renderCalendar();
   } catch (err) {
     toast.error('Sayfalar yüklenemedi', err.message);
   }
 }
 
-window.__loadDay = async function() {
-  const sheet = document.getElementById('sheet-select')?.value;
-  if (!sheet) { toast.warning('Gün seçin'); return; }
+window.__loadDayDate = async function(sheet) {
   state.currentSheet = sheet;
+  renderCalendar();
 
-  const btn = document.getElementById('btn-load-day');
-  btn.disabled = true;
-  btn.innerHTML = '<span class="btn-spinner mr-2"></span> Yükleniyor...';
+  const monthYearEl = document.getElementById('calendar-month-year');
+  if (monthYearEl) {
+    monthYearEl.innerHTML = `<span class="btn-spinner mr-2"></span> Yükleniyor...`;
+  }
 
   try {
     const selectedLead = state.selectedBlock !== null ? state.blocks[state.selectedBlock]?.lead_row : null;
@@ -124,7 +244,6 @@ window.__loadDay = async function() {
       state.balloons.forEach(b => {
         if (b) html += `<option value="balloon_${escHtml(b)}">${escHtml(b)} balonu</option>`;
       });
-      if (!filterSelect) return;
       filterSelect.innerHTML = html;
       if (Array.from(filterSelect.options).some(o => o.value === currentVal)) {
         filterSelect.value = currentVal;
@@ -137,8 +256,42 @@ window.__loadDay = async function() {
   } catch (err) {
     toast.error('Yükleme hatası', err.message);
   } finally {
-    btn.disabled = false;
-    btn.innerHTML = '<span class="material-symbols-outlined text-sm mr-2">download</span> Günü Yükle';
+    renderCalendar();
+  }
+};
+
+window.__createDayDate = function(date) {
+  modal.open('Yeni Gün Oluştur', `
+    <div class="form-group">
+      <label class="form-label">Yeni gün adı</label>
+      <input class="form-input" id="new-day-name" value="${date}" readonly />
+      <div class="form-help">Bu tarihe yeni uçuş günü sayfası oluşturulacak.</div>
+    </div>
+    <div class="form-group mt-4">
+      <label class="form-label">Kaynak gün (kopyalanacak)</label>
+      <select class="form-select" id="new-day-source">
+        ${state.sheets.map(s => `<option value="${escHtml(s)}">${escHtml(s)}</option>`).join('')}
+      </select>
+    </div>
+  `, `
+    <button class="btn-secondary" onclick="window.__closeModal()">İptal</button>
+    <button class="btn-primary" onclick="window.__submitNewDayDate()">Oluştur</button>
+  `);
+};
+
+window.__submitNewDayDate = async function() {
+  const name = document.getElementById('new-day-name')?.value.trim();
+  const source = document.getElementById('new-day-source')?.value;
+  if (!name) { toast.warning('Gün adı girin'); return; }
+
+  try {
+    await api.post('/api/planning/create-day', { new_sheet: name, source_sheet: source });
+    toast.success('Gün oluşturuldu', `${name} başarıyla eklendi`);
+    modal.close();
+    await loadSheets();
+    window.__loadDayDate(name);
+  } catch (err) {
+    toast.error('Oluşturma hatası', err.message);
   }
 };
 

@@ -19,13 +19,21 @@ export async function render(container) {
   renderHeader('Planlama', 'Uçuş günü yönetimi ve rezervasyon blokları');
 
   container.innerHTML = `
-          <select class="form-select" id="sheet-select">
-            <option value="">Yükleniyor...</option>
-          </select>
-        </div>
-        <div class="form-group flex items-end">
-          <button class="btn-primary flex items-center gap-2" id="btn-load-day" onclick="window.__loadDay()">
+    <!-- 1) Gün Seçimi -->
+    <div class="card mb-6 animate-in">
+      <div class="card-body p-5">
+        <div class="flex flex-wrap items-end gap-3">
+          <div class="form-group w-64 mb-0">
+            <label class="form-label mb-2 block text-xs font-semibold uppercase tracking-wider text-on-surface-variant">Uçuş Günü Seçin</label>
+            <select class="form-select w-full" id="sheet-select">
+              <option value="">Yükleniyor...</option>
+            </select>
+          </div>
+          <button class="btn-primary flex items-center gap-2 px-5 py-2.5 h-[42px] rounded-xl text-sm font-medium transition-all" id="btn-load-day" onclick="window.__loadDay()">
             <span class="material-symbols-outlined text-sm">download</span> Günü Yükle
+          </button>
+          <button class="btn-secondary flex items-center gap-2 px-5 py-2.5 h-[42px] rounded-xl text-sm font-medium transition-all ml-auto" id="btn-new-day" onclick="window.__createDay()">
+            <span class="material-symbols-outlined text-sm">add</span> Yeni Gün
           </button>
         </div>
       </div>

@@ -62,3 +62,8 @@ def test_get_lists_shape(client):
     j = r.json()
     assert "balloons" in j and "capacity" in j and "options" in j
     assert set(j["options"].keys()) == {"hotel", "driver", "agency", "pilot", "coming_place", "reserved_by"}
+
+
+def test_scan_lists_endpoint_exists(client):
+    r = client.post("/api/lists/scan", json={})
+    assert r.status_code != 405

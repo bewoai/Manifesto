@@ -213,7 +213,7 @@ async function loadContext() {
     if (!sel) return;
     if (!sel) return;
     sel.innerHTML = state.sheets.length
-      ? state.sheets.map(s => `<option value="${s}">${s}</option>`).join('')
+      ? state.sheets.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('')
       : '<option value="">Sayfa yok</option>';
     if (state.sheets.length) sel.value = state.sheets[state.sheets.length - 1];
     sel.addEventListener('change', () => loadBlocks(sel.value));
@@ -260,11 +260,20 @@ async function loadBlocks(sheet) {
 window.__passportModeChanged = function() {
   const existing = document.getElementById('pp-mode')?.value === 'existing';
   document.getElementById('existing-block-wrap').style.display = existing ? '' : 'none';
+  resetWriteButtonLabel(existing);
   for (const id of ['pp-pax', 'pp-hotel', 'pp-agency', 'pp-reserved']) {
     const el = document.getElementById(id);
     if (el) el.disabled = existing;
   }
 };
+
+function resetWriteButtonLabel(existing = document.getElementById('pp-mode')?.value === 'existing') {
+  const writeButton = document.getElementById('btn-write');
+  if (!writeButton) return;
+  writeButton.innerHTML = existing
+    ? '<span class="material-symbols-outlined text-[20px]">save</span> Mevcut Rezervasyona Yaz'
+    : '<span class="material-symbols-outlined text-[20px]">save</span> Rezervasyon Oluştur & Yaz';
+}
 
 // ─── File Handling ───
 window.__handleDrop = function(e) {
@@ -571,7 +580,7 @@ function renderCards() {
                 <span class="material-symbols-outlined text-[18px]">${rec.is_manual ? 'edit_document' : isGreen ? 'check_circle' : 'warning'}</span> 
                 ${rec.is_manual ? 'MANUEL GİRİŞ' : isGreen ? 'YEŞİL — DOĞRULANDI' : 'SARI — KONTROL ET'}
               </div>
-              ${flags ? `<div class="flex flex-wrap justify-end gap-1.5 mb-2">${flags.split(', ').map(f => `<span class="bg-surface-light border border-white/5 text-on-surface-variant text-[11px] font-medium px-2 py-1 rounded-md uppercase tracking-wide">${f}</span>`).join('')}</div>` : ''}
+              ${flags ? `<div class="flex flex-wrap justify-end gap-1.5 mb-2">${flags.split(', ').map(f => `<span class="bg-surface-light border border-white/5 text-on-surface-variant text-[11px] font-medium px-2 py-1 rounded-md uppercase tracking-wide">${esc(f)}</span>`).join('')}</div>` : ''}
               ${rec.error ? `<div class="text-[11px] text-danger font-medium mt-1 text-right bg-danger/10 px-2 py-1.5 rounded-md border border-danger/20">${esc(rec.error)}</div>` : ''}
             </div>
             
@@ -749,7 +758,7 @@ window.__writePlanning = async function() {
   } catch (err) {
     if (err.detail?.code === 'capacity_confirmation_required') {
       btn.disabled = false;
-      btn.innerHTML = '<span class="material-symbols-outlined text-[20px]">save</span> Rezervasyon Oluştur & Yaz';
+      resetWriteButtonLabel(existingMode);
       return showPassportCapacityChoice({
         sheet, pax, hotel, agency, reserved_by, identities: approved,
         expected_revision: state.revision,
@@ -758,7 +767,7 @@ window.__writePlanning = async function() {
     toast.error('Hata', err.message);
   } finally {
     btn.disabled = false;
-    btn.innerHTML = '<span class="material-symbols-outlined text-[20px]">save</span> Rezervasyon Oluştur & Yaz';
+    resetWriteButtonLabel(existingMode);
   }
 };
 
@@ -768,7 +777,7 @@ function showPassportCapacityChoice(body, detail) {
     <p class="text-on-surface-variant mb-4">Grup kapasite içinde hiçbir balona sığmıyor. Hedef balonu seçin.</p>
     <div class="space-y-2">${(detail.balloon_codes || []).map(code => `
       <label class="flex items-center justify-between rounded-lg border border-white/10 p-3 cursor-pointer">
-        <span><input type="radio" name="pp-overflow-balloon" value="${code}" class="mr-3" />${code}</span>
+        <span><input type="radio" name="pp-overflow-balloon" value="${esc(code)}" class="mr-3" />${esc(code)}</span>
         <strong>${detail.balloon_load?.[code] || 0}/${detail.capacity}</strong>
       </label>`).join('')}</div>
   `, `

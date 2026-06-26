@@ -53,7 +53,7 @@ from app.manifest.planning import (
     write_operation_details as planning_write_operation_details,
 )
 from app.manifest.writer import ManifestRow, build_rows, export, write_manifest
-from app.vision.extractor import PassportRecord, process_image, media_type_for
+from app.vision.extractor import PassportRecord, process_image
 from app.validation.flags import Flag, ValidationOutcome
 from app.passport_store import (
     ROOT as PASSPORT_IMAGE_ROOT,
@@ -643,6 +643,64 @@ def api_lists_delete(body: dict) -> dict:
     return _lists_payload(s)
 
 
+@app.post("/api/lists/scan")
+def api_lists_scan() -> dict:
+    """Planlama Excel'indeki geçmiş günleri tarayıp öneri listelerini doldur."""
+    s = _load_settings()
+    if s.uses_google_sheets():
+        raise HTTPException(
+            status_code=400,
+            detail="Otomatik liste tarama şu an yalnızca Excel modunda destekleniyor.",
+        )
+
+    xlsx_path = s.planning_path()
+    if not xlsx_path.exists():
+        raise HTTPException(status_code=404, detail=f"Planlama dosyası bulunamadı: {xlsx_path}")
+
+    added = 0
+    try:
+        sheets = planning_list_sheets(xlsx_path)
+        for sheet in sheets:
+            try:
+                blocks = read_blocks(xlsx_path, sheet)
+            except Exception:
+                continue
+            for block in blocks:
+                fields = {
+                    "hotel": block.hotel,
+                    "driver": block.driver,
+                    "agency": block.agency,
+                    "pilot": block.pilot,
+                    "coming_place": block.coming_place,
+                    "reserved_by": block.reserved_by,
+                }
+                before = _lists_payload(s)
+                if _remember_values(s, fields):
+                    after = _lists_payload(s)
+                    added += sum(
+                        max(
+                            0,
+                            len(after["options"].get(cat, []))
+                            - len(before["options"].get(cat, [])),
+                        )
+                        for cat in LIST_CATEGORIES
+                    )
+                balloon = str(block.balloon or "").strip().upper()
+                if balloon and balloon != "BALON" and balloon not in {c.upper() for c in s.balloon_codes}:
+                    s.balloon_codes.append(balloon)
+                    added += 1
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Listeler taranamadı: {exc}")
+
+    s = s.normalized()
+    settings_mod.save(s)
+    payload = _lists_payload(s)
+    payload["added"] = added
+    return payload
+
+
 # ═════════════════════════════════════════════════════════════════════
 #  Planlama (Planning)
 # ═════════════════════════════════════════════════════════════════════
@@ -1198,6 +1256,32 @@ def _is_operational_ocr_error(error: object) -> bool:
     return any(marker in text for marker in markers)
 
 
+_ALLOWED_PASSPORT_MEDIA_TYPES = {"image/jpeg", "image/png", "image/webp"}
+_PASSPORT_MEDIA_TYPES_BY_SUFFIX = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+}
+_MAX_PASSPORT_IMAGE_BYTES = 10 * 1024 * 1024
+
+
+def _passport_content_type(filename: str, content_type: str) -> str:
+    media_type = (content_type or "").split(";", 1)[0].strip().lower()
+    if media_type in {"", "application/octet-stream"}:
+        return _PASSPORT_MEDIA_TYPES_BY_SUFFIX.get(Path(filename).suffix.lower(), media_type)
+    return media_type
+
+
+def _validate_passport_upload(image_bytes: bytes, content_type: str) -> None:
+    if content_type not in _ALLOWED_PASSPORT_MEDIA_TYPES:
+        raise ValueError("Yalnız JPG, PNG ve WEBP görseller desteklenir.")
+    if not image_bytes:
+        raise ValueError("Görsel dosyası boş.")
+    if len(image_bytes) > _MAX_PASSPORT_IMAGE_BYTES:
+        raise ValueError("Görsel en fazla 10 MB olabilir.")
+
+
 def _mark_extractions_approved(identities: list[dict], sheet: str, rows: list[int]) -> None:
     conn = connect()
     try:
@@ -1397,13 +1481,8 @@ async def api_passport_upload(
         filename = upload_file.filename or "unknown"
         try:
             image_bytes = await upload_file.read()
-            content_type = (upload_file.content_type or "").lower()
-            if content_type not in {"image/jpeg", "image/png", "image/webp"}:
-                raise ValueError("Yalnız JPG, PNG ve WEBP görseller desteklenir.")
-            if not image_bytes:
-                raise ValueError("Görsel dosyası boş.")
-            if len(image_bytes) > 10 * 1024 * 1024:
-                raise ValueError("Görsel en fazla 10 MB olabilir.")
+            content_type = _passport_content_type(filename, upload_file.content_type or "")
+            _validate_passport_upload(image_bytes, content_type)
             staged_path = save_image(image_bytes, filename)
         except Exception as e:
             results.append({
@@ -1420,12 +1499,11 @@ async def api_passport_upload(
                     status_code=400,
                     detail="Claude modu aktif ama API anahtarı ayarlanmamış.",
                 )
-            mt = media_type_for(Path(filename))
             try:
                 records = process_image(
                     image_bytes,
                     source=filename,
-                    media_type=mt,
+                    media_type=content_type,
                     model=s.model,
                     provider=s.vision_mode,
                     settings=s,
@@ -1516,11 +1594,16 @@ async def api_passport_retry_ocr(
     s = _load_settings()
     image_bytes = await file.read()
     filename = file.filename or "passport.jpg"
+    content_type = _passport_content_type(filename, file.content_type or "")
+    try:
+        _validate_passport_upload(image_bytes, content_type)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
     staged_path = save_image(image_bytes, filename)
     records = process_image(
         image_bytes,
         source=filename,
-        media_type=media_type_for(Path(filename)),
+        media_type=content_type,
         provider=settings_mod.VISION_MODE_IRTIFA_SERVER,
         settings=s,
         model=s.model,

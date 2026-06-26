@@ -1,6 +1,9 @@
 import { api, toast, renderHeader } from '/app.js';
 
+let renderId = 0;
+
 export async function render(container) {
+  const myRenderId = ++renderId;
   renderHeader('Bugünün Operasyonu', 'Günü hazırlayın, eksikleri tamamlayın ve çıktıları alın');
   container.innerHTML = `
     <div id="today-weather" class="mb-5"></div>
@@ -21,32 +24,44 @@ export async function render(container) {
         <div id="dash-summary" class="space-y-3"></div>
       </div>
     </div>`;
-  await loadDashboard();
+  await loadDashboard(myRenderId);
 }
 
-async function loadDashboard() {
+function isCurrent(renderToken) {
+  return renderToken === renderId && !!document.getElementById('dash-sheet');
+}
+
+async function loadDashboard(renderToken = renderId) {
   try {
     const sheetsData = await api.get('/api/planning/sheets');
+    if (!isCurrent(renderToken)) return;
     const sheets = sheetsData.sheets || [];
     const select = document.getElementById('dash-sheet');
+    if (!select) return;
     select.innerHTML = sheets.map(sheet => `<option value="${esc(sheet)}">${esc(sheet)}</option>`).join('');
     if (sheets.length) {
       select.value = sheets[sheets.length - 1];
-      await Promise.all([window.__dashLoad(), loadWeather()]);
+      await Promise.all([window.__dashLoad(renderToken), loadWeather(renderToken)]);
     } else {
-      showEmptyState();
+      showEmptyState(renderToken);
     }
   } catch (err) {
+    if (!isCurrent(renderToken)) return;
     if (err.status === 404) {
-      showEmptyState();
+      showEmptyState(renderToken);
     } else {
       toast.error('Operasyon paneli yüklenemedi', err.message);
     }
   }
 }
 
-function showEmptyState() {
-  document.getElementById('operation-steps').innerHTML = `
+function showEmptyState(renderToken = renderId) {
+  if (!isCurrent(renderToken)) return;
+  const steps = document.getElementById('operation-steps');
+  const issues = document.getElementById('dash-issues');
+  const summary = document.getElementById('dash-summary');
+  if (!steps || !issues || !summary) return;
+  steps.innerHTML = `
     <div class="col-span-full bg-surface-variant/30 rounded-2xl p-8 text-center border border-white/5">
       <span class="material-symbols-outlined text-5xl text-primary mb-4 block">description</span>
       <h3 class="text-xl font-headline text-on-surface mb-2">Henüz Uçuş Planı Dosyası Tanımlanmadı</h3>
@@ -58,8 +73,8 @@ function showEmptyState() {
       </div>
     </div>
   `;
-  document.getElementById('dash-issues').innerHTML = '<div class="p-6 text-center text-on-surface-variant">Bekleniyor...</div>';
-  document.getElementById('dash-summary').innerHTML = '<div class="p-6 text-center text-on-surface-variant">Bekleniyor...</div>';
+  issues.innerHTML = '<div class="p-6 text-center text-on-surface-variant">Bekleniyor...</div>';
+  summary.innerHTML = '<div class="p-6 text-center text-on-surface-variant">Bekleniyor...</div>';
 }
 
 window.__dashCreatePlan = async function() {
@@ -101,7 +116,7 @@ window.__dashDoCreatePlan = async function() {
     if (res.success) {
       toast.success('Başarılı', res.message);
       // Başarıyla oluşturuldu, dashboard'u yeniden yükle
-      await loadDashboard();
+      await loadDashboard(renderId);
     } else {
       if (res.message !== 'İptal edildi') toast.error('Hata', res.message);
     }
@@ -116,7 +131,7 @@ window.__dashImportPlan = async function() {
     const res = await api.post('/api/planning/import-existing', {});
     if (res.success) {
       toast.success('Başarılı', res.message);
-      await loadDashboard();
+      await loadDashboard(renderId);
     } else {
       if (res.message !== 'İptal edildi') toast.error('Hata', res.message);
     }
@@ -125,23 +140,27 @@ window.__dashImportPlan = async function() {
   }
 };
 
-window.__dashLoad = async function() {
+window.__dashLoad = async function(renderToken = renderId) {
   const sheet = document.getElementById('dash-sheet')?.value;
   if (!sheet) return;
   try {
     const data = await api.get(`/api/planning/load?sheet=${encodeURIComponent(sheet)}`);
+    if (!isCurrent(renderToken)) return;
     renderSteps(data);
     renderIssues(data.readiness || {});
     renderSummary(data);
   } catch (err) {
+    if (!isCurrent(renderToken)) return;
     toast.error('Gün yüklenemedi', err.message);
   }
 };
 
-async function loadWeather() {
+async function loadWeather(renderToken = renderId) {
   const root = document.getElementById('today-weather');
+  if (!root) return;
   try {
     const data = await api.get('/api/weather/status');
+    if (!isCurrent(renderToken)) return;
     const decision = data.decision || {};
     if (!root) return;
     root.innerHTML = `
@@ -152,6 +171,7 @@ async function loadWeather() {
         <a href="#/weather" class="btn-ghost px-3 py-1.5">Detay</a>
       </div>`;
   } catch (err) {
+    if (!isCurrent(renderToken) || !root) return;
     root.innerHTML = `<div class="glass-panel rounded-2xl px-5 py-3 text-on-surface-variant">Hava verisi çevrimdışı. Son kayıt kullanılamadı.</div>`;
   }
 }

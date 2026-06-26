@@ -127,14 +127,19 @@ window.__closeModal = () => modal.close();
 
 let appShutdownRequested = false;
 
-window.__allowReload = () => { appShutdownRequested = true; };
-
-window.addEventListener('beforeunload', (event) => {
+function handleBeforeUnload(event) {
   if (appShutdownRequested) return;
   event.preventDefault();
   event.returnValue = 'İrtifa penceresi kapatılsın mı?';
   return event.returnValue;
-});
+}
+
+window.__allowReload = () => {
+  appShutdownRequested = true;
+  window.removeEventListener('beforeunload', handleBeforeUnload);
+};
+
+window.addEventListener('beforeunload', handleBeforeUnload);
 
 // ─── Sidebar ───
 
@@ -371,7 +376,7 @@ async function bootWorkspace(authStatus = {}) {
   appStatus.skipped = status.skipped;
   appStatus.version = status.version || '';
 
-  if (!appStatus.licensed) {
+  if (!appStatus.licensed && !appStatus.skipped) {
     sidebar.style.display = 'none';
     header.style.display = 'none';
     if (main) main.classList.remove('md:ml-72');

@@ -60,3 +60,10 @@ def test_api_requires_login_and_enforces_admin_role(tmp_path, monkeypatch):
         assert operator_client.get("/api/lists").status_code == 200
         assert operator_client.get("/api/admin/users").status_code == 403
         assert operator_client.put("/api/settings", json={}).status_code == 403
+
+
+def test_frontend_license_skip_enters_manual_workspace():
+    from pathlib import Path
+
+    app_js = Path("frontend/app.js").read_text(encoding="utf-8")
+    assert "if (!appStatus.licensed && !appStatus.skipped)" in app_js

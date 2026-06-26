@@ -37,3 +37,4 @@ ocr_debug.txt
 /browser-review.err.log
 /secret-test.dat
 /tmp/
+/pytest_temp/

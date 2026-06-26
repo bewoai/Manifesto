@@ -7,7 +7,11 @@ from app.mrz.parser import MRZResult
 from app.validation.flags import Flag, ValidationOutcome
 from app.vision.extractor import process_image
 from app.vision.irtifa_client import call_irtifa_ocr_server
-from app.main import _is_operational_ocr_error
+from app.main import (
+    _is_operational_ocr_error,
+    _passport_content_type,
+    _validate_passport_upload,
+)
 
 
 class FakeResponse:
@@ -103,3 +107,27 @@ def test_operational_errors_do_not_belong_in_manual_review():
     assert _is_operational_ocr_error("OCR için lisans anahtarı gerekli.")
     assert _is_operational_ocr_error("OCR servisine ulaşılamıyor.")
     assert not _is_operational_ocr_error("MRZ bulunamadı/okunamadı")
+
+
+def test_passport_upload_validation_rejects_bad_files():
+    _validate_passport_upload(b"image", "image/png")
+
+    try:
+        _validate_passport_upload(b"image", "application/pdf")
+    except ValueError as exc:
+        assert "JPG" in str(exc)
+    else:
+        raise AssertionError("PDF dosyası kabul edilmemeliydi.")
+
+    try:
+        _validate_passport_upload(b"", "image/jpeg")
+    except ValueError as exc:
+        assert "boş" in str(exc)
+    else:
+        raise AssertionError("Boş görsel kabul edilmemeliydi.")
+
+
+def test_passport_content_type_falls_back_to_supported_extension_only():
+    assert _passport_content_type("scan.jpg", "") == "image/jpeg"
+    assert _passport_content_type("scan.webp", "application/octet-stream") == "image/webp"
+    assert _passport_content_type("scan.pdf", "application/octet-stream") == "application/octet-stream"

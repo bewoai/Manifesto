@@ -49,3 +49,52 @@ def test_partial_passport_migration_resumes(tmp_path):
         "requires_manual_review",
         "manual_review_reason",
     } <= columns
+
+
+def test_db_backup_created_on_init(tmp_path):
+    db_path = tmp_path / "existing.db"
+    # Create valid initial SQLite DB with a dummy table
+    conn = sqlite3.connect(db_path)
+    conn.execute("CREATE TABLE dummy (val TEXT)")
+    conn.execute("INSERT INTO dummy VALUES ('hello')")
+    conn.commit()
+    conn.close()
+
+    init_db(db_path)
+
+    backup_path = db_path.with_suffix(".db.bak")
+    assert backup_path.exists()
+    
+    # Check that backup is a valid DB containing our dummy table
+    conn_bak = sqlite3.connect(backup_path)
+    rows = conn_bak.execute("SELECT val FROM dummy").fetchall()
+    conn_bak.close()
+    assert len(rows) == 1
+    assert rows[0][0] == 'hello'
+
+
+def test_db_contains_new_relational_tables(tmp_path):
+    db_path = tmp_path / "new_schema.db"
+    init_db(db_path)
+
+    conn = sqlite3.connect(db_path)
+    tables = {
+        row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+    }
+    conn.close()
+
+    expected_tables = {
+        "passengers",
+        "flights",
+        "reservations",
+        "reservation_passengers",
+        "agencies",
+        "hotels",
+        "drivers",
+        "manifests",
+        "settings",
+        "import_logs",
+        "app_logs",
+    }
+    assert expected_tables <= tables
+

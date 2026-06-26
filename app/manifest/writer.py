@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Optional
 
 import openpyxl
+import sqlite3
 
 from app import config
 from app.country.country_map import iso3_to_name
@@ -48,11 +49,94 @@ def _transform(row: PlanningRow) -> ManifestRow:
     )
 
 
+def build_planning_rows_from_sqlite(flight_id: int, balloon: str, conn: sqlite3.Connection) -> list[PlanningRow]:
+    """SQLite'tan belirli bir uçuş ve balonun yolcu satırlarını PlanningRow olarak döndürür."""
+    balloon_upper = balloon.upper().strip()
+    cursor = conn.execute(
+        """
+        SELECT 
+            r.sort_order,
+            r.pax,
+            p.passport_no,
+            p.nationality,
+            p.sex,
+            p.full_name,
+            r.room_no,
+            r.hotel,
+            r.pickup_time,
+            r.reserved_by,
+            r.agency,
+            r.flight_firm,
+            r.balloon_code,
+            r.pilot,
+            r.notes,
+            r.driver_no,
+            r.destination,
+            rp.seq
+        FROM reservations r
+        JOIN reservation_passengers rp ON rp.reservation_id = r.id
+        JOIN passengers p ON rp.passenger_id = p.id
+        WHERE r.flight_id = ? AND UPPER(r.balloon_code) = ?
+        ORDER BY r.sort_order, rp.seq
+        """,
+        (flight_id, balloon_upper)
+    )
+    rows = []
+    for row in cursor.fetchall():
+        row_num = row["sort_order"] + row["seq"] - 1
+        pax = row["pax"] if row["seq"] == 1 else None
+        rows.append(PlanningRow(
+            row=row_num,
+            pax=pax,
+            nationality=row["nationality"] or "",
+            sex=row["sex"] or "",
+            name=row["full_name"] or "",
+            room=row["room_no"] or "",
+            hotel=row["hotel"] or "",
+            pickup=row["pickup_time"] or "",
+            reserved_by=row["reserved_by"] or "",
+            agency=row["agency"] or "",
+            company=row["flight_firm"] or "",
+            balloon=row["balloon_code"] or "",
+            pilot=row["pilot"] or "",
+            note=row["notes"] or "",
+            driver=row["driver_no"] or "",
+            coming_place=row["destination"] or "",
+            passport_no=row["passport_no"] or "",
+        ))
+    return rows
+
+
 def build_rows(planning_xlsx: Path, sheet: str, balloon: str) -> list[ManifestRow]:
     """Planlamadan tek balonun manifesto satırlarını üretir (yazmadan)."""
     balloon = balloon.upper().strip()
-    rows = [r for r in read_rows(planning_xlsx, sheet) if r.balloon == balloon]
+    
+    from app.db import connect
+    from app.manifest.importer import sheet_name_to_iso
+    import sqlite3
+    
+    iso_date = sheet_name_to_iso(sheet)
+    rows = None
+    loaded_from_db = False
+    
+    if iso_date:
+        try:
+            conn = connect()
+            flight = conn.execute("SELECT id FROM flights WHERE flight_date = ?", (iso_date,)).fetchone()
+            if flight:
+                res_count = conn.execute("SELECT COUNT(*) FROM reservations WHERE flight_id = ?", (flight["id"],)).fetchone()[0]
+                if res_count > 0:
+                    rows = build_planning_rows_from_sqlite(flight["id"], balloon, conn)
+                    loaded_from_db = True
+            conn.close()
+        except Exception as e:
+            print(f"Warning: Failed to load manifest rows from SQLite: {e}")
+            
+    if not loaded_from_db:
+        rows = [r for r in read_rows(planning_xlsx, sheet) if r.balloon == balloon]
+        
     return [_transform(r) for r in rows]
+
 
 
 def write_manifest(rows: list[ManifestRow], out_path: Path,

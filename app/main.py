@@ -61,7 +61,7 @@ from app.passport_store import (
     cleanup_stale,
     save_image,
 )
-from app.readiness import check_workbook
+from app.readiness import check_blocks, check_workbook
 from app.reports import (
     driver_rows,
     driver_summary,
@@ -134,6 +134,16 @@ def _resolve_planning_path(s: settings_mod.Settings) -> Path:
         from app import google_sheets as gs
         return gs.download_as_xlsx(s)
     return s.planning_path()
+
+
+def _sync_sqlite(sheet: str) -> None:
+    """Excel'deki güncellemelerin ardından SQLite veritabanını günceller."""
+    try:
+        from app.manifest.importer import import_excel_to_sqlite
+        import_excel_to_sqlite(sheet_name=sheet)
+    except Exception as e:
+        print(f"Warning: Failed to sync Excel sheet '{sheet}' to SQLite: {e}")
+
 
 
 def _mask_api_key(key: str) -> str:
@@ -567,6 +577,23 @@ def api_import_existing(request: Request) -> dict[str, Any]:
     except Exception as e:
         raise HTTPException(500, f"İçe aktarma hatası: {e}")
 
+
+class PlanningImportBody(BaseModel):
+    sheet: Optional[str] = None
+
+
+@app.post("/api/planning/import")
+def api_planning_import(request: Request, body: Optional[PlanningImportBody] = None) -> dict[str, Any]:
+    """Excel planlama dosyasındaki verileri SQLite'a aktarır."""
+    _require_admin(request)
+    sheet_name = body.sheet if body else None
+    from app.manifest.importer import import_excel_to_sqlite
+    try:
+        stats = import_excel_to_sqlite(sheet_name=sheet_name)
+        return stats
+    except Exception as e:
+        raise HTTPException(500, f"Veri aktarım hatası: {e}")
+
 @app.post("/api/settings/import-directory")
 def api_import_directory(request: Request) -> dict[str, Any]:
     """Native dialog ile klasör seç."""
@@ -735,14 +762,46 @@ def api_planning_sheets() -> dict:
 def api_planning_load(sheet: str = Query(..., description="Gün sayfa adı")) -> dict:
     """Belirli bir gün sayfasının rezervasyon bloklarını yükle."""
     s = _load_settings()
+    xlsx_path = _resolve_planning_path(s)
+    
+    from app.manifest.importer import sheet_name_to_iso, load_blocks_from_sqlite
+    iso_date = sheet_name_to_iso(sheet)
+    blocks = None
+    loaded_from_db = False
+    
+    if iso_date:
+        try:
+            conn = connect()
+            flight = conn.execute("SELECT id FROM flights WHERE flight_date = ?", (iso_date,)).fetchone()
+            if flight:
+                res_count = conn.execute("SELECT COUNT(*) FROM reservations WHERE flight_id = ?", (flight["id"],)).fetchone()[0]
+                if res_count > 0:
+                    blocks = load_blocks_from_sqlite(flight["id"], conn)
+                    loaded_from_db = True
+            conn.close()
+        except Exception as e:
+            print(f"Warning: Failed to load from SQLite: {e}")
+            
+    if not loaded_from_db:
+        try:
+            blocks = read_blocks(xlsx_path, sheet)
+            if iso_date:
+                def run_bg():
+                    try:
+                        from app.manifest.importer import import_excel_to_sqlite
+                        import_excel_to_sqlite(sheet_name=sheet)
+                    except Exception as e:
+                        print(f"Background import failed for {sheet}: {e}")
+                threading.Thread(target=run_bg, daemon=True).start()
+        except KeyError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Sayfa yüklenemedi: {e}")
+
     try:
-        xlsx_path = _resolve_planning_path(s)
-        blocks = read_blocks(xlsx_path, sheet)
         revision = workbook_revision(xlsx_path)
-    except KeyError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Sayfa yüklenemedi: {e}")
+    except Exception:
+        revision = "unknown"
 
     # Balon kodları: Settings rosterü + sayfada görülenlerin birleşimi
     seen_codes = {b.balloon for b in blocks if b.balloon}
@@ -752,9 +811,8 @@ def api_planning_load(sheet: str = Query(..., description="Gün sayfa adı")) ->
             balloon_codes.append(code)
 
     load = planning_balloon_load(blocks)
-    readiness = check_workbook(
-        xlsx_path,
-        sheet,
+    readiness = check_blocks(
+        blocks,
         balloon_capacity=s.balloon_capacity,
     )
 
@@ -768,6 +826,7 @@ def api_planning_load(sheet: str = Query(..., description="Gün sayfa adı")) ->
         "workbook_revision": revision,
         "readiness": readiness,
     }
+
 
 
 @app.post("/api/planning/create-day")
@@ -807,6 +866,8 @@ def api_planning_create_day(body: dict, request: Request) -> dict:
         raise HTTPException(status_code=500, detail=f"Sayfa oluşturulamadı: {e}")
 
     audit_mod.record("day_created", actor=_actor(request), sheet=new_sheet)
+    if not s.uses_google_sheets():
+        _sync_sqlite(new_sheet)
     return {
         "success": True,
         "message": f"'{new_sheet}' sayfası oluşturuldu.",
@@ -905,6 +966,7 @@ def api_planning_create_block(body: dict, request: Request) -> dict:
         reservation_row=result["lead_row"],
         detail={"pax": pax, "balloon": balloon, "overflow": overflow},
     )
+    _sync_sqlite(sheet)
     return {
         "success": True,
         "balloon": balloon,
@@ -954,6 +1016,7 @@ def api_planning_reorder_block(body: dict, request: Request) -> dict:
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Sıralama hatası: {e}")
     
+    _sync_sqlite(sheet)
     return {"success": True, "workbook_revision": revision, "backup": backup.name}
 
 
@@ -995,6 +1058,7 @@ def api_planning_delete_block(body: dict, request: Request) -> dict:
         reservation_row=min(rows),
         detail={"row_count": len(rows)},
     )
+    _sync_sqlite(sheet)
     return {
         "success": True,
         "message": f"{len(rows)} satırlık rezervasyon silindi.",
@@ -1053,6 +1117,7 @@ def api_planning_delete_passenger(body: dict, request: Request) -> dict:
         reservation_row=lead_row,
         detail={"target_row": target_row},
     )
+    _sync_sqlite(sheet)
     return {
         "success": True,
         "message": "Yolcu rezervasyondan silindi.",
@@ -1119,6 +1184,8 @@ def api_planning_write_identity(body: dict, request: Request) -> dict:
         sheet=sheet,
         detail={"rows": list(updates.keys()), "count": len(updates)},
     )
+    if not s.uses_google_sheets():
+        _sync_sqlite(sheet)
     return {
         "success": True,
         "message": f"{len(updates)} satır güncellendi.",
@@ -1214,6 +1281,8 @@ def api_planning_write_operation(body: dict, request: Request) -> dict:
         reservation_row=lead_row,
         detail={"fields": sorted(fields.keys())},
     )
+    if not s.uses_google_sheets():
+        _sync_sqlite(sheet)
     return {
         "success": True,
         "message": f"Operasyon alanları güncellendi (lead_row={lead_row}).",
@@ -1379,6 +1448,8 @@ def api_create_with_identities(body: dict, request: Request) -> dict:
         reservation_row=result["lead_row"],
         detail={"pax": pax, "identity_count": len(identities), "balloon": balloon},
     )
+    if not s.uses_google_sheets():
+        _sync_sqlite(sheet)
     return {
         "success": True,
         **result,
@@ -1449,6 +1520,8 @@ def api_append_identities(body: dict, request: Request) -> dict:
         reservation_row=lead_row,
         detail={"count": len(identities), "rows": result["rows"]},
     )
+    if not s.uses_google_sheets():
+        _sync_sqlite(sheet)
     return {
         "success": True,
         **result,

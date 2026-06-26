@@ -31,7 +31,41 @@ function isCurrent(renderToken) {
   return renderToken === renderId && !!document.getElementById('dash-sheet');
 }
 
+function showSkeletons() {
+  const steps = document.getElementById('operation-steps');
+  const issues = document.getElementById('dash-issues');
+  const summary = document.getElementById('dash-summary');
+  if (steps) {
+    steps.innerHTML = `
+      <div class="skeleton-card shimmer min-h-[110px]"></div>
+      <div class="skeleton-card shimmer min-h-[110px]"></div>
+      <div class="skeleton-card shimmer min-h-[110px]"></div>
+      <div class="skeleton-card shimmer min-h-[110px]"></div>
+      <div class="skeleton-card shimmer min-h-[110px]"></div>
+    `;
+  }
+  if (issues) {
+    issues.innerHTML = `
+      <div class="p-4 space-y-3">
+        <div class="skeleton-text shimmer w-full"></div>
+        <div class="skeleton-text shimmer w-5/6"></div>
+        <div class="skeleton-text shimmer w-4/5"></div>
+      </div>
+    `;
+  }
+  if (summary) {
+    summary.innerHTML = `
+      <div class="p-4 space-y-4">
+        <div class="skeleton-text shimmer w-full"></div>
+        <div class="skeleton-text shimmer w-3/4"></div>
+        <div class="skeleton-text shimmer w-5/6"></div>
+      </div>
+    `;
+  }
+}
+
 async function loadDashboard(renderToken = renderId) {
+  showSkeletons();
   try {
     const sheetsData = await api.get('/api/planning/sheets');
     if (!isCurrent(renderToken)) return;
@@ -143,6 +177,7 @@ window.__dashImportPlan = async function() {
 window.__dashLoad = async function(renderToken = renderId) {
   const sheet = document.getElementById('dash-sheet')?.value;
   if (!sheet) return;
+  showSkeletons();
   try {
     const data = await api.get(`/api/planning/load?sheet=${encodeURIComponent(sheet)}`);
     if (!isCurrent(renderToken)) return;

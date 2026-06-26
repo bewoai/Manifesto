@@ -52,11 +52,101 @@ async function loadBackups() {
     </div>`).join('') || '<div class="empty-desc">Henüz yedek yok.</div>';
 }
 
+const actionMap = {
+  "initial_admin_created": "İlk Yönetici Hesabı Oluşturuldu",
+  "login": "Sisteme Giriş Yapıldı",
+  "admin_password_recovered": "Yönetici Parolası Kurtarıldı",
+  "user_created": "Yeni Kullanıcı Oluşturuldu",
+  "day_created": "Yeni Uçuş Günü Oluşturuldu",
+  "reservation_created": "Yeni Rezervasyon Oluşturuldu",
+  "reservation_deleted": "Rezervasyon Silindi",
+  "passenger_deleted": "Yolcu Rezervasyondan Silindi",
+  "identity_written": "Kimlik Bilgileri Kaydedildi",
+  "operation_updated": "Operasyon Bilgileri Güncellendi",
+  "reservation_with_identities_created": "Kimlikli Rezervasyon Oluşturuldu",
+  "identities_appended": "Rezervasyona Kimlikler Eklendi",
+  "manual_review_approved": "Manuel Pasaport Kontrolü Onaylandı",
+  "manual_review_rejected": "Manuel Pasaport Kontrolü Reddedildi",
+  "passport_temp_data_cleaned": "Günlük Pasaport Görsel Temizliği",
+  "update_install_started": "Yazılım Güncellemesi Başlatıldı",
+};
+
+function formatActionDetail(row) {
+  let parsed = {};
+  if (row.detail) {
+    try {
+      parsed = typeof row.detail === 'string' ? JSON.parse(row.detail) : row.detail;
+    } catch (e) {
+      parsed = {};
+    }
+  }
+
+  const baseName = actionMap[row.action] || row.action;
+  
+  // Custom descriptions based on details
+  let desc = "";
+  if (row.action === "reservation_created") {
+    desc = ` (${parsed.pax || '?'} PAX, Balon: ${parsed.balloon || 'Atanmadı'}${parsed.overflow ? ' - Kapasite Aşımı' : ''})`;
+  } else if (row.action === "reservation_deleted") {
+    desc = ` (Silinen Satır Sayısı: ${parsed.row_count || '?'})`;
+  } else if (row.action === "user_created") {
+    desc = ` (Kullanıcı Adı: ${parsed.username || '—'})`;
+  } else if (row.action === "passenger_deleted") {
+    desc = ` (Silinen Yolcu Satırı: ${parsed.target_row || '?'})`;
+  } else if (row.action === "identity_written") {
+    desc = ` (${parsed.count || '?'} Yolcu Güncellendi)`;
+  } else if (row.action === "operation_updated") {
+    const fieldsTr = (parsed.fields || []).map(f => {
+      const fieldLabels = {
+        pax: 'PAX', room: 'Oda/İrtibat', hotel: 'Otel', pickup: 'Pickup Saati',
+        reserved_by: 'Rezerve Yapan', agency: 'Acente', company: 'Uçacağı Firma',
+        balloon: 'Balon', pilot: 'Pilot', driver: 'Şoför', coming_place: 'Geleceği Yer', note: 'Not'
+      };
+      return fieldLabels[f] || f;
+    });
+    desc = ` (Değişen: ${fieldsTr.join(', ') || '—'})`;
+  } else if (row.action === "reservation_with_identities_created") {
+    desc = ` (${parsed.pax || '?'} PAX, Balon: ${parsed.balloon || 'Atanmadı'}, ${parsed.identity_count || 0} Kimlik)`;
+  } else if (row.action === "identities_appended") {
+    desc = ` (${parsed.count || 0} Yolcu Kimliği Eklendi)`;
+  } else if (row.action === "manual_review_approved") {
+    desc = ` (OCR Onaylandı, ID: ${parsed.extraction_id || '?'})`;
+  } else if (row.action === "manual_review_rejected") {
+    desc = ` (OCR Reddedildi, ID: ${parsed.extraction_id || '?'})`;
+  } else if (row.action === "passport_temp_data_cleaned") {
+    desc = ` (Silinen Görsel: ${parsed.cleaned_files || 0})`;
+  }
+
+  if (row.reservation_row) {
+    desc += ` [Satır: ${row.reservation_row}]`;
+  }
+
+  return `<span class="font-semibold text-on-surface">${esc(baseName)}</span><span class="text-xs text-on-surface-variant/80 ml-1.5">${esc(desc)}</span>`;
+}
+
 async function loadAudit() {
   const data = await api.get('/api/admin/audit?limit=200');
   document.getElementById('admin-audit').innerHTML = `
-    <table class="w-full text-sm"><thead><tr><th class="p-2 text-left">Zaman</th><th class="p-2 text-left">Kullanıcı</th><th class="p-2 text-left">İşlem</th><th class="p-2 text-left">Gün</th></tr></thead>
-    <tbody>${(data.entries || []).map(row => `<tr class="border-t border-white/5"><td class="p-2">${new Date(`${row.ts}Z`).toLocaleString('tr-TR')}</td><td class="p-2">${esc(row.actor)}</td><td class="p-2">${esc(row.action)}</td><td class="p-2">${esc(row.sheet || '—')}</td></tr>`).join('')}</tbody></table>`;
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="text-on-surface-variant opacity-80 border-b border-white/10">
+          <th class="p-3 text-left font-semibold">Zaman</th>
+          <th class="p-3 text-left font-semibold">Kullanıcı</th>
+          <th class="p-3 text-left font-semibold">İşlem Detayı</th>
+          <th class="p-3 text-left font-semibold">İlgili Gün</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${(data.entries || []).map(row => `
+          <tr class="border-b border-white/5 hover:bg-white/[0.02] transition-colors">
+            <td class="p-3 text-on-surface-variant text-xs">${new Date(`${row.ts}Z`).toLocaleString('tr-TR')}</td>
+            <td class="p-3 font-medium text-on-surface">${esc(row.actor)}</td>
+            <td class="p-3">${formatActionDetail(row)}</td>
+            <td class="p-3"><span class="badge badge-blue">${esc(row.sheet || '—')}</span></td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>`;
 }
 
 async function loadUpdate() {

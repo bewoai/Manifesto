@@ -60,3 +60,30 @@ def test_transforms_applied():
     # ilk iki yolcu CHE -> Switzerland olmalı (golden ile aynı sıra)
     assert rows[0].nationality == "Switzerland"
     assert rows[1].nationality == "Switzerland"
+
+
+@pytest.mark.usefixtures("country_map_ready", "template_ready", "planning_ready", "golden_ready")
+def test_sqlite_export_matches_golden(tmp_path, monkeypatch):
+    db_path = tmp_path / "irtifa_test.db"
+    monkeypatch.setenv("IRTIFA_DB_PATH", str(db_path))
+
+    # 1. Initialize the SQLite DB
+    from app.db import init_db
+    init_db(db_path)
+
+    # 2. Import the real Excel planning file into SQLite
+    from app.manifest.importer import import_excel_to_sqlite
+    import_excel_to_sqlite(db_path=db_path, planning_xlsx=config.PLANNING_XLSX, sheet_name=SHEET)
+
+    # 3. Read golden manifest rows
+    expected = _read_manifest_rows(config.GOLDEN_MANIFEST_XLSX)
+
+    # 4. Export BZR manifest (which should now load from SQLite!)
+    out = export(config.PLANNING_XLSX, SHEET, BALLOON, tmp_path)
+    produced = _read_manifest_rows(out)
+
+    # 5. Assert equality
+    assert len(produced) == len(expected) == 28
+    for i, (got, exp) in enumerate(zip(produced, expected)):
+        assert got == exp, f"satır {i}: üretilen {got} != golden {exp}"
+

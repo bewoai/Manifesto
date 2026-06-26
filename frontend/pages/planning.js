@@ -29,73 +29,99 @@ export async function render(container) {
   renderHeader('Planlama', 'Uçuş günü yönetimi ve rezervasyon blokları');
 
   container.innerHTML = `
-    <!-- 1) Gün Seçimi (Takvim) -->
-    <div class="flex justify-center mb-6">
-      <div class="calendar-widget rounded-3xl p-6 w-full max-w-[360px] animate-in">
-        <!-- Takvim Başlığı -->
-        <div class="text-center font-bold text-lg mb-4 text-on-surface" id="calendar-month-year">
-          Yükleniyor...
+    <div class="grid grid-cols-1 lg:grid-cols-[360px_1fr] gap-6 items-start">
+      <!-- SOL KOLON: Takvim ve Balon Dolulukları -->
+      <div class="flex flex-col gap-6 w-full">
+        <!-- Takvim Kartı -->
+        <div class="calendar-widget rounded-3xl p-6 w-full animate-in">
+          <!-- Takvim Başlığı -->
+          <div class="text-center font-bold text-lg mb-4 text-on-surface" id="calendar-month-year">
+            Yükleniyor...
+          </div>
+          
+          <!-- Gün Kısaltmaları -->
+          <div class="calendar-grid mb-2">
+            <div class="calendar-day-header">Pz</div>
+            <div class="calendar-day-header">Sa</div>
+            <div class="calendar-day-header">Ça</div>
+            <div class="calendar-day-header">Pe</div>
+            <div class="calendar-day-header">Cu</div>
+            <div class="calendar-day-header">Ct</div>
+            <div class="calendar-day-header">Pa</div>
+          </div>
+          
+          <!-- Günler Matrisi -->
+          <div class="calendar-grid mb-4" id="calendar-days-grid">
+            <!-- Dinamik olarak dolacak -->
+          </div>
+          
+          <!-- Gezinme Butonları -->
+          <div class="flex justify-center gap-4">
+            <button class="calendar-nav-btn" onclick="window.__prevMonth()">
+              <span class="material-symbols-outlined text-[18px]">chevron_left</span>
+            </button>
+            <button class="calendar-nav-btn" onclick="window.__nextMonth()">
+              <span class="material-symbols-outlined text-[18px]">chevron_right</span>
+            </button>
+          </div>
         </div>
-        
-        <!-- Gün Kısaltmaları -->
-        <div class="calendar-grid mb-2">
-          <div class="calendar-day-header">Pz</div>
-          <div class="calendar-day-header">Sa</div>
-          <div class="calendar-day-header">Ça</div>
-          <div class="calendar-day-header">Pe</div>
-          <div class="calendar-day-header">Cu</div>
-          <div class="calendar-day-header">Ct</div>
-          <div class="calendar-day-header">Pa</div>
+
+        <!-- Balon Dolulukları Kartı -->
+        <div class="card p-6 w-full animate-in" id="sidebar-balloon-load-card" style="display:none">
+          <div class="card-title text-base mb-4 flex items-center gap-2">
+            <span class="material-symbols-outlined text-[20px]">monitoring</span> Balon Dolulukları
+          </div>
+          <div class="flex flex-col" id="sidebar-balloon-load-list">
+            <!-- Dinamik olarak dolacak -->
+          </div>
         </div>
-        
-        <!-- Günler Matrisi -->
-        <div class="calendar-grid mb-4" id="calendar-days-grid">
-          <!-- Dinamik olarak dolacak -->
+      </div>
+
+      <!-- SAĞ KOLON: Boş Durum veya Rezervasyon Listesi -->
+      <div class="w-full">
+        <!-- Boş Durum (Gün seçilmediğinde) -->
+        <div class="card text-center p-12 flex flex-col items-center justify-center min-h-[350px] animate-in" id="empty-planning-state">
+          <div class="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center text-primary mb-4">
+            <span class="material-symbols-outlined text-3xl">calendar_month</span>
+          </div>
+          <h3 class="text-lg font-bold text-on-surface mb-2">Uçuş Planı Yüklenmedi</h3>
+          <p class="text-on-surface-variant max-w-sm mx-auto text-sm leading-relaxed">
+            Rezervasyon bloklarını görüntülemek, pilot/şoför atamalarını yapmak veya yeni rezervasyon eklemek için sol taraftaki takvimden bir uçuş günü seçin.
+          </p>
         </div>
-        
-        <!-- Gezinme Butonları -->
-        <div class="flex justify-center gap-4">
-          <button class="calendar-nav-btn" onclick="window.__prevMonth()">
-            <span class="material-symbols-outlined text-[18px]">chevron_left</span>
-          </button>
-          <button class="calendar-nav-btn" onclick="window.__nextMonth()">
-            <span class="material-symbols-outlined text-[18px]">chevron_right</span>
-          </button>
+
+        <!-- Rezervasyon Blokları Kartı (Gün seçildiğinde) -->
+        <div class="card animate-in w-full" id="blocks-section" style="display:none">
+          <div class="card-header">
+            <div class="card-title flex items-center">
+              <span class="material-symbols-outlined mr-2">group</span> Rezervasyon Blokları
+              <span id="reorder-status" style="display: none;"></span>
+            </div>
+            <div class="flex items-center gap-3">
+              <span class="text-sm text-on-surface-variant" id="blocks-count"></span>
+              <button class="btn-primary flex items-center gap-2" onclick="window.__newReservation()">
+                <span class="material-symbols-outlined text-sm">add</span> Yeni Rezervasyon
+              </button>
+            </div>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
+            <input class="form-input md:col-span-2" id="block-search" placeholder="İsim, otel, acente, balon veya şoför ara" oninput="window.__renderPlanningDebounced()" />
+            <select class="form-select" id="block-filter" onchange="window.__renderPlanning()">
+              <option value="">Tüm rezervasyonlar</option>
+              <option value="missing">Pasaportu eksik</option>
+              <option value="ready">Kimliği hazır</option>
+            </select>
+            <select class="form-select" id="block-sort" onchange="window.__renderPlanning()">
+              <option value="row">Liste sırası</option>
+              <option value="pickup">Pickup saatine göre</option>
+              <option value="pax">PAX'a göre</option>
+              <option value="name">İsme göre</option>
+            </select>
+          </div>
+          <div class="flex flex-col gap-3" id="blocks-list"></div>
         </div>
       </div>
     </div>
-
-    <!-- 2) Rezervasyon Blokları -->
-    <div class="card mb-6 animate-in" id="blocks-section" style="display:none">
-      <div class="card-header">
-        <div class="card-title">
-          <span class="material-symbols-outlined">group</span> Rezervasyon Blokları
-        </div>
-        <div class="flex items-center gap-3">
-          <span class="text-sm text-on-surface-variant" id="blocks-count"></span>
-          <button class="btn-primary flex items-center gap-2" onclick="window.__newReservation()">
-            <span class="material-symbols-outlined text-sm">add</span> Yeni Rezervasyon
-          </button>
-        </div>
-      </div>
-      <div class="flex flex-wrap gap-2 mb-4" id="balloon-load"></div>
-      <div class="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
-        <input class="form-input md:col-span-2" id="block-search" placeholder="İsim, otel, acente, balon veya şoför ara" oninput="window.__renderPlanning()" />
-        <select class="form-select" id="block-filter" onchange="window.__renderPlanning()">
-          <option value="">Tüm rezervasyonlar</option>
-          <option value="missing">Pasaportu eksik</option>
-          <option value="ready">Kimliği hazır</option>
-        </select>
-        <select class="form-select" id="block-sort" onchange="window.__renderPlanning()">
-          <option value="row">Liste sırası</option>
-          <option value="pickup">Pickup saatine göre</option>
-          <option value="pax">PAX'a göre</option>
-          <option value="name">İsme göre</option>
-        </select>
-      </div>
-      <div class="flex flex-col gap-3" id="blocks-list"></div>
-    </div>
-
   `;
 
   loadSheets();
@@ -211,9 +237,31 @@ async function loadSheets() {
   }
 }
 
+function showPlanningSkeletons() {
+  const section = document.getElementById('blocks-section');
+  const list = document.getElementById('blocks-list');
+  const emptyState = document.getElementById('empty-planning-state');
+  if (section) section.style.display = '';
+  if (emptyState) emptyState.style.display = 'none';
+  if (list) {
+    list.innerHTML = `
+      <div class="skeleton-card shimmer min-h-[90px] mb-3"></div>
+      <div class="skeleton-card shimmer min-h-[90px] mb-3"></div>
+      <div class="skeleton-card shimmer min-h-[90px] mb-3"></div>
+    `;
+  }
+}
+
+window.__loadDay = function() {
+  if (state.currentSheet) {
+    window.__loadDayDate(state.currentSheet);
+  }
+};
+
 window.__loadDayDate = async function(sheet) {
   state.currentSheet = sheet;
   renderCalendar();
+  showPlanningSkeletons();
 
   const monthYearEl = document.getElementById('calendar-month-year');
   if (monthYearEl) {
@@ -299,9 +347,20 @@ function renderBlocks() {
   const section = document.getElementById('blocks-section');
   const list = document.getElementById('blocks-list');
   const count = document.getElementById('blocks-count');
+  const emptyState = document.getElementById('empty-planning-state');
+  const loadSidebar = document.getElementById('sidebar-balloon-load-card');
   if (!section || !list) return;
 
-  section.style.display = '';
+  if (state.currentSheet) {
+    section.style.display = '';
+    if (emptyState) emptyState.style.display = 'none';
+    if (loadSidebar) loadSidebar.style.display = '';
+  } else {
+    section.style.display = 'none';
+    if (emptyState) emptyState.style.display = '';
+    if (loadSidebar) loadSidebar.style.display = 'none';
+    return;
+  }
   const visible = filteredBlocks();
   count.textContent = `${visible.length}/${state.blocks.length} blok`;
 
@@ -316,7 +375,7 @@ function renderBlocks() {
     return;
   }
 
-  list.innerHTML = visible.map(({ block: b, index: i }) => {
+  list.innerHTML = visible.map(({ block: b, index: i }, listSeq) => {
     const count = b.rows?.length ?? b.pax ?? 0;
     const passengers = (b.passengers || []).map((p, idx) => {
       const name = p.name || (p.passport_no ? p.passport_no : 'Kimlik boş');
@@ -327,11 +386,14 @@ function renderBlocks() {
     
     const detail = state.selectedBlock === i ? renderBlockDetails(b, i) : '';
     const isRowSort = (document.getElementById('block-sort')?.value || 'row') === 'row';
-    const dragAttrs = isRowSort ? `draggable="true" ondragstart="window.__onDragStart(event, ${i})" ondragend="window.__onDragEnd(event)" ondragover="window.__onDragOver(event)" ondragleave="window.__onDragLeave(event)" ondrop="window.__onDrop(event, ${i})"` : '';
+    const dragAttrs = (isRowSort && !state.pendingReorder) ? `draggable="true" ondragstart="window.__onDragStart(event, ${i})" ondragend="window.__onDragEnd(event)" ondragover="window.__onDragOver(event)" ondragleave="window.__onDragLeave(event)" ondrop="window.__onDrop(event, ${i})"` : '';
     return `
     <div class="block-shell ${state.selectedBlock === i ? 'selected' : ''}" id="block-${i}" ${dragAttrs}>
     <div class="block-item ${state.selectedBlock === i ? 'selected' : ''}"
          onclick="window.__selectBlock(${i})">
+      <div class="block-seq-num">
+        ${listSeq + 1}
+      </div>
       <div class="block-pax" ${isRowSort ? 'style="cursor: grab;" title="Sıralamak için sürükleyin"' : ''}>
         ${isRowSort ? '<span class="material-symbols-outlined text-[14px] mr-1 opacity-50">drag_indicator</span>' : ''}
         PAX ${b.pax ?? '?'}
@@ -396,7 +458,7 @@ function filteredBlocks() {
     if (sort === 'pickup') return String(a.block.pickup || '99:99').localeCompare(String(b.block.pickup || '99:99'));
     if (sort === 'pax') return Number(b.block.pax || 0) - Number(a.block.pax || 0);
     if (sort === 'name') return String(a.block.lead_name || '').localeCompare(String(b.block.lead_name || ''), 'tr');
-    return Number(a.block.lead_row) - Number(b.block.lead_row);
+    return a.index - b.index;
   });
   return rows;
 }
@@ -404,7 +466,7 @@ function filteredBlocks() {
 window.__renderPlanning = renderBlocks;
 
 function renderBalloonLoad() {
-  const el = document.getElementById('balloon-load');
+  const el = document.getElementById('sidebar-balloon-load-list');
   if (!el) return;
   const cap = state.capacity || 28;
   const codes = state.balloons || [];
@@ -412,8 +474,13 @@ function renderBalloonLoad() {
     const used = (state.balloonLoad || {})[code] || 0;
     const full = used >= cap;
     const cls = full ? 'badge-red' : (used > 0 ? 'badge-green' : 'badge-blue');
-    return `<span class="badge ${cls}">${escHtml(code)} ${used}/${cap}</span>`;
-  }).join('');
+    return `
+      <div class="flex items-center justify-between py-2.5 border-b border-white/5 last:border-0 text-sm">
+        <span class="font-semibold text-on-surface">${escHtml(code)} Balonu</span>
+        <span class="badge ${cls}">${used} / ${cap}</span>
+      </div>
+    `;
+  }).join('') || '<div class="text-xs text-on-surface-variant italic p-2">Kayıtlı balon yok</div>';
 }
 
 window.__selectBlock = function(index) {
@@ -422,73 +489,169 @@ window.__selectBlock = function(index) {
 };
 
 window.__onDragStart = function(e, index) {
+  state.draggedIndex = index;
   e.dataTransfer.setData('text/plain', index);
-  e.target.style.opacity = '0.5';
+  const shell = document.getElementById(`block-${index}`);
+  if (shell) {
+    shell.classList.add('is-dragging');
+  }
 };
+
 window.__onDragEnd = function(e) {
-  e.target.style.opacity = '1';
+  state.draggedIndex = null;
+  document.querySelectorAll('.block-shell').forEach(el => {
+    el.classList.remove('drag-hover-top', 'drag-hover-bottom', 'is-dragging');
+  });
 };
+
 window.__onDragOver = function(e) {
   e.preventDefault();
   const shell = e.target.closest('.block-shell');
   if (shell) {
+    const targetIndex = parseInt(shell.id.replace('block-', ''), 10);
+    if (state.draggedIndex === targetIndex || isNaN(targetIndex) || state.draggedIndex === null) return;
+
     const rect = shell.getBoundingClientRect();
     const isTopHalf = e.clientY < rect.top + rect.height / 2;
+
     if (isTopHalf) {
-      shell.style.borderTop = '2px solid var(--primary)';
-      shell.style.borderBottom = '';
-      shell.dataset.dropPos = 'before';
+      if (!shell.classList.contains('drag-hover-top')) {
+        shell.classList.remove('drag-hover-bottom');
+        shell.classList.add('drag-hover-top');
+        shell.dataset.dropPos = 'before';
+      }
     } else {
-      shell.style.borderTop = '';
-      shell.style.borderBottom = '2px solid var(--primary)';
-      shell.dataset.dropPos = 'after';
+      if (!shell.classList.contains('drag-hover-bottom')) {
+        shell.classList.remove('drag-hover-top');
+        shell.classList.add('drag-hover-bottom');
+        shell.dataset.dropPos = 'after';
+      }
     }
   }
 };
+
 window.__onDragLeave = function(e) {
   const shell = e.target.closest('.block-shell');
   if (shell) {
-    shell.style.borderTop = '';
-    shell.style.borderBottom = '';
+    shell.classList.remove('drag-hover-top', 'drag-hover-bottom');
     delete shell.dataset.dropPos;
   }
 };
-window.__onDrop = async function(e, targetIndex) {
+
+window.__onDrop = function(e, targetIndex) {
   e.preventDefault();
   const shell = e.target.closest('.block-shell');
   let dropPos = 'before';
   if (shell) {
     dropPos = shell.dataset.dropPos || 'before';
-    shell.style.borderTop = '';
-    shell.style.borderBottom = '';
+    shell.classList.remove('drag-hover-top', 'drag-hover-bottom');
     delete shell.dataset.dropPos;
   }
-  
+
   const sourceIndex = parseInt(e.dataTransfer.getData('text/plain'), 10);
   if (sourceIndex === targetIndex || isNaN(sourceIndex)) return;
-  
+
   const sourceBlock = state.blocks[sourceIndex];
   const targetBlock = state.blocks[targetIndex];
   if (!sourceBlock || !targetBlock) return;
-  
-  let targetRow = targetBlock.lead_row;
+
+  if (!state.originalBlocks) {
+    state.originalBlocks = [...state.blocks];
+  }
+
+  const [movedBlock] = state.blocks.splice(sourceIndex, 1);
+  let newTargetIdx = state.blocks.findIndex(b => b.lead_row === targetBlock.lead_row);
   if (dropPos === 'after') {
-    targetRow = targetBlock.rows[targetBlock.rows.length - 1] + 1;
+    state.blocks.splice(newTargetIdx + 1, 0, movedBlock);
+  } else {
+    state.blocks.splice(newTargetIdx, 0, movedBlock);
+  }
+
+  state.pendingReorder = {
+    sourceBlock,
+    targetBlock,
+    dropPos
+  };
+
+  renderBlocks();
+  window.__autoSaveReorder();
+};
+
+window.__autoSaveReorder = async function() {
+  if (!state.pendingReorder) return;
+  const statusEl = document.getElementById('reorder-status');
+  if (statusEl) {
+    statusEl.innerHTML = `<span class="material-symbols-outlined animate-spin text-sm mr-1">progress_activity</span> Sıralama kaydediliyor...`;
+    statusEl.style.display = 'inline-flex';
+    statusEl.className = 'text-xs font-semibold text-primary/80 animate-pulse flex items-center ml-3';
+  }
+
+  const p = state.pendingReorder;
+  let targetRow = p.targetBlock.lead_row;
+  if (p.dropPos === 'after') {
+    targetRow = p.targetBlock.rows[p.targetBlock.rows.length - 1] + 1;
   }
 
   try {
-    toast.info('Sıralanıyor', 'Excel satırları güncelleniyor...');
-    const res = await api.post('/api/planning/reorder-block', {
+    await api.post('/api/planning/reorder-block', {
       sheet: state.currentSheet,
-      source_rows: sourceBlock.rows,
+      source_rows: p.sourceBlock.rows,
       target_row: targetRow,
       expected_revision: state.revision
     });
-    window.__loadDay();
+
+    state.pendingReorder = null;
+    state.originalBlocks = null;
+
+    if (statusEl) {
+      statusEl.innerHTML = `<span class="material-symbols-outlined text-[16px] text-green-500 mr-1">check_circle</span> Sıralama kaydedildi`;
+      statusEl.className = 'text-xs font-semibold text-green-500 flex items-center ml-3';
+      setTimeout(() => {
+        if (!state.pendingReorder && statusEl.innerHTML.includes('kaydedildi')) {
+          statusEl.style.display = 'none';
+        }
+      }, 2500);
+    }
+
+    await reloadDaySilently();
   } catch (err) {
-    toast.error('Sıralama hatası', err.message);
+    toast.error('Sıralama kaydedilemedi', err.message);
+    if (statusEl) {
+      statusEl.innerHTML = `<span class="material-symbols-outlined text-[16px] text-red-500 mr-1">error</span> Hata`;
+      statusEl.className = 'text-xs font-semibold text-red-500 flex items-center ml-3';
+    }
+    if (state.originalBlocks) {
+      state.blocks = state.originalBlocks;
+    }
+    state.pendingReorder = null;
+    state.originalBlocks = null;
+    renderBlocks();
   }
 };
+
+async function reloadDaySilently() {
+  if (!state.currentSheet) return;
+  try {
+    const selectedLead = state.selectedBlock !== null ? state.blocks[state.selectedBlock]?.lead_row : null;
+    const data = await api.get(`/api/planning/load?sheet=${encodeURIComponent(state.currentSheet)}`);
+    state.blocks = data.blocks || [];
+    state.selectedBlock = selectedLead
+      ? state.blocks.findIndex(b => b.lead_row === selectedLead)
+      : state.selectedBlock;
+    if (state.selectedBlock < 0) state.selectedBlock = null;
+    state.balloons = data.balloon_codes || [];
+    state.balloonLoad = data.balloon_load || {};
+    state.capacity = data.capacity || 28;
+    state.revision = data.workbook_revision || '';
+    state.readiness = data.readiness || null;
+
+    renderBlocks();
+    renderBalloonLoad();
+  } catch (err) {
+    console.error('Silent reload failed', err);
+  }
+}
+
 
 function renderBlockDetails(block, index) {
   const fields = [
@@ -939,3 +1102,17 @@ window.__submitNewDay = async function() {
 function escHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
+
+function debounce(fn, delay = 200) {
+  let timer = null;
+  return function(...args) {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn.apply(this, args), delay);
+  };
+}
+
+window.__renderPlanningDebounced = debounce(() => {
+  if (typeof window.__renderPlanning === 'function') {
+    window.__renderPlanning();
+  }
+}, 200);

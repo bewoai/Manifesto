@@ -13,6 +13,7 @@ from typing import Optional
 import openpyxl
 
 from app import config
+from app.manifest.excel_cache import get_cached_excel_data, clear_excel_cache
 
 
 @dataclass
@@ -83,44 +84,47 @@ def _cell(ws, row: int, col: int) -> str:
 
 def read_rows(planning_xlsx: Path, sheet: str) -> list[PlanningRow]:
     """Bir gün sayfasının tüm yolcu satırlarını okur (header row 3 sonrası)."""
-    wb = openpyxl.load_workbook(planning_xlsx, data_only=True)
-    if sheet not in wb.sheetnames:
+    def _read(path: Path, s: str) -> list[PlanningRow]:
+        wb = openpyxl.load_workbook(path, data_only=True)
+        if s not in wb.sheetnames:
+            wb.close()
+            raise KeyError(f"Planlama dosyasında '{s}' sayfası yok. Mevcut: {wb.sheetnames}")
+        ws = wb[s]
+        rows: list[PlanningRow] = []
+        for r in range(config.PLANNING_FIRST_DATA_ROW, ws.max_row + 1):
+            name = _cell(ws, r, config.COL_NAME)
+            balloon = _cell(ws, r, config.COL_BALLOON)
+            # tamamen boş satırları atla (isim ve balon yoksa veri yok say)
+            if not name and not balloon and not _cell(ws, r, config.COL_PASSPORT_NO):
+                continue
+            pax_raw = _cell(ws, r, config.COL_PAX)
+            try:
+                pax = int(float(pax_raw)) if pax_raw else None
+            except ValueError:
+                pax = None
+            rows.append(PlanningRow(
+                row=r,
+                pax=pax,
+                nationality=_cell(ws, r, config.COL_UYRUK),
+                sex=_cell(ws, r, config.COL_MF),
+                name=name,
+                room=_cell(ws, r, config.COL_ROOM),
+                hotel=_cell(ws, r, config.COL_HOTEL),
+                pickup=_cell(ws, r, config.COL_PICKUP),
+                reserved_by=_cell(ws, r, config.COL_RESERVED_BY),
+                agency=_cell(ws, r, config.COL_AGENCY),
+                company=_cell(ws, r, config.COL_COMPANY),
+                balloon=balloon.upper(),
+                pilot=_cell(ws, r, config.COL_PILOT),
+                note=_cell(ws, r, config.COL_NOTE),
+                driver=_cell(ws, r, config.COL_DRIVER),
+                coming_place=_cell(ws, r, config.COL_COMING_PLACE),
+                passport_no=_cell(ws, r, config.COL_PASSPORT_NO),
+            ))
         wb.close()
-        raise KeyError(f"Planlama dosyasında '{sheet}' sayfası yok. Mevcut: {wb.sheetnames}")
-    ws = wb[sheet]
-    rows: list[PlanningRow] = []
-    for r in range(config.PLANNING_FIRST_DATA_ROW, ws.max_row + 1):
-        name = _cell(ws, r, config.COL_NAME)
-        balloon = _cell(ws, r, config.COL_BALLOON)
-        # tamamen boş satırları atla (isim ve balon yoksa veri yok say)
-        if not name and not balloon and not _cell(ws, r, config.COL_PASSPORT_NO):
-            continue
-        pax_raw = _cell(ws, r, config.COL_PAX)
-        try:
-            pax = int(float(pax_raw)) if pax_raw else None
-        except ValueError:
-            pax = None
-        rows.append(PlanningRow(
-            row=r,
-            pax=pax,
-            nationality=_cell(ws, r, config.COL_UYRUK),
-            sex=_cell(ws, r, config.COL_MF),
-            name=name,
-            room=_cell(ws, r, config.COL_ROOM),
-            hotel=_cell(ws, r, config.COL_HOTEL),
-            pickup=_cell(ws, r, config.COL_PICKUP),
-            reserved_by=_cell(ws, r, config.COL_RESERVED_BY),
-            agency=_cell(ws, r, config.COL_AGENCY),
-            company=_cell(ws, r, config.COL_COMPANY),
-            balloon=balloon.upper(),
-            pilot=_cell(ws, r, config.COL_PILOT),
-            note=_cell(ws, r, config.COL_NOTE),
-            driver=_cell(ws, r, config.COL_DRIVER),
-            coming_place=_cell(ws, r, config.COL_COMING_PLACE),
-            passport_no=_cell(ws, r, config.COL_PASSPORT_NO),
-        ))
-    wb.close()
-    return rows
+        return rows
+
+    return get_cached_excel_data(planning_xlsx, "read_rows", _read, sheet)
 
 
 def group_blocks(rows: list[PlanningRow]) -> list[ReservationBlock]:
@@ -298,10 +302,12 @@ def create_reservation(
 
 def list_sheets(planning_xlsx: Path) -> list[str]:
     """Gün sayfalarını döndürür (Sayfa2 gibi özet sayfaları hariç)."""
-    wb = openpyxl.load_workbook(planning_xlsx, read_only=True)
-    names = [s for s in wb.sheetnames if s.lower() not in ("sayfa2", "sheet2")]
-    wb.close()
-    return names
+    def _read(path: Path) -> list[str]:
+        wb = openpyxl.load_workbook(path, read_only=True)
+        names = [s for s in wb.sheetnames if s.lower() not in ("sayfa2", "sheet2")]
+        wb.close()
+        return names
+    return get_cached_excel_data(planning_xlsx, "list_sheets", _read)
 
 
 def create_day_sheet(planning_xlsx: Path, new_sheet: str, source_sheet: Optional[str] = None) -> Path:

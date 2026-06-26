@@ -112,7 +112,48 @@ async function loadSheets() {
   }
 }
 
+function showManifestSkeletons() {
+  const readiness = document.getElementById('mf-readiness');
+  const driverSummary = document.getElementById('driver-summary');
+  if (readiness) {
+    readiness.innerHTML = `
+      <div class="p-4 space-y-3">
+        <div class="skeleton-text shimmer w-full"></div>
+        <div class="skeleton-text shimmer w-3/4"></div>
+      </div>
+    `;
+  }
+  if (driverSummary) {
+    driverSummary.innerHTML = `
+      <div class="p-4 space-y-3">
+        <div class="skeleton-text shimmer w-full"></div>
+        <div class="skeleton-text shimmer w-5/6"></div>
+      </div>
+    `;
+  }
+}
+
+function showTableSkeleton() {
+  const section = document.getElementById('preview-section');
+  const empty = document.getElementById('empty-section');
+  const tbl = document.getElementById('mf-table-container');
+  if (section) section.style.display = '';
+  if (empty) empty.style.display = 'none';
+  if (tbl) {
+    tbl.innerHTML = `
+      <div class="p-4 space-y-4">
+        <div class="skeleton-title shimmer w-1/4 mb-4"></div>
+        <div class="skeleton-text shimmer w-full"></div>
+        <div class="skeleton-text shimmer w-full"></div>
+        <div class="skeleton-text shimmer w-full"></div>
+        <div class="skeleton-text shimmer w-full"></div>
+      </div>
+    `;
+  }
+}
+
 async function loadOperations(sheet) {
+  showManifestSkeletons();
   try {
     const [readiness, reports] = await Promise.all([
       api.get(`/api/readiness?sheet=${encodeURIComponent(sheet)}`),
@@ -179,6 +220,7 @@ window.__mfPreview = async function() {
 
   state.currentSheet = sheet;
   state.currentBalloon = balloon;
+  showTableSkeleton();
 
   try {
     const data = await api.get(`/api/manifest/preview?sheet=${encodeURIComponent(sheet)}&balloon=${encodeURIComponent(balloon)}`);

@@ -298,6 +298,7 @@
 
   /* ─── Block List (Planning) ─── */
   .block-shell {
+    position: relative;
     @apply rounded-3xl border border-transparent transition-all;
   }
 
@@ -359,6 +360,10 @@
 
   .block-item.selected {
     @apply border-primary/30 bg-primary/5;
+  }
+
+  .block-seq-num {
+    @apply text-on-surface-variant font-bold text-base min-w-[28px] text-center opacity-60;
   }
 
   .block-pax {
@@ -911,3 +916,141 @@
 .calendar-nav-btn:active {
   transform: scale(0.95);
 }
+
+/* ─── Skeleton Shimmer Animasyonu ─── */
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.03) 25%,
+    rgba(255, 255, 255, 0.08) 37%,
+    rgba(255, 255, 255, 0.03) 63%
+  );
+  background-size: 400% 100%;
+  animation: shimmer-pulse 1.4s ease infinite;
+}
+
+@keyframes shimmer-pulse {
+  0% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0 50%;
+  }
+}
+
+.skeleton-text {
+  height: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 4px;
+  width: 100%;
+}
+
+.skeleton-title {
+  height: 20px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+  width: 60%;
+}
+
+.skeleton-card {
+  background: rgba(30, 20, 45, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 20px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ─── Premium Drag-and-Drop Spacing and Floating Bar ─── */
+.block-shell {
+  transition: transform 0.2s ease, padding 0.2s ease, border-color 0.2s ease;
+}
+
+.block-shell.drag-hover-top {
+  padding-top: 54px !important;
+}
+
+.block-shell.drag-hover-top::before {
+  content: 'Buraya Bırakın';
+  position: absolute;
+  top: 8px;
+  left: 0;
+  right: 0;
+  height: 38px;
+  border: 2px dashed rgba(255, 120, 0, 0.4);
+  border-radius: 16px;
+  background: rgba(255, 120, 0, 0.05);
+  color: rgba(255, 120, 0, 0.9);
+  font-size: 11px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  box-shadow: 0 0 10px rgba(255, 120, 0, 0.05);
+}
+
+.block-shell.drag-hover-bottom {
+  padding-bottom: 54px !important;
+}
+
+.block-shell.drag-hover-bottom::before {
+  content: 'Buraya Bırakın';
+  position: absolute;
+  bottom: 8px;
+  left: 0;
+  right: 0;
+  height: 38px;
+  border: 2px dashed rgba(255, 120, 0, 0.4);
+  border-radius: 16px;
+  background: rgba(255, 120, 0, 0.05);
+  color: rgba(255, 120, 0, 0.9);
+  font-size: 11px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  box-shadow: 0 0 10px rgba(255, 120, 0, 0.05);
+}
+
+.block-shell.is-dragging {
+  opacity: 0.3 !important;
+}
+
+.reorder-floating-bar {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 24px;
+  background: rgba(22, 17, 39, 0.9);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 120, 0, 0.3);
+  border-radius: 20px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 20px rgba(255, 120, 0, 0.1);
+  animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.floating-bar-content {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+@keyframes slideUp {
+  from {
+    transform: translate(-50%, 20px);
+    opacity: 0;
+  }
+  to {
+    transform: translate(-50%, 0);
+    opacity: 1;
+  }
+}
+

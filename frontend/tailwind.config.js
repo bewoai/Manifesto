@@ -9,63 +9,75 @@ export default {
   theme: {
     extend: {
       colors: {
-        // ─── Şafak Öncesi Kapadokya teması (twilight sky + balon vurguları) ───
-        // Token isimleri korunur (Material 3), değerler şafak paletine remap edilir.
-        'background': '#181225',
-        'surface': '#181225',
-        'surface-dim': '#120d1d',
-        'surface-bright': '#473869',
-        'surface-container-lowest': '#1f1730',
-        'surface-container-low': '#241b38',
-        'surface-container': '#2a2040',
-        'surface-container-high': '#332748',
-        'surface-container-highest': '#3d2f54',
-        'surface-variant': '#3a2e52',
-        'surface-tint': '#ff9f5a',
-        'on-surface': '#f4ecde',
-        'on-background': '#f4ecde',
-        'on-surface-variant': '#c2b2d6',
-        'inverse-surface': '#ece6df',
-        'inverse-on-surface': '#2a2040',
-        'outline': '#8e7ca8',
-        'outline-variant': '#4a3d63',
+        // ─── İrtifa Lacivert & Gök Mavisi Teması ───
+        'background': '#020617', // Slate 950 (Koyu Lacivert)
+        'surface': '#0f172a',    // Slate 900 (Lacivert)
+        'surface-dim': '#020617',
+        'surface-bright': '#1e293b',
+        'surface-container-lowest': '#020617',
+        'surface-container-low': '#0b1120',
+        'surface-container': '#0f172a',
+        'surface-container-high': '#1e293b',
+        'surface-container-highest': '#334155',
+        'surface-variant': '#1e293b',
+        'surface-tint': '#38bdf8',
+        'on-surface': '#ffffff', // Beyaz
+        'on-background': '#ffffff', // Beyaz
+        'on-surface-variant': '#94a3b8',
+        'inverse-surface': '#f8fafc',
+        'inverse-on-surface': '#0f172a',
+        'outline': '#475569',
+        'outline-variant': '#334155',
 
-        // Primary — gün doğumu kehribar/mercan (balon parıltısı)
-        'primary': '#ff9f5a',
-        'primary-fixed': '#ffd9bd',
-        'primary-fixed-dim': '#ffbd8e',
-        'on-primary': '#43210a',
-        'primary-container': '#e8843a',
-        'on-primary-container': '#3a1606',
-        'on-primary-fixed': '#331403',
-        'on-primary-fixed-variant': '#7a3a14',
-        'inverse-primary': '#9a4600',
+        // Primary — Gök Mavisi (Sky Blue)
+        'primary': '#38bdf8',
+        'primary-fixed': '#bae6fd',
+        'primary-fixed-dim': '#7dd3fc',
+        'on-primary': '#0369a1',
+        'primary-container': '#0284c7',
+        'on-primary-container': '#f0f9ff',
+        'on-primary-fixed': '#0c4a6e',
+        'on-primary-fixed-variant': '#0284c7',
+        'inverse-primary': '#0284c7',
 
-        // Secondary — balon turkuazı / gökyüzü
-        'secondary': '#6fe0d0',
-        'secondary-fixed': '#9ff0e4',
-        'secondary-fixed-dim': '#5cd6c4',
-        'on-secondary': '#063830',
-        'secondary-container': '#2e8e84',
-        'on-secondary-container': '#c9f6ef',
-        'on-secondary-fixed': '#022b24',
-        'on-secondary-fixed-variant': '#0c5b50',
+        // Secondary — Lacivert / Mavi
+        'secondary': '#818cf8',
+        'secondary-fixed': '#c7d2fe',
+        'secondary-fixed-dim': '#a5b4fc',
+        'on-secondary': '#3730a3',
+        'secondary-container': '#4f46e5',
+        'on-secondary-container': '#e0e7ff',
+        'on-secondary-fixed': '#312e81',
+        'on-secondary-fixed-variant': '#4338ca',
 
-        // Tertiary — gök mavisi
-        'tertiary': '#9dc0ff',
-        'tertiary-fixed': '#d6e4ff',
-        'tertiary-fixed-dim': '#b3cdff',
-        'on-tertiary': '#0c2a52',
-        'tertiary-container': '#3e5c8a',
-        'on-tertiary-container': '#d6e4ff',
-        'on-tertiary-fixed': '#04173a',
-        'on-tertiary-fixed-variant': '#274a78',
+        // Tertiary — Açık Beyaz/Gri Mavi
+        'tertiary': '#cbd5e1',
+        'tertiary-fixed': '#f1f5f9',
+        'tertiary-fixed-dim': '#e2e8f0',
+        'on-tertiary': '#334155',
+        'tertiary-container': '#475569',
+        'on-tertiary-container': '#f8fafc',
+        'on-tertiary-fixed': '#0f172a',
+        'on-tertiary-fixed-variant': '#1e293b',
 
         // Error — kırmızı korunur
-        'error': '#ffb4ab',
-        'on-error': '#5a0f0c',
-        'error-container': '#8c2f2a',
-        'on-error-container': '#ffdad6',
+        'error': '#f87171',
+        'on-error': '#450a0a',
+        'error-container': '#991b1b',
+        'on-error-container': '#fef2f2',
+
+        // ─── Durum renkleri (kontrol kartları yeşil/sarı, rozetler, uyarılar) ───
+        // Sayfalarda text-success / bg-warning/10 / border-danger/20 / text-info olarak
+        // kullanılıyor; token tanımlı değilken derlenmiş CSS'te bu sınıflar yoktu.
+        'success': '#4ade80',
+        'on-success': '#052e16',
+        'warning': '#fbbf24',
+        'on-warning': '#451a03',
+        'danger': '#f87171',
+        'on-danger': '#450a0a',
+        'info': '#38bdf8',
+        'on-info': '#082f49',
+        'surface-light': '#1e293b', // Slate 800 — kart içi açık yüzey
 
         // ─── Balon vurgu paleti (illüstrasyon + 3D ikon + grafik) ───
         'balloon-red': '#ff6b6b',

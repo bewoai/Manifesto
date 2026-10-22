@@ -57,7 +57,10 @@ def validate_mrz(
         outcome.add(Flag.UNREADABLE)
         return outcome
 
-    if not result.checks_ok:
+    if not result.checks:
+        # Check digit kodda hiç doğrulanmadı (serbest metin / yalnız sunucu alanları)
+        outcome.add(Flag.FREE_TEXT_UNVERIFIED)
+    elif not result.checks_ok:
         outcome.add(Flag.CHECKSUM_FAIL)
 
     if result.expiry_date is not None and result.expiry_date < today:

@@ -9,6 +9,7 @@ Dönüşümler:
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -107,34 +108,36 @@ def build_planning_rows_from_sqlite(flight_id: int, balloon: str, conn: sqlite3.
     return rows
 
 
+# Balon kodu: harf/rakam ile başlar, yalnız A-Z 0-9 _ - ; en çok 16 karakter.
+_BALLOON_CODE_RE = re.compile(r"[A-Z0-9][A-Z0-9_-]{0,15}")
+
+
+def normalize_balloon_code(code: str) -> str:
+    """Kullanıcı girdisinden balon kodu (trim + upper). Geçersizse ValueError.
+
+    API'den gelen `balloon` doğrudan dosya adına girdiği için ("<BALON>.xlsx")
+    `../../x` gibi değerler çıktı klasörünün dışına yazdırabilirdi.
+    """
+    normalized = str(code or "").strip().upper()
+    if not _BALLOON_CODE_RE.fullmatch(normalized):
+        raise ValueError(f"Geçersiz balon kodu: {str(code)!r}. Örnek: BZR, BYF-2")
+    return normalized
+
+
+def _safe_filename_part(code: str) -> str:
+    """Dosya adı için güvenli parça: izin verilmeyen her karakter '_' olur."""
+    safe = "".join(ch if ch.isalnum() or ch in "_-" else "_" for ch in code)
+    return safe or "BALON"
+
+
 def build_rows(planning_xlsx: Path, sheet: str, balloon: str) -> list[ManifestRow]:
-    """Planlamadan tek balonun manifesto satırlarını üretir (yazmadan)."""
+    """Planlamadan tek balonun manifesto satırlarını üretir (yazmadan).
+
+    Kaynak her zaman planlama Excel'idir (hibrit karar, CLAUDE.md §15). SQLite aynası
+    okunmaz: dışarıdan düzenlenmiş Excel'in eski DB kopyasıyla manifestoya girmesi engellenir.
+    """
     balloon = balloon.upper().strip()
-    
-    from app.db import connect
-    from app.manifest.importer import sheet_name_to_iso
-    import sqlite3
-    
-    iso_date = sheet_name_to_iso(sheet)
-    rows = None
-    loaded_from_db = False
-    
-    if iso_date:
-        try:
-            conn = connect()
-            flight = conn.execute("SELECT id FROM flights WHERE flight_date = ?", (iso_date,)).fetchone()
-            if flight:
-                res_count = conn.execute("SELECT COUNT(*) FROM reservations WHERE flight_id = ?", (flight["id"],)).fetchone()[0]
-                if res_count > 0:
-                    rows = build_planning_rows_from_sqlite(flight["id"], balloon, conn)
-                    loaded_from_db = True
-            conn.close()
-        except Exception as e:
-            print(f"Warning: Failed to load manifest rows from SQLite: {e}")
-            
-    if not loaded_from_db:
-        rows = [r for r in read_rows(planning_xlsx, sheet) if r.balloon == balloon]
-        
+    rows = [r for r in read_rows(planning_xlsx, sheet) if r.balloon == balloon]
     return [_transform(r) for r in rows]
 
 
@@ -168,5 +171,9 @@ def export(planning_xlsx: Path, sheet: str, balloon: str, out_dir: Path,
            template_path: Optional[Path] = None) -> Path:
     """Uçtan uca: filtrele -> dönüştür -> `<BALLOON>.xlsx` yaz. Çıktı yolunu döndürür."""
     rows = build_rows(planning_xlsx, sheet, balloon)
-    out_path = Path(out_dir) / f"{balloon.upper().strip()}.xlsx"
+    out_dir = Path(out_dir)
+    out_path = out_dir / f"{_safe_filename_part(balloon.upper().strip())}.xlsx"
+    # Savunma hattı: çıktı her zaman out_dir'in doğrudan içinde kalmalı.
+    if out_path.resolve().parent != out_dir.resolve():
+        raise ValueError("Manifesto çıktı yolu çıktı klasörünün dışına çıkıyor.")
     return write_manifest(rows, out_path, template_path)

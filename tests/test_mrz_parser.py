@@ -71,3 +71,11 @@ def test_real_passport_number_carried_verbatim():
     # alfanümerik belge no harf içerebilir (planlama/manifesto aynen taşır)
     r = parse_td3(TD3_L1, TD3_L2)
     assert any(c.isalpha() for c in r.document_number)
+
+
+def test_empty_checks_are_never_ok():
+    """Boş checks = doğrulanmamış; yeşil sayılmaz (brief §6)."""
+    from app.mrz.parser import MRZResult
+    r = MRZResult("SERVER_OCR", "P", "UTO", "UTO", "L898902C3", "F", "ERIKSSON", "ANNA",
+                  None, None, checks={}, raw_lines=[])
+    assert not r.checks_ok

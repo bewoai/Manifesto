@@ -39,3 +39,6 @@ ocr_debug.txt
 /tmp/
 /pytest_temp/
 /setup_build/
+
+# Codex review çalışma zamanı (cihaz kimliği + yerel db)
+/.review-runtime/

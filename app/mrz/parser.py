@@ -40,7 +40,11 @@ class MRZResult:
 
     @property
     def checks_ok(self) -> bool:
-        return all(self.checks.values())
+        """En az bir check digit kodda doğrulandıysa ve hepsi geçtiyse True.
+
+        Boş `checks` = hiç doğrulanmamış demektir; asla yeşil sayılmaz (brief §6).
+        """
+        return bool(self.checks) and all(self.checks.values())
 
 
 def _clean(line: str) -> str:

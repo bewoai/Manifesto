@@ -24,6 +24,24 @@ def save_image(image_bytes: bytes, filename: str) -> Path:
     return target
 
 
+def delete_image(path_value: str | None) -> bool:
+    """Staged pasaport görselini siler (KVKK, brief §10). Yalnız ROOT altındaki dosyalar."""
+    if not path_value:
+        return False
+    try:
+        path = Path(path_value).resolve()
+        root = ROOT.resolve()
+    except OSError:
+        return False
+    if root not in path.parents:
+        return False
+    try:
+        path.unlink()
+    except OSError:
+        return False
+    return True
+
+
 def cleanup_day(day: str | None = None) -> dict:
     target = ROOT / (day or date.today().isoformat())
     removed_files = 0

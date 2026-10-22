@@ -17,6 +17,13 @@ from app.version import APP_VERSION
 
 UPDATE_DIR = Path(os.getenv("LOCALAPPDATA") or Path.home()) / "Irtifa" / "updates"
 
+# Sürüm imzalama açık anahtarı (Ed25519, base64). KODA GÖMÜLÜDÜR ve ayarlardan
+# değiştirilemez: aksi hâlde ayarlara yazabilen biri kendi anahtarıyla imzaladığı
+# bir exe'yi "güncelleme" olarak kurdurabilirdi. Yayın anahtar çifti üretildiğinde
+# açık anahtar buraya yazılır ve uygulama yeniden derlenir. Boşken otomatik
+# güncelleme kapalıdır (stage() reddeder).
+UPDATE_PUBLIC_KEY_B64 = ""
+
 
 def _version_tuple(value: str) -> tuple[int, ...]:
     try:
@@ -41,12 +48,20 @@ def check(manifest_url: str) -> dict:
     }
 
 
-def stage(manifest: dict, public_key_b64: str) -> Path:
+def signing_configured() -> bool:
+    return bool(UPDATE_PUBLIC_KEY_B64)
+
+
+def stage(manifest: dict) -> Path:
+    """Manifesti indirir, SHA-256 + gömülü açık anahtarla Ed25519 imzasını doğrular."""
     required = ("version", "url", "sha256", "signature")
     if any(not manifest.get(key) for key in required):
         raise ValueError("Güncelleme manifesti eksik.")
+    public_key_b64 = UPDATE_PUBLIC_KEY_B64
     if not public_key_b64:
-        raise ValueError("Güncelleme imza anahtarı ayarlanmamış.")
+        raise ValueError(
+            "Bu sürümde güncelleme imza anahtarı tanımlı değil; otomatik güncelleme kapalı."
+        )
     UPDATE_DIR.mkdir(parents=True, exist_ok=True)
     target = UPDATE_DIR / "Irtifa.new.exe"
     with urllib.request.urlopen(manifest["url"], timeout=60) as response:

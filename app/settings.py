@@ -97,7 +97,7 @@ class Settings:
     weather_poll_minutes: int = 30
     google_sheets_experimental: bool = False
     update_manifest_url: str = ""
-    update_public_key: str = ""
+    # update_public_key kaldırıldı: imza anahtarı app/updater.py içinde gömülü (G2).
 
     # --- türetilmiş yollar ---
     def planning_path(self) -> Path:

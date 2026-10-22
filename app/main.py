@@ -52,13 +52,14 @@ from app.manifest.planning import (
     write_identity as planning_write_identity,
     write_operation_details as planning_write_operation_details,
 )
-from app.manifest.writer import ManifestRow, build_rows, export, write_manifest
+from app.manifest.writer import ManifestRow, build_rows, export, normalize_balloon_code, write_manifest
 from app.vision.extractor import PassportRecord, process_image
 from app.validation.flags import Flag, ValidationOutcome
 from app.passport_store import (
     ROOT as PASSPORT_IMAGE_ROOT,
     cleanup_day as cleanup_passport_day,
     cleanup_stale,
+    delete_image as delete_passport_image,
     save_image,
 )
 from app.readiness import check_blocks, check_workbook
@@ -74,14 +75,26 @@ from app import updater as updater_mod
 
 app = FastAPI(title="İrtifa Uçuş Sistemi", version=APP_VERSION)
 
-# --- CORS: geliştirme ortamında tüm origin'lere izin ---
+# --- CORS: yalnız yerel origin'ler ---
+# Uygulama 127.0.0.1'de (rastgele port) çalışır; pywebview aynı origin'den, Vite dev
+# proxy üzerinden ister. Başka bir web sayfasının tarayıcı aracılığıyla yerel API'yi
+# (pasaport görselleri, planlama) okumasına izin verilmez.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[],
+    allow_origin_regex=r"^https?://(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def _balloon_param(balloon: str) -> str:
+    """Query'den gelen balon kodunu doğrular; geçersizse 422."""
+    try:
+        return normalize_balloon_code(balloon)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
 
 
 @app.middleware("http")
@@ -418,6 +431,13 @@ def update_settings(body: dict, request: Request) -> dict:
                 continue
             if key == "google_credentials_json" and body[key] == "Korumalı depoda kayıtlı":
                 continue
+            if key == "operation_options" and isinstance(body[key], dict):
+                # Ayarlar/onboarding yalnız acente+şoför gönderir; Listeler'deki
+                # otel/pilot/geleceği yer gibi diğer kategoriler korunmalı.
+                merged = dict(current_dict.get("operation_options") or {})
+                merged.update({k: v for k, v in body[key].items() if isinstance(v, list)})
+                current_dict[key] = merged
+                continue
             current_dict[key] = body[key]
 
     try:
@@ -428,6 +448,25 @@ def update_settings(body: dict, request: Request) -> dict:
         }).normalized()
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Ayar doğrulama hatası: {e}")
+
+    if "irtifa_license_key" in body and body["irtifa_license_key"] and "*" not in body["irtifa_license_key"]:
+        import requests
+        test_url = updated.irtifa_server_url
+        test_key = updated.irtifa_license_key
+        test_device = updated.irtifa_device_id
+        if test_key and test_url:
+            endpoint = test_url.rstrip("/") + "/ocr/passport"
+            headers = {
+                "x-license-key": str(test_key),
+                "x-device-id": str(test_device),
+            }
+            files = {"file": ("test.jpg", b"1", "image/jpeg")}
+            try:
+                resp = requests.post(endpoint, headers=headers, files=files, timeout=15)
+                if resp.status_code in (401, 403):
+                    raise HTTPException(status_code=400, detail="Lisans anahtarı geçersiz veya hatalı.")
+            except requests.RequestException:
+                pass
 
     # Kaydet
     settings_mod.save(updated)
@@ -764,39 +803,26 @@ def api_planning_load(sheet: str = Query(..., description="Gün sayfa adı")) ->
     s = _load_settings()
     xlsx_path = _resolve_planning_path(s)
     
-    from app.manifest.importer import sheet_name_to_iso, load_blocks_from_sqlite
+    from app.manifest.importer import sheet_name_to_iso
     iso_date = sheet_name_to_iso(sheet)
-    blocks = None
-    loaded_from_db = False
-    
+
+    # Kaynak her zaman Excel (hibrit karar, CLAUDE.md §15). SQLite yalnızca aynadır;
+    # dışarıdan düzenlenen Excel'in eski DB kopyasıyla gölgelenmemesi için DB'den okunmaz.
+    try:
+        blocks = read_blocks(xlsx_path, sheet)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Sayfa yüklenemedi: {e}")
+
     if iso_date:
-        try:
-            conn = connect()
-            flight = conn.execute("SELECT id FROM flights WHERE flight_date = ?", (iso_date,)).fetchone()
-            if flight:
-                res_count = conn.execute("SELECT COUNT(*) FROM reservations WHERE flight_id = ?", (flight["id"],)).fetchone()[0]
-                if res_count > 0:
-                    blocks = load_blocks_from_sqlite(flight["id"], conn)
-                    loaded_from_db = True
-            conn.close()
-        except Exception as e:
-            print(f"Warning: Failed to load from SQLite: {e}")
-            
-    if not loaded_from_db:
-        try:
-            blocks = read_blocks(xlsx_path, sheet)
-            if iso_date:
-                def run_bg():
-                    try:
-                        from app.manifest.importer import import_excel_to_sqlite
-                        import_excel_to_sqlite(sheet_name=sheet)
-                    except Exception as e:
-                        print(f"Background import failed for {sheet}: {e}")
-                threading.Thread(target=run_bg, daemon=True).start()
-        except KeyError as e:
-            raise HTTPException(status_code=404, detail=str(e))
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Sayfa yüklenemedi: {e}")
+        def run_bg():
+            try:
+                from app.manifest.importer import import_excel_to_sqlite
+                import_excel_to_sqlite(sheet_name=sheet)
+            except Exception as e:
+                print(f"Background import failed for {sheet}: {e}")
+        threading.Thread(target=run_bg, daemon=True).start()
 
     try:
         revision = workbook_revision(xlsx_path)
@@ -1013,6 +1039,8 @@ def api_planning_reorder_block(body: dict, request: Request) -> dict:
         )
     except (WorkbookConflictError, WorkbookLockedError) as e:
         raise _atomic_error(e)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Sıralama hatası: {e}")
     
@@ -1351,23 +1379,45 @@ def _validate_passport_upload(image_bytes: bytes, content_type: str) -> None:
         raise ValueError("Görsel en fazla 10 MB olabilir.")
 
 
-def _mark_extractions_approved(identities: list[dict], sheet: str, rows: list[int]) -> None:
+def _mark_extractions_approved(identities: list[dict], sheet: str, rows: list[int]) -> int:
+    """Yazılan kimliklerin çıkarım kayıtlarını onaylı işaretler.
+
+    `delete_images_after_write` açıksa (varsayılan) ham pasaport görseli planlamaya
+    yazıldığı anda diskten silinir ve kayıttaki yol temizlenir (KVKK, brief §10).
+    Silinen görsel sayısını döndürür.
+    """
+    delete_images = bool(_load_settings().delete_images_after_write)
+    removed = 0
     conn = connect()
     try:
         for identity, row in zip(identities, rows):
             extraction_id = identity.get("extraction_id")
-            if extraction_id:
+            if not extraction_id:
+                continue
+            conn.execute(
+                """
+                UPDATE passport_extraction
+                SET status = 'approved', planning_date = ?, planning_row = ?
+                WHERE id = ?
+                """,
+                (sheet, row, extraction_id),
+            )
+            if not delete_images:
+                continue
+            rec = conn.execute(
+                "SELECT source_media_id FROM passport_extraction WHERE id = ?",
+                (extraction_id,),
+            ).fetchone()
+            if rec and rec["source_media_id"] and delete_passport_image(rec["source_media_id"]):
+                removed += 1
                 conn.execute(
-                    """
-                    UPDATE passport_extraction
-                    SET status = 'approved', planning_date = ?, planning_row = ?
-                    WHERE id = ?
-                    """,
-                    (sheet, row, extraction_id),
+                    "UPDATE passport_extraction SET source_media_id = NULL WHERE id = ?",
+                    (extraction_id,),
                 )
         conn.commit()
     finally:
         conn.close()
+    return removed
 
 
 @app.post("/api/planning/create-with-identities")
@@ -1879,7 +1929,8 @@ def api_passport_cleanup(request: Request, body: dict) -> dict:
     conn = connect()
     try:
         conn.execute(
-            "DELETE FROM passport_extraction WHERE date(created_at) = date(?)",
+            # created_at SQLite'ta UTC; seçilen gün yerel takvim günü → 'localtime' ile karşılaştır
+            "DELETE FROM passport_extraction WHERE date(created_at, 'localtime') = date(?)",
             (result["day"],),
         )
         conn.commit()
@@ -1931,6 +1982,7 @@ def api_manifest_preview(
     balloon: str = Query(..., description="Balon kodu, ör. BZR"),
 ) -> dict:
     """Balon için manifesto satırlarını JSON olarak önizle."""
+    balloon = _balloon_param(balloon)
     s = _load_settings()
     try:
         xlsx_path = _resolve_planning_path(s)
@@ -1956,6 +2008,7 @@ def api_manifest_export(
     override_reason: str = "",
 ) -> FileResponse:
     """Balon için manifesto xlsx dosyasını üret ve indir."""
+    balloon = _balloon_param(balloon)
     s = _load_settings()
     out_dir = s.output_path()
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -2202,7 +2255,7 @@ def api_update_download(request: Request, body: dict) -> dict:
     if not status.get("available"):
         raise HTTPException(status_code=409, detail="Yeni sürüm bulunamadı.")
     try:
-        path = updater_mod.stage(status["manifest"], s.update_public_key)
+        path = updater_mod.stage(status["manifest"])
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Güncelleme doğrulanamadı: {exc}")
     audit_mod.record(
@@ -2308,6 +2361,7 @@ def manifest_preview(
     balloon: str = Query(..., description="Balon kodu, ör. BZR"),
 ) -> dict:
     """Eski endpoint — geriye dönük uyumluluk için korunuyor."""
+    balloon = _balloon_param(balloon)
     try:
         rows = build_rows(config.PLANNING_XLSX, date, balloon)
     except KeyError as e:
@@ -2326,6 +2380,7 @@ def manifest_export(
     balloon: str = Query(..., description="Balon kodu, ör. BZR"),
 ) -> FileResponse:
     """Eski endpoint — geriye dönük uyumluluk için korunuyor."""
+    balloon = _balloon_param(balloon)
     out_dir = Path(tempfile.mkdtemp())
     try:
         path = export(config.PLANNING_XLSX, date, balloon, out_dir)

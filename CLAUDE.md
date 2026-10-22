@@ -257,3 +257,21 @@ Hatalı-eksik), acente bazlı eksik görünümü, kapasite (Sayfa2) entegrasyonu
 - Kontrol ekranı (yeşil/sarı onay) — `frontend/`.
 - Kaptan otomatik atama + 16 kişi araç kapasite zorlaması; blok rebalance.
 - Faz 2: pasaport→rezervasyon eşleştirme + WhatsApp ingest.
+
+### Karar günlüğü (2026-10-22) — doğrulama ve veri kaynağı
+- **Sunucu OCR sonucu kodda doğrulanır (brief §6 zorunlu):** `irtifa_client._verify_against_local_mrz`
+  sunucunun `raw_text`inden MRZ satırlarını çıkarıp `app/mrz` ile check digit doğrular; ayrıca
+  `server_document_match` (sunucu belge no == MRZ belge no). MRZ bulunamazsa `checks` boş kalır.
+- **Boş `checks` asla yeşil değil:** `MRZResult.checks_ok` boş sözlükte False; `validate_mrz` boş
+  `checks` için `FREE_TEXT_UNVERIFIED` (sarı), dolu-ama-hatalı için `CHECKSUM_FAIL` verir.
+- **Okuma yolunda tek kaynak Excel:** `/api/planning/load` ve `manifest.writer.build_rows` artık
+  SQLite aynasını tercih etmez; her zaman planlama xlsx okunur. SQLite yalnız arka planda
+  güncellenen ayna + pasaport çıkarımı/audit. (Dışarıdan düzenlenen Excel eski DB kopyasıyla
+  gölgeleniyordu.) `load_blocks_from_sqlite` / `build_planning_rows_from_sqlite` kullanılmıyor.
+- Not: "Sıradaki" listesindeki Vision çağrısı ve kontrol ekranı aslında yapılmıştı; güncel durum
+  için git log ve `tests/` esas alınmalı.
+- **Planlama veri bütünlüğü:** `create_reservation` artık `next_free_rows(ws, pax)` ile PAX kadar
+  ardışık boş satır arar (tek satırlık boşluk 3 kişilik bloğa verilmez; sonraki bloğun üzerine
+  yazma bitti). `reorder_reservation` hedefi `_is_block_boundary` ile doğrular (blok ortası → 422)
+  ve `insert_rows`/`delete_rows` çevresinde birleşik hücreleri `_detach_merges`/`_reattach_merges`
+  ile kaydırır (openpyxl birleşmeleri taşımaz; diğer blokların PAX/otel birleşmeleri kayıyordu).

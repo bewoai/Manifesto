@@ -4,14 +4,25 @@
 import { api, toast, renderHeader } from '/app.js';
 
 let currentSettings = {};
+let renderToken = 0;
 
 export async function render(container) {
+  const currentToken = ++renderToken;
   renderHeader('Ayarlar', 'Sistem yapılandırması ve tercihler');
 
   container.innerHTML = `
     <div class="max-w-3xl pb-12">
+      <!-- Sekmeler (Tabs) -->
+      <div class="flex gap-6 border-b border-white/10 mb-6 overflow-x-auto whitespace-nowrap custom-scrollbar pb-2">
+        <button class="settings-tab px-1 py-2 font-semibold text-primary border-b-2 border-primary transition-colors" data-tab="panel-ocr" onclick="window.__switchSettingsTab('panel-ocr')">OCR / Lisans</button>
+        <button class="settings-tab px-1 py-2 font-semibold text-on-surface-variant border-b-2 border-transparent hover:text-on-surface transition-colors" data-tab="panel-operasyon" onclick="window.__switchSettingsTab('panel-operasyon')">Operasyon / Firma</button>
+        <button class="settings-tab px-1 py-2 font-semibold text-on-surface-variant border-b-2 border-transparent hover:text-on-surface transition-colors" data-tab="panel-excel" onclick="window.__switchSettingsTab('panel-excel')">Excel / Çıktılar</button>
+        <button class="settings-tab px-1 py-2 font-semibold text-on-surface-variant border-b-2 border-transparent hover:text-on-surface transition-colors" data-tab="panel-hava" onclick="window.__switchSettingsTab('panel-hava')">Hava Durumu</button>
+        <button class="settings-tab px-1 py-2 font-semibold text-on-surface-variant border-b-2 border-transparent hover:text-on-surface transition-colors" data-tab="panel-gelismis" onclick="window.__switchSettingsTab('panel-gelismis')">Gelişmiş / KVKK</button>
+      </div>
+
       <!-- Irtifa OCR Servisi -->
-      <div class="glass-panel rounded-3xl p-6 mb-6 animate-in">
+      <div id="panel-ocr" class="glass-panel rounded-3xl p-6 mb-6 animate-in">
         <div class="flex items-center gap-3 mb-6">
           <span class="material-symbols-outlined text-primary text-3xl">document_scanner</span>
           <h2 class="font-headline text-headline-sm text-on-surface">İrtifa OCR Servisi</h2>
@@ -38,13 +49,14 @@ export async function render(container) {
           <div class="form-group flex items-end">
             <button class="btn-secondary" onclick="window.__testConnection('irtifa_server')">
               <span class="material-symbols-outlined text-base">verified</span>
-              Bağlantıyı Test Et ve Kaydet
+              Bağlantıyı Test Et
             </button>
           </div>
         </div>
       </div>
+
       <!-- Firma ve Operasyon Ayarları -->
-      <div class="glass-panel rounded-3xl p-6 mb-6 animate-in" style="animation-delay: 25ms">
+      <div id="panel-operasyon" style="display:none" class="glass-panel rounded-3xl p-6 mb-6 animate-in">
         <div class="flex items-center gap-3 mb-6">
           <span class="material-symbols-outlined text-primary text-3xl">storefront</span>
           <h2 class="font-headline text-headline-sm text-on-surface">Firma ve Operasyon Ayarları</h2>
@@ -65,10 +77,25 @@ export async function render(container) {
             <div class="form-help">Virgülle ayırın.</div>
           </div>
         </div>
+        
+        <div class="flex items-center gap-3 mt-6 mb-4">
+          <span class="material-symbols-outlined text-primary text-3xl">air</span>
+          <h2 class="font-headline text-headline-sm text-on-surface">Balon Ayarları</h2>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Balon kapasitesi (kişi)</label>
+          <input class="form-input" id="s-balloon-capacity" type="number" min="1" max="28" placeholder="28" />
+          <div class="form-help">Her balona en fazla kaç kişi binebilir. Otomatik atama bu sınırı kullanır.</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Balon kodları</label>
+          <input class="form-input" id="s-balloon-codes" placeholder="BYF, BTK, BYJ, BZR, BZV" />
+          <div class="form-help">Virgülle ayır. Yeni rezervasyon bu balonlara sırayla (first-fit) atanır.</div>
+        </div>
       </div>
 
-      <!-- Veri Kaynağı -->
-      <div class="glass-panel rounded-3xl p-6 mb-6 animate-in" style="animation-delay: 50ms">
+      <!-- Veri Kaynağı ve Çıktı (Excel) -->
+      <div id="panel-excel" style="display:none" class="glass-panel rounded-3xl p-6 mb-6 animate-in">
         <div class="flex items-center gap-3 mb-6">
           <span class="material-symbols-outlined text-primary text-3xl">database</span>
           <h2 class="font-headline text-headline-sm text-on-surface">Veri Kaynağı</h2>
@@ -92,29 +119,27 @@ export async function render(container) {
           <input class="form-input" id="s-gsheet-json" placeholder="JSON dosya yolu veya JSON içeriği" />
           <div class="form-help">Bilgi kaydedildiğinde Windows korumalı deposuna taşınır.</div>
         </div>
-        <button class="btn-secondary" onclick="window.__testConnection('planning')">Excel Bağlantısını Test Et</button>
-      </div>
-
-      <!-- Balon -->
-      <div class="glass-panel rounded-3xl p-6 mb-6 animate-in" style="animation-delay: 100ms">
+        <button class="btn-secondary mb-8" onclick="window.__testConnection('planning')">Excel Bağlantısını Test Et</button>
+        
         <div class="flex items-center gap-3 mb-6">
-          <span class="material-symbols-outlined text-primary text-3xl">air</span>
-          <h2 class="font-headline text-headline-sm text-on-surface">Balon Ayarları</h2>
+          <span class="material-symbols-outlined text-primary text-3xl">folder_open</span>
+          <h2 class="font-headline text-headline-sm text-on-surface">Çıktı Ayarları</h2>
         </div>
         <div class="form-group">
-          <label class="form-label">Balon kapasitesi (kişi)</label>
-          <input class="form-input" id="s-balloon-capacity" type="number" min="1" max="28" placeholder="28" />
-          <div class="form-help">Her balona en fazla kaç kişi binebilir. Otomatik atama bu sınırı kullanır.</div>
+          <label class="form-label">Manifesto şablonu</label>
+          <input class="form-input" id="s-template" placeholder="Boş = varsayılan şablon" />
         </div>
         <div class="form-group">
-          <label class="form-label">Balon kodları</label>
-          <input class="form-input" id="s-balloon-codes" placeholder="BYF, BTK, BYJ, BZR, BZV" />
-          <div class="form-help">Virgülle ayır. Yeni rezervasyon bu balonlara sırayla (first-fit) atanır.</div>
+          <label class="form-label">Manifesto çıktı klasörü</label>
+          <div class="flex gap-2">
+            <input class="form-input flex-1" id="s-output-dir" placeholder="Boş = Documents/Irtifa" />
+            <button class="btn-secondary whitespace-nowrap" onclick="window.__settingsImportDir()">Klasör Seç...</button>
+          </div>
         </div>
       </div>
 
       <!-- Hava Durumu -->
-      <div class="glass-panel rounded-3xl p-6 mb-6 animate-in" style="animation-delay: 150ms">
+      <div id="panel-hava" style="display:none" class="glass-panel rounded-3xl p-6 mb-6 animate-in">
         <div class="flex items-center gap-3 mb-6">
           <span class="material-symbols-outlined text-primary text-3xl">partly_cloudy_day</span>
           <h2 class="font-headline text-headline-sm text-on-surface">Hava Durumu API</h2>
@@ -160,49 +185,28 @@ export async function render(container) {
         </div>
       </div>
 
-      <!-- Çıktı -->
-      <div class="glass-panel rounded-3xl p-6 mb-6 animate-in" style="animation-delay: 200ms">
+      <!-- Gelişmiş ve KVKK -->
+      <div id="panel-gelismis" style="display:none" class="glass-panel rounded-3xl p-6 mb-6 animate-in">
         <div class="flex items-center gap-3 mb-6">
-          <span class="material-symbols-outlined text-primary text-3xl">folder_open</span>
-          <h2 class="font-headline text-headline-sm text-on-surface">Çıktı Ayarları</h2>
+          <span class="material-symbols-outlined text-primary text-3xl">shield_lock</span>
+          <h2 class="font-headline text-headline-sm text-on-surface">Gizlilik (KVKK)</h2>
         </div>
-        <div class="form-group">
-          <label class="form-label">Manifesto şablonu</label>
-          <input class="form-input" id="s-template" placeholder="Boş = varsayılan şablon" />
-        </div>
-        <div class="form-group">
-          <label class="form-label">Manifesto çıktı klasörü</label>
-          <div class="flex gap-2">
-            <input class="form-input flex-1" id="s-output-dir" placeholder="Boş = Documents/Irtifa" />
-            <button class="btn-secondary whitespace-nowrap" onclick="window.__settingsImportDir()">Klasör Seç...</button>
-          </div>
-        </div>
-      </div>
+        <label class="flex items-center gap-3 cursor-pointer mb-8">
+          <input type="checkbox" id="s-delete-images" class="w-5 h-5 rounded border-on-surface-variant/30 bg-surface/50 text-primary focus:ring-primary focus:ring-offset-surface" />
+          <span class="text-on-surface">Yazımdan sonra pasaport fotoğraflarını silmeyi sor</span>
+        </label>
+        <div class="form-help -mt-6 mb-8">Ham pasaport fotoğraflarının gereksiz saklanmaması için planlamaya yazma işleminden sonra silmeyi sorar.</div>
 
-      <div class="glass-panel rounded-3xl p-6 mb-6 animate-in">
         <div class="flex items-center gap-3 mb-6">
           <span class="material-symbols-outlined text-primary text-3xl">system_update</span>
           <h2 class="font-headline text-headline-sm text-on-surface">Otomatik Güncelleme</h2>
         </div>
         <div class="form-group"><label class="form-label">Sürüm manifesti URL</label><input class="form-input" id="s-update-url" placeholder="https://.../update.json" /></div>
-        <div class="form-group"><label class="form-label">Ed25519 açık anahtar</label><input class="form-input font-mono" id="s-update-key" placeholder="Base64 açık anahtar" /></div>
-      </div>
-
-      <!-- KVKK -->
-      <div class="glass-panel rounded-3xl p-6 mb-6 animate-in" style="animation-delay: 250ms">
-        <div class="flex items-center gap-3 mb-6">
-          <span class="material-symbols-outlined text-primary text-3xl">shield_lock</span>
-          <h2 class="font-headline text-headline-sm text-on-surface">Gizlilik (KVKK)</h2>
-        </div>
-        <label class="flex items-center gap-3 cursor-pointer">
-          <input type="checkbox" id="s-delete-images" class="w-5 h-5 rounded border-on-surface-variant/30 bg-surface/50 text-primary focus:ring-primary focus:ring-offset-surface" />
-          <span class="text-on-surface">Yazımdan sonra pasaport fotoğraflarını silmeyi sor</span>
-        </label>
-        <div class="form-help mt-2">Ham pasaport fotoğraflarının gereksiz saklanmaması için planlamaya yazma işleminden sonra silmeyi sorar.</div>
+        <p class="text-xs text-on-surface-variant">İmza doğrulama anahtarı uygulamaya gömülüdür; güvenlik gereği ayarlardan değiştirilemez.</p>
       </div>
 
       <!-- Save -->
-      <div class="flex gap-4 animate-in" style="animation-delay: 300ms">
+      <div class="flex gap-4 animate-in" style="animation-delay: 50ms">
         <button class="btn btn-primary" onclick="window.__saveSettings()">
           <span class="material-symbols-outlined text-xl">save</span>
           Ayarları Kaydet
@@ -215,17 +219,34 @@ export async function render(container) {
     </div>
   `;
 
-  loadSettings();
+  window.__switchSettingsTab = function(tabId) {
+    const tabs = ['panel-ocr', 'panel-operasyon', 'panel-excel', 'panel-hava', 'panel-gelismis'];
+    tabs.forEach(t => {
+      const el = document.getElementById(t);
+      if (el) el.style.display = (t === tabId) ? 'block' : 'none';
+    });
+    document.querySelectorAll('.settings-tab').forEach(el => {
+      if (el.dataset.tab === tabId) {
+        el.classList.add('border-primary', 'text-primary');
+        el.classList.remove('border-transparent', 'text-on-surface-variant');
+      } else {
+        el.classList.remove('border-primary', 'text-primary');
+        el.classList.add('border-transparent', 'text-on-surface-variant');
+      }
+    });
+  };
+
+  loadSettings(currentToken);
 }
 
-
-async function loadSettings() {
+async function loadSettings(token) {
   try {
     const s = await api.get('/api/settings');
+    if (token !== renderToken) return;
     currentSettings = s;
     fillForm(s);
   } catch (err) {
-    toast.error('Ayarlar yüklenemedi', err.message);
+    if (token === renderToken) toast.error('Ayarlar yüklenemedi', err.message);
   }
 }
 
@@ -248,7 +269,6 @@ function fillForm(s) {
   }
 
   val('s-update-url', s.update_manifest_url);
-  val('s-update-key', s.update_public_key);
   val('s-template', s.manifest_template);
   val('s-output-dir', s.output_dir);
   val('s-balloon-capacity', s.balloon_capacity);
@@ -310,7 +330,6 @@ window.__saveSettings = async function() {
       driver: gv('s-drivers').split(',').map(s => s.trim()).filter(Boolean)
     },
     update_manifest_url: gv('s-update-url'),
-    update_public_key: gv('s-update-key'),
     manifest_template: gv('s-template'),
     output_dir: gv('s-output-dir'),
     delete_images_after_write: gc('s-delete-images'),
@@ -342,13 +361,9 @@ window.__saveSettings = async function() {
     currentSettings = saved;
     toast.success('Ayarlar kaydedildi', 'Tüm değişiklikler uygulandı');
     
-    const { appStatus } = await import('/app.js');
     const status = await api.get('/api/app/status');
-    if (status.licensed !== appStatus.licensed) {
-      setTimeout(() => {
-        if (window.__allowReload) window.__allowReload();
-        window.location.reload();
-      }, 1000);
+    if (window.__updateAppStatus) {
+      window.__updateAppStatus(status);
     }
   } catch (err) {
     toast.error('Kaydetme hatası', err.message);
@@ -356,7 +371,7 @@ window.__saveSettings = async function() {
 };
 
 window.__reloadSettings = function() {
-  loadSettings();
+  loadSettings(renderToken);
   toast.info('Yenilendi', 'Ayarlar sunucudan tekrar yüklendi');
 };
 
@@ -370,7 +385,8 @@ window.__testConnection = async function(target) {
     const data = await api.post('/api/settings/test', payload);
     toast.success('Bağlantı başarılı', data.message);
     
-    // Test başarılıysa otomatik kaydet
+    // Otomatik kaydet
     await window.__saveSettings();
   } catch (err) { toast.error('Bağlantı testi başarısız', err.message); }
 };
+

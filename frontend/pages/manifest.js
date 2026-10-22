@@ -12,8 +12,10 @@ let state = {
   readiness: null,
   driverSummary: [],
 };
+let renderToken = 0;
 
 export async function render(container) {
+  const currentToken = ++renderToken;
   renderHeader('Manifesto', 'Balon bazlı manifesto önizleme ve Excel export');
 
   container.innerHTML = `
@@ -61,6 +63,9 @@ export async function render(container) {
 
     <div class="card mb-6">
       <div class="card-header"><div class="card-title"><span class="material-symbols-outlined">inventory_2</span> Gün Sonu İşlemleri</div></div>
+      <div class="text-sm text-on-surface-variant bg-surface/50 p-3 rounded-xl mb-4 border border-white/5">
+        <strong>Bilgi:</strong> "Tüm Çıktıları Hazırla" işlemi seçili gün için; balon manifestolarını, şoför/araç listelerini, kapasite özetlerini ve tüm bunların bulunduğu toplu ZIP arşivini üretir.
+      </div>
       <div class="flex flex-wrap gap-3">
         <button class="btn-primary" onclick="window.__allOutputs()"><span class="material-symbols-outlined">folder_zip</span> Tüm Çıktıları Hazırla</button>
         <button class="btn-secondary" onclick="window.__cleanupPassports()"><span class="material-symbols-outlined">shield_lock</span> Günlük Pasaport Verilerini Temizle</button>
@@ -82,20 +87,22 @@ export async function render(container) {
     <!-- Empty state -->
     <div class="glass-panel rounded-[40px] p-12 text-center animate-in flex flex-col items-center justify-center" id="empty-section">
       <span class="material-symbols-outlined text-6xl text-on-surface-variant/50 mb-4">description</span>
-      <h3 class="font-headline text-headline-sm text-on-surface mb-2">Manifesto önizlemek için gün ve balon seçin</h3>
-      <p class="text-on-surface-variant max-w-md">
-        Planlama listesinden seçilen güne ait yolcular, balon koduna göre filtrelenip
-        manifesto formatında gösterilir.
-      </p>
+      <h3 class="font-headline text-headline-sm text-on-surface mb-4">Manifesto Önizlemesi Hazır Değil</h3>
+      <div class="text-on-surface-variant max-w-lg space-y-4 text-sm text-left bg-surface/30 p-6 rounded-2xl border border-white/5">
+        <p><strong class="text-on-surface">Ne yok?</strong> Ekranda henüz görüntülenen bir manifesto listesi yok.</p>
+        <p><strong class="text-on-surface">Neden olabilir?</strong> Yukarıdaki filtrelerden henüz bir uçuş günü ve balon kodu seçilmediği için tablo oluşturulamadı veya Excel dosyanız eksik olabilir.</p>
+        <p><strong class="text-on-surface">Şimdi ne yapmalıyım?</strong> Yukarıdan "Uçuş Günü" ve "Balon Kodu" seçimi yapıp "Önizle" butonuna basarak manifestoyu yükleyebilirsiniz.</p>
+      </div>
     </div>
   `;
 
-  loadSheets();
+  loadSheets(currentToken);
 }
 
-async function loadSheets() {
+async function loadSheets(token) {
   try {
     const data = await api.get('/api/planning/sheets');
+    if (token !== renderToken) return;
     state.sheets = data.sheets || [];
     const sel = document.getElementById('mf-sheet');
     if (!sel) return;

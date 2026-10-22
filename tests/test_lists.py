@@ -67,3 +67,34 @@ def test_get_lists_shape(client):
 def test_scan_lists_endpoint_exists(client):
     r = client.post("/api/lists/scan", json={})
     assert r.status_code != 405
+
+
+def test_settings_put_merges_operation_options_instead_of_replacing(tmp_path, monkeypatch):
+    """Ayarlar sayfası yalnız agency+driver gönderir; Listeler'deki otel/pilot silinmemeli."""
+    import importlib
+    monkeypatch.setenv("IRTIFA_DB_PATH", str(tmp_path / "merge.db"))
+    monkeypatch.setenv("MANIFESTO_SETTINGS", str(tmp_path / "settings.json"))
+    import app.settings as settings_mod
+    importlib.reload(settings_mod)
+    import app.main as main_mod
+    importlib.reload(main_mod)
+
+    with TestClient(main_mod.app) as admin:
+        r = admin.post("/api/auth/setup", json={"username": "admin", "display_name": "Y", "password": "strong-pass"})
+        assert r.status_code == 200, r.text
+        admin.post("/api/lists/add", json={"category": "hotel", "value": "Zeytin Konak"})
+        admin.post("/api/lists/add", json={"category": "pilot", "value": "Ali Test"})
+        before = admin.get("/api/lists").json()["options"]
+        assert "Zeytin Konak" in before["hotel"] and "Ali Test" in before["pilot"]
+
+        r = admin.put("/api/settings", json={"operation_options": {"agency": ["ACME"], "driver": []}})
+        assert r.status_code == 200, r.text
+        opts = r.json()["operation_options"]
+        assert opts["hotel"] == before["hotel"]      # Listeler korunur
+        assert opts["pilot"] == before["pilot"]
+        assert opts["agency"] == ["ACME"]           # gönderilen kategori güncellenir
+        assert opts.get("driver", []) == []
+
+        # Listeler endpoint'i de aynı veriyi görmeli
+        lists = admin.get("/api/lists").json()["options"]
+        assert lists["hotel"] == before["hotel"]

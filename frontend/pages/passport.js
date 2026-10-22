@@ -4,6 +4,10 @@
    ═══════════════════════════════════════════════════════════════════ */
 import { api, toast, renderHeader, modal, helpIcon, appStatus, registerUnsavedCheck } from '/app.js';
 import { attachCombobox } from '/combobox.js';
+import {
+  annotationMatches, fold, isStaffAnnotation, normalizeAgencyKey,
+  KIND_LABELS, LIST_KINDS, MARK_RULE_OPTIONS,
+} from '/list_marks.js';
 
 let state = {
   files: [],
@@ -17,11 +21,16 @@ let state = {
   blocks: [],
   revision: '',
   objectUrls: [],
+  markRules: {},        // {acente (fold): kural id} — /api/lists/mark-rules
+  markRuleOptions: [],  // [{id, label}]
+  hotelChoice: '',      // farklı oteller varsa yazılacak otel (fold anahtarı)
+  autoSheet: '',        // grup tarihinden otomatik seçilen son gün sayfası
 };
 
 const MANUAL_REVIEW_QUEUE_KEY = 'irtifa_manual_review_queue';
 let writing = false;
 let overflowSubmitting = false;
+let pendingOverflowWritten = [];   // kapasite onayı bekleyen yazımın kart indeksleri
 
 // OCR, kaydı Manuel Kontrol kuyruğuna düşürdüyse (requires_manual_review) ve operatör
 // henüz orada onaylamadıysa kart pasiftir: aynı kayıt iki yerde onaylanamaz.
@@ -171,6 +180,7 @@ export async function render(container) {
           </button>
         </div>
       </div>
+      <div id="list-hotel-bar"></div>
       <div class="flex flex-col gap-4" id="cards-list"></div>
     </div>
   `;
@@ -312,6 +322,7 @@ async function loadContext() {
     state.agencies = lists.options?.agency || [];
     state.reservedBy = lists.options?.reserved_by || [];
   } catch (e) { /* öneri olmadan da çalışır */ }
+  ensureMarkRules();
   // Otel/Acente/Rezerve Yapan alanlarına combobox bağla
   const hotelEl = document.getElementById('pp-hotel');
   const agencyEl = document.getElementById('pp-agency');
@@ -425,7 +436,9 @@ function resetScan({ keepManualReviewed = false } = {}) {
 function hideCards() {
   const list = document.getElementById('cards-list');
   const section = document.getElementById('cards-section');
+  const hotelBar = document.getElementById('list-hotel-bar');
   if (list) list.innerHTML = '';
+  if (hotelBar) hotelBar.innerHTML = '';
   if (section) section.style.display = 'none';
 }
 
@@ -597,6 +610,7 @@ window.__processFiles = async function() {
     }
 
     state.records.push(...newRecords);
+    await ensureMarkRules();   // liste panelinde acentenin kayıtlı kuralı otomatik seçilsin
 
     fill.style.width = '100%';
     text.textContent = `${newRecords.length} pasaport işlendi`;
@@ -667,114 +681,720 @@ function renderCards() {
     pendingManual ? `<span class="text-on-surface-variant font-bold">${pendingManual} manuel kontrolde</span>` : '',
   ].filter(Boolean).join(` ${sep} `) + ` <span class="opacity-50">—</span> toplam ${total}`;
 
-  // PAX'ı veri içeren pasaport sayısına göre otomatik öner (kullanıcı değiştirmediyse);
-  // Manuel Kontrol'de bekleyenler bu rezervasyona yazılmayacağı için sayılmaz.
-  const writable = state.records.filter(r => !isPendingManual(r));
-  const dataCount = writable.filter(r => r.name || r.passport_no).length || writable.length;
-  const paxEl = document.getElementById('pp-pax');
-  if (paxEl && dataCount && (!paxEl.value || paxEl.dataset.auto !== 'off')) {
-    paxEl.value = dataCount;
-    paxEl.dataset.auto = 'on';
-    paxEl.onchange = () => { paxEl.dataset.auto = 'off'; };
-  }
+  // Dosya grupları: liste görselleri (≥2 satır veya liste/mesaj türü) panel + kompakt satır,
+  // tek pasaport/kimlik görselleri eski kart düzeni. Kart id'leri global indeksle kalır
+  // (pc-*-${i}) → readCard / syncCardsToState değişmeden çalışır.
+  segments = buildSegments();
+  for (const seg of segments) if (seg.isList) ensurePanel(seg);
+  enforceHotelChoice();
 
   releaseObjectUrls();
-  if (!list) return;
-  list.innerHTML = state.records.map((rec, i) => {
-    const pendingManual = isPendingManual(rec);
-    const isGreen = rec.green && !pendingManual;
-    const flags = (rec.flags || []).join(', ');
-    const dis = pendingManual ? 'disabled' : '';
-    const status = pendingManual
-      ? { edge: 'bg-on-surface-variant/40', pill: 'bg-tertiary/[.06] text-on-surface-variant border-tertiary/15', icon: 'pending_actions', label: 'MANUEL KONTROL BEKLİYOR' }
-      : rec.is_manual
-        ? { edge: 'bg-info', pill: 'bg-info/10 text-info border-info/20', icon: 'edit_document', label: 'MANUEL GİRİŞ' }
-        : isGreen
-          ? { edge: 'bg-success', pill: 'bg-success/10 text-success border-success/20', icon: 'check_circle', label: 'YEŞİL — DOĞRULANDI' }
-          : { edge: 'bg-warning', pill: 'bg-warning/10 text-warning border-warning/20', icon: 'warning', label: 'SARI — KONTROL ET' };
-
-    // Try to create object URL for thumbnail
-    let thumbHtml;
-    const sourceFile = Number.isInteger(rec._source_file_index)
-      ? state.files[rec._source_file_index]
-      : state.files.find(f => f.name === rec._source_file_name);
-    if (sourceFile) {
-      const url = URL.createObjectURL(sourceFile);
-      state.objectUrls.push(url);
-      thumbHtml = `<img src="${url}" class="w-full md:w-32 h-32 object-cover rounded-2xl border border-white/5" alt="Passport ${i+1}" />`;
-    } else {
-      thumbHtml = `<div class="w-full md:w-32 h-32 bg-surface-light rounded-2xl border border-white/5 flex flex-col items-center justify-center text-on-surface-variant"><span class="material-symbols-outlined text-3xl mb-1 opacity-50">image</span><span class="text-[10px] text-center px-2 w-full truncate opacity-70">${esc(rec._source_file_name || rec.source || '')}</span></div>`;
-    }
-
-    return `
-      <div class="glass-panel p-5 flex flex-col md:flex-row gap-5 relative animate-fade-in overflow-hidden ${pendingManual ? 'opacity-75' : ''}" id="pcard-${i}">
-        <!-- Status Indicator Edge -->
-        <div class="absolute left-0 top-0 bottom-0 w-1.5 ${status.edge}"></div>
-
-        <!-- Bu taramayı sil -->
-        <button onclick="window.__removeCard(${i})" title="Bu taramayı sil" aria-label="Bu taramayı sil"
-                class="absolute top-3 left-4 z-20 w-8 h-8 rounded-full flex items-center justify-center bg-surface/80 backdrop-blur border border-white/10 text-on-surface-variant hover:text-danger hover:bg-danger/20 hover:border-danger/30 transition-colors">
-          <span class="material-symbols-outlined text-[18px]">close</span>
-        </button>
-
-        <div class="pl-1 flex flex-col md:flex-row gap-5 w-full">
-          ${thumbHtml}
-          
-          <div class="flex-1 grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div class="flex flex-col gap-1">
-              <label class="text-xs font-medium text-on-surface-variant ml-1">Uyruk (kod)</label>
-              <input class="form-input font-mono text-sm uppercase" id="pc-nat-${i}" value="${esc(rec.nationality || '')}" placeholder="TUR, ITA..." ${dis} />
-            </div>
-            <div class="flex flex-col gap-1">
-              <label class="text-xs font-medium text-on-surface-variant ml-1">Cinsiyet</label>
-              <select class="form-select text-sm py-[9px]" id="pc-sex-${i}" ${dis}>
-                <option value="" ${!rec.sex ? 'selected' : ''}>—</option>
-                <option value="M" ${rec.sex === 'M' ? 'selected' : ''}>Erkek</option>
-                <option value="F" ${rec.sex === 'F' ? 'selected' : ''}>Kadın</option>
-              </select>
-            </div>
-            <div class="flex flex-col gap-1 col-span-2">
-              <label class="text-xs font-medium text-on-surface-variant ml-1">İsim</label>
-              <input class="form-input text-sm uppercase" id="pc-name-${i}" value="${esc(rec.name || '')}" placeholder="AD SOYAD" ${dis} />
-            </div>
-            <div class="flex flex-col gap-1 col-span-2 md:col-span-4">
-              <label class="text-xs font-medium text-on-surface-variant ml-1">Pasaport No</label>
-              <input class="form-input font-mono text-sm tracking-widest uppercase" id="pc-ppno-${i}" value="${esc(rec.passport_no || '')}" ${dis} />
-            </div>
-          </div>
-          
-          <div class="md:w-56 flex flex-col border-t md:border-t-0 md:border-l border-white/5 pt-5 md:pt-0 md:pl-5 justify-between">
-            <div class="w-full">
-              <div class="font-medium text-sm flex items-center justify-end gap-1.5 mb-3 px-3 py-1.5 rounded-lg border ${status.pill}">
-                <span class="material-symbols-outlined text-[18px]">${status.icon}</span>
-                ${status.label}
-              </div>
-              ${flags ? `<div class="flex flex-wrap justify-end gap-1.5 mb-2">${flags.split(', ').map(f => `<span class="bg-surface-light border border-white/5 text-on-surface-variant text-[11px] font-medium px-2 py-1 rounded-md tracking-wide">${esc(flagLabel(f))}</span>`).join('')}</div>` : ''}
-              ${rec.error ? `<div class="text-[11px] text-danger font-medium mt-1 text-right bg-danger/10 px-2 py-1.5 rounded-md border border-danger/20">${esc(rec.error)}</div>` : ''}
-            </div>
-            
-            ${pendingManual ? `
-            <div class="mt-4 text-xs text-on-surface-variant leading-relaxed text-right">
-              Bu kayıt düşük güven nedeniyle Manuel Kontrol kuyruğunda. Orada onaylanınca buraya onaylı olarak gelir.
-              <a href="#/manual_review" class="mt-2 inline-flex items-center gap-1 text-info font-semibold hover:underline">
-                Manuel Kontrol'e git <span class="material-symbols-outlined text-[16px]">arrow_forward</span>
-              </a>
-            </div>` : `
-            <label class="flex items-center justify-center gap-2 mt-4 text-sm font-medium text-on-surface cursor-pointer hover:bg-primary/10 hover:text-primary transition-colors bg-surface-light/50 px-4 py-2.5 rounded-xl border border-white/5 w-full group select-none">
-              <input type="checkbox" class="w-4 h-4 rounded border-white/10 bg-surface text-primary focus:ring-primary focus:ring-offset-surface group-hover:border-primary/50" id="pc-approve-${i}" ${(rec._approved !== undefined ? rec._approved : isGreen) ? 'checked' : ''} />
-              Onayla ve Ekle
-            </label>`}
-            ${(!isGreen && !rec.is_manual && !pendingManual) ? `<button class="btn-secondary w-full mt-2 flex items-center justify-center gap-2" onclick="window.__retryOcr(${i})"><span class="material-symbols-outlined text-sm">refresh</span> OCR ile Tekrar Tara</button>` : ''}
-          </div>
-        </div>
-      </div>
-    `;
-  }).join('');
+  list.innerHTML = segments.map((seg, s) => seg.isList
+    ? `<section class="flex flex-col gap-2" id="lseg-${s}">
+         ${renderListPanel(seg, s)}
+         <div class="flex flex-col gap-1.5" id="lrows-${s}">
+           ${seg.indices.map(i => renderListRow(state.records[i], i)).join('')}
+         </div>
+       </section>`
+    : seg.indices.map(i => renderFullCard(state.records[i], i)).join('')
+  ).join('');
 
   // Her karttaki Uyruk alanına alpha-3 otomatik tamamlama bağla
   for (let i = 0; i < state.records.length; i++) {
     const el = document.getElementById(`pc-nat-${i}`);
     if (el) attachCombobox(el, () => state.countries);
+  }
+  segments.forEach((seg, s) => {
+    if (!seg.isList) return;
+    attachCombobox(document.getElementById(`lp-nat-${s}`), () => state.countries);
+    attachCombobox(document.getElementById(`lp-agency-${s}`), () => state.agencies);
+    applyRowFilter(s);
+  });
+
+  // Onay kutusu değişince: state, panel sayacı, filtre ve PAX anında güncellenir.
+  list.onchange = (e) => {
+    const m = /^pc-approve-(\d+)$/.exec(e.target?.id || '');
+    if (!m) return;
+    const i = Number(m[1]);
+    if (state.records[i]) state.records[i]._approved = e.target.checked;
+    const s = segments.findIndex(seg => seg.indices.includes(i));
+    if (s !== -1 && segments[s].isList) {
+      updatePanelCounter(s);
+      applyRowFilter(s);
+    }
+    updateAutoPax();
+  };
+
+  renderHotelBar();
+  autofillReservation();
+  updateAutoPax();
+}
+
+// PAX'ı otomatik öner (kullanıcı değiştirmediyse). Liste varsa seçili satır sayısı,
+// yoksa veri içeren kart sayısı; Manuel Kontrol'de bekleyenler sayılmaz.
+function updateAutoPax() {
+  const paxEl = document.getElementById('pp-pax');
+  if (!paxEl) return;
+  const writable = state.records
+    .map((rec, i) => ({ rec, i }))
+    .filter(({ rec }) => !isPendingManual(rec));
+  const count = segments.some(seg => seg.isList)
+    ? writable.filter(({ rec }) => isApproved(rec)).length
+    : (writable.filter(({ rec }) => rec.name || rec.passport_no).length || writable.length);
+  if (count && (!paxEl.value || paxEl.dataset.auto !== 'off')) {
+    paxEl.value = count;
+    paxEl.dataset.auto = 'on';
+    paxEl.onchange = () => { paxEl.dataset.auto = 'off'; };
+  }
+}
+
+// Kartın onay kutusu durumu: kullanıcı/kural değeri, yoksa kart varsayılanı (yeşil = işaretli).
+function isApproved(rec) {
+  if (isPendingManual(rec)) return false;
+  return rec._approved !== undefined ? !!rec._approved : !!rec.green;
+}
+
+function sourceChipsHtml(rec, { withKind = true } = {}) {
+  const chips = [];
+  const kind = rec.source_kind_label || KIND_LABELS[rec.source_kind] || '';
+  if (withKind && kind) chips.push(`<span class="src-chip" title="Kaynak türü">${esc(kind)}</span>`);
+  const doc = docTypeLabel(rec.document_type);
+  if (doc) chips.push(`<span class="src-chip" title="Belge türü">${doc}</span>`);
+  if (rec.annotation) {
+    chips.push(`<span class="mark-chip${isStaffRow(rec) ? ' mark-chip-staff' : ''}" title="Listedeki ham işaret">${esc(rec.annotation)}</span>`);
+  }
+  return chips.join('');
+}
+
+function docTypeLabel(type) {
+  const t = String(type || '').toUpperCase();
+  if (t === 'P') return 'Pasaport';
+  if (t === 'I') return 'Kimlik';
+  return '';
+}
+
+function renderFullCard(rec, i) {
+  const pendingManual = isPendingManual(rec);
+  const isGreen = rec.green && !pendingManual;
+  const flags = (rec.flags || []).join(', ');
+  const dis = pendingManual ? 'disabled' : '';
+  const status = pendingManual
+    ? { edge: 'bg-on-surface-variant/40', pill: 'bg-tertiary/[.06] text-on-surface-variant border-tertiary/15', icon: 'pending_actions', label: 'MANUEL KONTROL BEKLİYOR' }
+    : rec.is_manual
+      ? { edge: 'bg-info', pill: 'bg-info/10 text-info border-info/20', icon: 'edit_document', label: 'MANUEL GİRİŞ' }
+      : isGreen
+        ? { edge: 'bg-success', pill: 'bg-success/10 text-success border-success/20', icon: 'check_circle', label: 'YEŞİL — DOĞRULANDI' }
+        : { edge: 'bg-warning', pill: 'bg-warning/10 text-warning border-warning/20', icon: 'warning', label: 'SARI — KONTROL ET' };
+
+  // Try to create object URL for thumbnail
+  let thumbHtml;
+  const sourceFile = Number.isInteger(rec._source_file_index)
+    ? state.files[rec._source_file_index]
+    : state.files.find(f => f.name === rec._source_file_name);
+  if (sourceFile) {
+    const url = URL.createObjectURL(sourceFile);
+    state.objectUrls.push(url);
+    thumbHtml = `<img src="${url}" class="w-full md:w-32 h-32 object-cover rounded-2xl border border-white/5" alt="Passport ${i+1}" />`;
+  } else {
+    thumbHtml = `<div class="w-full md:w-32 h-32 bg-surface-light rounded-2xl border border-white/5 flex flex-col items-center justify-center text-on-surface-variant"><span class="material-symbols-outlined text-3xl mb-1 opacity-50">image</span><span class="text-[10px] text-center px-2 w-full truncate opacity-70">${esc(rec._source_file_name || rec.source || '')}</span></div>`;
+  }
+  const chips = sourceChipsHtml(rec);
+
+  return `
+    <div class="glass-panel p-5 flex flex-col md:flex-row gap-5 relative animate-fade-in overflow-hidden ${pendingManual ? 'opacity-75' : ''}" id="pcard-${i}">
+      <!-- Status Indicator Edge -->
+      <div class="absolute left-0 top-0 bottom-0 w-1.5 ${status.edge}"></div>
+
+      <!-- Bu taramayı sil -->
+      <button onclick="window.__removeCard(${i})" title="Bu taramayı sil" aria-label="Bu taramayı sil"
+              class="absolute top-3 left-4 z-20 w-8 h-8 rounded-full flex items-center justify-center bg-surface/80 backdrop-blur border border-white/10 text-on-surface-variant hover:text-danger hover:bg-danger/20 hover:border-danger/30 transition-colors">
+        <span class="material-symbols-outlined text-[18px]">close</span>
+      </button>
+
+      <div class="pl-1 flex flex-col md:flex-row gap-5 w-full">
+        ${thumbHtml}
+
+        <div class="flex-1 grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium text-on-surface-variant ml-1">Uyruk (kod)</label>
+            <input class="form-input font-mono text-sm uppercase" id="pc-nat-${i}" value="${esc(rec.nationality || '')}" placeholder="TUR, ITA..." ${dis} />
+          </div>
+          <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium text-on-surface-variant ml-1">Cinsiyet</label>
+            <select class="form-select text-sm py-[9px]" id="pc-sex-${i}" ${dis}>
+              <option value="" ${!rec.sex ? 'selected' : ''}>—</option>
+              <option value="M" ${rec.sex === 'M' ? 'selected' : ''}>Erkek</option>
+              <option value="F" ${rec.sex === 'F' ? 'selected' : ''}>Kadın</option>
+            </select>
+          </div>
+          <div class="flex flex-col gap-1 col-span-2">
+            <label class="text-xs font-medium text-on-surface-variant ml-1">İsim</label>
+            <input class="form-input text-sm uppercase" id="pc-name-${i}" value="${esc(rec.name || '')}" placeholder="AD SOYAD" ${dis} />
+          </div>
+          <div class="flex flex-col gap-1 col-span-2 md:col-span-4">
+            <label class="text-xs font-medium text-on-surface-variant ml-1">Pasaport No</label>
+            <input class="form-input font-mono text-sm tracking-widest uppercase" id="pc-ppno-${i}" value="${esc(rec.passport_no || '')}" ${dis} />
+          </div>
+        </div>
+
+        <div class="md:w-56 flex flex-col border-t md:border-t-0 md:border-l border-white/5 pt-5 md:pt-0 md:pl-5 justify-between">
+          <div class="w-full">
+            <div class="font-medium text-sm flex items-center justify-end gap-1.5 mb-3 px-3 py-1.5 rounded-lg border ${status.pill}">
+              <span class="material-symbols-outlined text-[18px]">${status.icon}</span>
+              ${status.label}
+            </div>
+            ${chips ? `<div class="flex flex-wrap justify-end gap-1.5 mb-2">${chips}</div>` : ''}
+            ${flags ? `<div class="flex flex-wrap justify-end gap-1.5 mb-2">${flags.split(', ').map(f => `<span class="bg-surface-light border border-white/5 text-on-surface-variant text-[11px] font-medium px-2 py-1 rounded-md tracking-wide">${esc(flagLabel(f))}</span>`).join('')}</div>` : ''}
+            ${rec.error ? `<div class="text-[11px] text-danger font-medium mt-1 text-right bg-danger/10 px-2 py-1.5 rounded-md border border-danger/20">${esc(rec.error)}</div>` : ''}
+          </div>
+
+          ${pendingManual ? `
+          <div class="mt-4 text-xs text-on-surface-variant leading-relaxed text-right">
+            Bu kayıt düşük güven nedeniyle Manuel Kontrol kuyruğunda. Orada onaylanınca buraya onaylı olarak gelir.
+            <a href="#/manual_review" class="mt-2 inline-flex items-center gap-1 text-info font-semibold hover:underline">
+              Manuel Kontrol'e git <span class="material-symbols-outlined text-[16px]">arrow_forward</span>
+            </a>
+          </div>` : `
+          <label class="flex items-center justify-center gap-2 mt-4 text-sm font-medium text-on-surface cursor-pointer hover:bg-primary/10 hover:text-primary transition-colors bg-surface-light/50 px-4 py-2.5 rounded-xl border border-white/5 w-full group select-none">
+            <input type="checkbox" class="w-4 h-4 rounded border-white/10 bg-surface text-primary focus:ring-primary focus:ring-offset-surface group-hover:border-primary/50" id="pc-approve-${i}" ${(rec._approved !== undefined ? rec._approved : isGreen) ? 'checked' : ''} />
+            Onayla ve Ekle
+          </label>`}
+          ${(!isGreen && !rec.is_manual && !pendingManual) ? `<button class="btn-secondary w-full mt-2 flex items-center justify-center gap-2" onclick="window.__retryOcr(${i})"><span class="material-symbols-outlined text-sm">refresh</span> OCR ile Tekrar Tara</button>` : ''}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// ─── Liste inceleme (acente listesi / WhatsApp mesajı / çok yolculu görsel) ───
+// Panel durumu File nesnesine bağlı: dosya silinince indeksler kaysa da kural/filtre kalır.
+const listPanels = new WeakMap();   // File → { rule, agency, agencyFromGroup, onlySelected, bulkNat, bulkSex }
+let segments = [];                   // son renderCards'taki dosya grupları; panel handler'ları bu indeksle çalışır
+let markRulesPromise = null;
+
+function ensureMarkRules() {
+  if (!markRulesPromise) {
+    markRulesPromise = api.get('/api/lists/mark-rules')
+      .then(res => {
+        state.markRules = res.rules || {};
+        state.markRuleOptions = res.available || [];
+      })
+      .catch(() => { markRulesPromise = null; }); // kural olmadan da çalışır; sonra tekrar denenir
+  }
+  return markRulesPromise;
+}
+
+function recordFile(rec) {
+  return Number.isInteger(rec?._source_file_index) ? (state.files[rec._source_file_index] || null) : null;
+}
+
+function buildSegments() {
+  const out = [];
+  const byFile = new Map();
+  state.records.forEach((rec, i) => {
+    const file = recordFile(rec);
+    if (!file) { out.push({ file: null, indices: [i], isList: false }); return; }
+    let seg = byFile.get(file);
+    if (!seg) {
+      seg = { file, indices: [], isList: false };
+      byFile.set(file, seg);
+      out.push(seg);
+    }
+    seg.indices.push(i);
+  });
+  for (const seg of out) {
+    seg.isList = !!seg.file && (seg.indices.length >= 2
+      || seg.indices.some(i => LIST_KINDS.has(state.records[i]?.source_kind)));
+  }
+  return out;
+}
+
+function hasValue(v) {
+  return v !== null && v !== undefined && String(v).trim() !== '';
+}
+
+function segmentGroup(seg) {
+  for (const i of seg.indices) {
+    const g = state.records[i]?.group;
+    if (g && typeof g === 'object' && Object.values(g).some(hasValue)) return g;
+  }
+  return {};
+}
+
+function segmentKindLabel(seg) {
+  const counts = new Map();
+  for (const i of seg.indices) {
+    const rec = state.records[i];
+    const label = rec?.source_kind_label || KIND_LABELS[rec?.source_kind] || '';
+    if (label) counts.set(label, (counts.get(label) || 0) + 1);
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || '';
+}
+
+function savedRuleFor(agency) {
+  const key = normalizeAgencyKey(agency);
+  return key ? (state.markRules?.[key] || '') : '';
+}
+
+function isStaffRow(rec) {
+  return isStaffAnnotation(rec?.annotation);
+}
+
+function ruleOptions() {
+  return state.markRuleOptions?.length ? state.markRuleOptions : MARK_RULE_OPTIONS;
+}
+
+function ruleLabel(rule) {
+  return ruleOptions().find(o => o.id === rule)?.label || rule;
+}
+
+// Bir satırın kural/varsayılana göre onay durumu. Rehber/kaptan satırları ve başka
+// otelde bekleyen satırlar hiçbir kuralla otomatik işaretlenmez (operatör elle işaretleyebilir).
+function defaultApproval(rec, rule) {
+  if (isPendingManual(rec) || rec._deferredHotel || isStaffRow(rec)) return false;
+  if (rule) return annotationMatches(rule, rec.annotation);
+  if (typeof rec.selected === 'boolean') return rec.selected;  // listenin kendi evet/hayır kolonu
+  return !!rec.green;
+}
+
+function ensurePanel(seg) {
+  let panel = listPanels.get(seg.file);
+  if (panel) return panel;
+  const group = segmentGroup(seg);
+  const agency = String(group.agency || '').trim();
+  panel = {
+    rule: savedRuleFor(agency),       // acente biliniyorsa kayıtlı kural otomatik seçili
+    agency,
+    agencyFromGroup: !!agency,
+    onlySelected: false,
+    bulkNat: String(group.nationality_hint || '').trim().toUpperCase(),
+    bulkSex: '',
+  };
+  listPanels.set(seg.file, panel);
+  for (const i of seg.indices) {
+    const rec = state.records[i];
+    if (rec._approved === undefined) rec._approved = defaultApproval(rec, panel.rule);
+  }
+  return panel;
+}
+
+function applyRule(seg, rule) {
+  for (const i of seg.indices) {
+    const rec = state.records[i];
+    if (isPendingManual(rec)) continue;
+    rec._approved = defaultApproval(rec, rule);
+  }
+}
+
+function panelCounts(seg) {
+  let selected = 0;
+  for (const i of seg.indices) {
+    const rec = state.records[i];
+    if (!isPendingManual(rec) && rec._approved) selected++;
+  }
+  return { selected, total: seg.indices.length };
+}
+
+function counterHtml(seg) {
+  const { selected, total } = panelCounts(seg);
+  const pax = parseInt(segmentGroup(seg).pax, 10) || 0;
+  const paxNote = !pax ? ''
+    : pax === selected
+      ? `<div class="text-xs text-success mt-1">Listedeki PAX ${pax} ile eşleşiyor</div>`
+      : `<div class="text-xs text-warning bg-warning/10 border border-warning/20 rounded-lg px-2 py-1 mt-1">Listede PAX ${pax} yazıyor, ${selected} satır seçili</div>`;
+  return `
+    <div class="text-sm text-on-surface-variant">Seçili <strong class="text-on-surface text-lg">${selected}</strong> / Toplam <strong class="text-on-surface">${total}</strong></div>
+    ${paxNote}`;
+}
+
+function updatePanelCounter(s) {
+  const seg = segments[s];
+  const el = document.getElementById(`lp-count-${s}`);
+  if (seg && el) el.innerHTML = counterHtml(seg);
+}
+
+function applyRowFilter(s) {
+  const seg = segments[s];
+  const panel = seg && listPanels.get(seg.file);
+  if (!panel) return;
+  let hidden = 0;
+  for (const i of seg.indices) {
+    const row = document.getElementById(`pcard-${i}`);
+    const hide = panel.onlySelected && !state.records[i]?._approved;
+    if (hide) hidden++;
+    row?.classList.toggle('hidden', hide);
+  }
+  const note = document.getElementById(`lp-hidden-${s}`);
+  if (note) note.textContent = hidden ? `${hidden} satır gizli` : '';
+}
+
+function syncPanelsToState() {
+  segments.forEach((seg, s) => {
+    if (!seg.isList) return;
+    const panel = listPanels.get(seg.file);
+    if (!panel) return;
+    const nat = document.getElementById(`lp-nat-${s}`);
+    const sex = document.getElementById(`lp-sex-${s}`);
+    const agency = document.getElementById(`lp-agency-${s}`);
+    if (nat) panel.bulkNat = nat.value.trim().toUpperCase();
+    if (sex) panel.bulkSex = sex.value;
+    if (agency) panel.agency = agency.value.trim();
+  });
+}
+
+function renderListPanel(seg, s) {
+  const panel = ensurePanel(seg);
+  const group = segmentGroup(seg);
+  const kindLabel = segmentKindLabel(seg);
+  const staffCount = seg.indices.filter(i => isStaffRow(state.records[i])).length;
+  const savedRule = savedRuleFor(panel.agency);
+
+  const url = URL.createObjectURL(seg.file);
+  state.objectUrls.push(url);
+
+  const sheetName = groupDateToSheet(group.date);
+  const sheetFound = sheetName && findSheet(sheetName);
+  const dateText = hasValue(group.date)
+    ? `${group.date}${sheetName ? (sheetFound ? ` → ${sheetName}` : ` (${sheetName} sayfası yok)`) : ''}`
+    : '';
+  const info = [
+    ['Acente', group.agency], ['Otel', group.hotel], ['Tarih', dateText],
+    ['Kod', group.booking_code], ['PAX', group.pax], ['Uyruk', group.nationality_hint], ['Not', group.note],
+  ].filter(([, v]) => hasValue(v));
+
+  const options = [`<option value="">Seçim yapılmadı</option>`]
+    .concat(ruleOptions().map(o => `<option value="${esc(o.id)}" ${panel.rule === o.id ? 'selected' : ''}>${esc(o.label)}</option>`))
+    .join('');
+  const ruleStatus = savedRule
+    ? (savedRule === panel.rule
+      ? `<span class="text-success">Bu acente için kayıtlı</span>`
+      : `<span class="text-on-surface-variant">Kayıtlı kural: ${esc(ruleLabel(savedRule))}</span>`)
+    : '';
+
+  return `
+    <div class="glass-panel rounded-3xl p-5 border-l-4 border-l-info animate-fade-in" id="lpanel-${s}">
+      <div class="flex flex-wrap gap-4 items-start">
+        <button type="button" class="shrink-0 rounded-2xl overflow-hidden border border-white/10 w-20 h-20 cursor-zoom-in" onclick="window.__listOpenImage(${s})" title="Görseli büyüt" aria-label="Görseli büyüt">
+          <img src="${url}" class="w-full h-full object-cover" alt="" />
+        </button>
+        <div class="flex-1 min-w-[220px]">
+          <div class="flex flex-wrap items-center gap-2">
+            <h3 class="font-headline text-lg text-on-surface">Liste inceleme</h3>
+            ${kindLabel ? `<span class="src-chip">${esc(kindLabel)}</span>` : ''}
+            <span class="text-sm text-on-surface-variant">${seg.indices.length} satır</span>
+            <span class="text-xs text-on-surface-variant/70 truncate max-w-[220px]" title="${esc(seg.file.name)}">${esc(seg.file.name)}</span>
+          </div>
+          ${info.length ? `<div class="flex flex-wrap gap-x-5 gap-y-1 mt-2 text-sm">${info.map(([k, v]) => `<span><span class="text-on-surface-variant">${k}:</span> <span class="text-on-surface">${esc(v)}</span></span>`).join('')}</div>` : ''}
+          <div class="text-xs text-on-surface-variant/80 mt-2">Liste satırları MRZ ile doğrulanmadığı için sarıdır; işaretlediğiniz satırlar onayınızla yazılır.${staffCount ? ` ${staffCount} rehber/kaptan satırı varsayılan olarak işaretsiz.` : ''}</div>
+        </div>
+        <div class="min-w-[160px] text-right" id="lp-count-${s}">${counterHtml(seg)}</div>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4 pt-4 border-t border-white/5">
+        <div class="flex flex-col gap-1.5">
+          <label class="text-xs font-medium text-on-surface-variant ml-1" for="lp-rule-${s}">İşaret kuralı${helpIcon('Acentenin listede uçanları nasıl işaretlediği. Seçince yalnız eşleşen satırların kutusu işaretlenir; sonra tek tek değiştirebilirsiniz.')}</label>
+          <select class="form-select form-input-sm" id="lp-rule-${s}" onchange="window.__listRuleChanged(${s}, this.value)">${options}</select>
+          ${panel.agencyFromGroup ? '' : `
+          <input class="form-input form-input-sm" id="lp-agency-${s}" value="${esc(panel.agency)}" placeholder="Acente (kuralı hatırlamak için)" onchange="window.__listAgencyChanged(${s}, this.value)" />`}
+          <div class="flex flex-wrap items-center gap-2 text-xs">
+            <button type="button" class="btn-secondary btn-sm" onclick="window.__listRememberRule(${s})">
+              <span class="material-symbols-outlined text-[16px] align-middle">bookmark_add</span> Bu acente için hatırla
+            </button>
+            ${ruleStatus}
+          </div>
+        </div>
+
+        <div class="flex flex-col gap-1.5">
+          <span class="text-xs font-medium text-on-surface-variant ml-1">Toplu alan${helpIcon('Bu listedeki kartlarda BOŞ olan uyruk/cinsiyet alanlarını doldurur; dolu alanlara dokunmaz.')}</span>
+          <div class="flex gap-2">
+            <input class="form-input form-input-sm font-mono uppercase flex-1 min-w-0" id="lp-nat-${s}" value="${esc(panel.bulkNat)}" placeholder="Uyruk (TUR…)" aria-label="Toplu uyruk" />
+            <select class="form-select form-input-sm w-28" id="lp-sex-${s}" aria-label="Toplu cinsiyet">
+              <option value="" ${!panel.bulkSex ? 'selected' : ''}>Cinsiyet</option>
+              <option value="M" ${panel.bulkSex === 'M' ? 'selected' : ''}>Erkek</option>
+              <option value="F" ${panel.bulkSex === 'F' ? 'selected' : ''}>Kadın</option>
+            </select>
+          </div>
+          <button type="button" class="btn-secondary btn-sm self-start" onclick="window.__listBulkApply(${s})">
+            <span class="material-symbols-outlined text-[16px] align-middle">format_color_fill</span> Boş olanlara uygula
+          </button>
+        </div>
+
+        <div class="flex flex-col gap-1.5 lg:items-end">
+          <label class="inline-flex items-center gap-2 text-sm text-on-surface cursor-pointer select-none">
+            <input type="checkbox" class="w-4 h-4 rounded" id="lp-only-${s}" ${panel.onlySelected ? 'checked' : ''} onchange="window.__listToggleSelected(${s}, this.checked)" />
+            Yalnız seçilileri göster
+          </label>
+          <span class="text-xs text-on-surface-variant" id="lp-hidden-${s}"></span>
+        </div>
+      </div>
+    </div>`;
+}
+
+function renderListRow(rec, i) {
+  const pending = isPendingManual(rec);
+  const dis = pending ? 'disabled' : '';
+  const flags = rec.flags || [];
+  const edge = pending ? 'bg-on-surface-variant/40' : rec.green ? 'bg-success' : 'bg-warning';
+  const statusTitle = pending
+    ? 'Manuel Kontrol bekliyor'
+    : rec.green
+      ? 'Yeşil — MRZ doğrulandı'
+      : `Sarı — kontrol et${flags.length ? `: ${flags.map(flagLabel).join(', ')}` : ''}`;
+  // FREE_TEXT_UNVERIFIED her liste satırında var; çip olarak tekrarlanmaz (kenar rengi + ipucu).
+  const flagChips = flags
+    .filter(f => f !== 'free_text_unverified')
+    .map(f => `<span class="flag-chip">${esc(flagLabel(f))}</span>`)
+    .join('');
+  return `
+    <div class="list-row ${pending ? 'opacity-75' : ''} ${rec._deferredHotel ? 'list-row-deferred' : ''}" id="pcard-${i}">
+      <span class="list-row-edge ${edge}" title="${esc(statusTitle)}"></span>
+      ${pending
+        ? `<a href="#/manual_review" class="w-5 h-5 flex items-center justify-center text-on-surface-variant hover:text-info" title="Manuel Kontrol'de bekliyor — oraya git"><span class="material-symbols-outlined text-[20px]">pending_actions</span></a>`
+        : `<input type="checkbox" class="w-5 h-5 rounded shrink-0" id="pc-approve-${i}" ${rec._approved ? 'checked' : ''} title="Onayla ve Ekle" aria-label="Onayla ve Ekle" />`}
+      <input class="form-input form-input-sm uppercase flex-1 min-w-[180px]" id="pc-name-${i}" value="${esc(rec.name || '')}" placeholder="AD SOYAD" aria-label="İsim" ${dis} />
+      <input class="form-input form-input-sm font-mono uppercase w-24" id="pc-nat-${i}" value="${esc(rec.nationality || '')}" placeholder="Uyruk" aria-label="Uyruk" ${dis} />
+      <select class="form-select form-input-sm w-28" id="pc-sex-${i}" aria-label="Cinsiyet" ${dis}>
+        <option value="" ${!rec.sex ? 'selected' : ''}>—</option>
+        <option value="M" ${rec.sex === 'M' ? 'selected' : ''}>Erkek</option>
+        <option value="F" ${rec.sex === 'F' ? 'selected' : ''}>Kadın</option>
+      </select>
+      <input class="form-input form-input-sm font-mono uppercase w-40" id="pc-ppno-${i}" value="${esc(rec.passport_no || '')}" placeholder="Belge no" aria-label="Belge no" ${dis} />
+      <div class="flex flex-wrap items-center gap-1 md:w-56 md:shrink-0">${sourceChipsHtml(rec, { withKind: false })}${flagChips}</div>
+      <button type="button" onclick="window.__removeCard(${i})" title="Bu satırı sil" aria-label="Bu satırı sil"
+              class="ml-auto w-8 h-8 shrink-0 rounded-full flex items-center justify-center text-on-surface-variant hover:text-danger hover:bg-danger/15 transition-colors">
+        <span class="material-symbols-outlined text-[18px]">close</span>
+      </button>
+    </div>`;
+}
+
+window.__listRuleChanged = function(s, rule) {
+  const seg = segments[s];
+  const panel = seg && listPanels.get(seg.file);
+  if (!panel) return;
+  syncCardsToState();
+  panel.rule = rule;
+  if (rule) applyRule(seg, rule);
+  renderCards();
+};
+
+window.__listAgencyChanged = function(s, value) {
+  const seg = segments[s];
+  const panel = seg && listPanels.get(seg.file);
+  if (!panel) return;
+  syncCardsToState();
+  panel.agency = String(value || '').trim();
+  const saved = savedRuleFor(panel.agency);
+  if (saved && !panel.rule) {
+    panel.rule = saved;
+    applyRule(seg, saved);
+    toast.info('Kayıtlı kural uygulandı', `${panel.agency}: ${ruleLabel(saved)}`);
+  }
+  renderCards();
+};
+
+window.__listRememberRule = async function(s) {
+  const seg = segments[s];
+  const panel = seg && listPanels.get(seg.file);
+  if (!panel) return;
+  syncCardsToState();
+  const agency = panel.agency.trim();
+  if (!agency) {
+    toast.warning('Acente gerekli', 'Kuralı hatırlamak için acente adını yazın.');
+    document.getElementById(`lp-agency-${s}`)?.focus();
+    return;
+  }
+  try {
+    const res = await api.post('/api/lists/mark-rule', { agency, rule: panel.rule });
+    state.markRules = res.rules || {};
+    if (panel.rule) toast.success('Kural kaydedildi', `${agency}: ${ruleLabel(panel.rule)}`);
+    else toast.info('Kural silindi', `${agency} için kayıtlı işaret kuralı kaldırıldı.`);
+    renderCards();
+  } catch (err) {
+    toast.error('Kural kaydedilemedi', err.message);
+  }
+};
+
+window.__listToggleSelected = function(s, checked) {
+  const seg = segments[s];
+  const panel = seg && listPanels.get(seg.file);
+  if (!panel) return;
+  panel.onlySelected = !!checked;
+  applyRowFilter(s);
+};
+
+window.__listBulkApply = function(s) {
+  const seg = segments[s];
+  const panel = seg && listPanels.get(seg.file);
+  if (!panel) return;
+  syncCardsToState();
+  const nat = panel.bulkNat;
+  const sex = panel.bulkSex;
+  if (!nat && !sex) {
+    toast.warning('Değer seçin', 'Uygulamak için uyruk veya cinsiyet seçin.');
+    return;
+  }
+  let natFilled = 0;
+  let sexFilled = 0;
+  for (const i of seg.indices) {
+    const rec = state.records[i];
+    if (isPendingManual(rec)) continue;
+    if (nat && !rec.nationality) { rec.nationality = nat; natFilled++; }
+    if (sex && !rec.sex) { rec.sex = sex; sexFilled++; }
+    refreshMissingFieldsFlag(rec);
+  }
+  renderCards();
+  if (natFilled || sexFilled) {
+    const parts = [];
+    if (natFilled) parts.push(`${natFilled} karta uyruk ${nat}`);
+    if (sexFilled) parts.push(`${sexFilled} karta cinsiyet ${sex === 'M' ? 'Erkek' : 'Kadın'}`);
+    toast.success('Toplu alan uygulandı', parts.join(', '));
+  } else {
+    toast.info('Boş alan yok', 'Bu listedeki kartların bu alanları zaten dolu.');
+  }
+};
+
+// 4 zorunlu alan tamamlandıysa MISSING_REQUIRED_FIELDS bayrağını düşür. Kayıt yeşile
+// dönmez: liste satırı MRZ'siz olduğu için FREE_TEXT_UNVERIFIED (sarı) kalır.
+function refreshMissingFieldsFlag(rec) {
+  const complete = rec.nationality && rec.name && rec.passport_no && ['M', 'F'].includes(rec.sex);
+  if (complete && Array.isArray(rec.flags)) {
+    rec.flags = rec.flags.filter(f => f !== 'missing_required_fields');
+  }
+}
+
+window.__listOpenImage = function(s) {
+  const seg = segments[s];
+  if (!seg?.file) return;
+  const url = URL.createObjectURL(seg.file);
+  state.objectUrls.push(url);
+  modal.open(esc(seg.file.name), `
+    <div class="flex justify-center">
+      <img src="${url}" class="max-w-full max-h-[75vh] rounded-xl" alt="" />
+    </div>`);
+};
+
+// ─── Otel seçimi (aynı taramada farklı oteller: her rezervasyona tek otel) ───
+function listHotels() {
+  const hotels = new Map();   // fold(otel) → { label, count }
+  for (const rec of state.records) {
+    if (isPendingManual(rec)) continue;
+    const label = String(rec.group?.hotel || '').trim();
+    if (!label) continue;
+    const key = fold(label);
+    const entry = hotels.get(key) || { label, count: 0 };
+    entry.count++;
+    hotels.set(key, entry);
+  }
+  return hotels;
+}
+
+function enforceHotelChoice() {
+  const hotels = listHotels();
+  if (hotels.size < 2) state.hotelChoice = '';
+  else if (state.hotelChoice && !hotels.has(state.hotelChoice)) state.hotelChoice = '';
+  for (const rec of state.records) {
+    const key = fold(rec.group?.hotel || '');
+    const other = !!(state.hotelChoice && key && key !== state.hotelChoice);
+    if (other && !rec._deferredHotel) {
+      rec._deferredHotel = true;
+      rec._approved = false;
+    } else if (!other && rec._deferredHotel) {
+      rec._deferredHotel = false;
+      rec._approved = defaultApproval(rec, listPanels.get(recordFile(rec))?.rule || '');
+    }
+  }
+  return hotels;
+}
+
+function renderHotelBar() {
+  const bar = document.getElementById('list-hotel-bar');
+  if (!bar) return;
+  const hotels = listHotels();
+  if (hotels.size < 2) { bar.innerHTML = ''; return; }
+  const deferred = state.records.filter(r => r._deferredHotel);
+  const otherNames = [...new Set(deferred.map(r => String(r.group?.hotel || '').trim()))].filter(Boolean);
+  const options = [...hotels.entries()]
+    .map(([key, h]) => `<option value="${esc(key)}" ${state.hotelChoice === key ? 'selected' : ''}>${esc(h.label)} (${h.count} satır)</option>`)
+    .join('');
+  bar.innerHTML = `
+    <div class="glass-panel rounded-3xl p-5 mb-4 border-l-4 border-l-warning flex flex-wrap items-center gap-4">
+      <span class="material-symbols-outlined text-warning text-3xl">apartment</span>
+      <div class="flex-1 min-w-[220px]">
+        <div class="font-semibold text-on-surface">Bu taramada ${hotels.size} farklı otel var</div>
+        <div class="text-sm text-on-surface-variant">Bir rezervasyona tek otel yazılır. Yazılacak oteli seçin; diğer otellerin satırları onaysız kalır ve yazımdan sonra ekranda bekler.</div>
+        ${state.hotelChoice && deferred.length
+          ? `<div class="text-sm text-info mt-1">${deferred.length} satır başka otelde (${esc(otherNames.join(', '))}) — onayları kaldırıldı. Diğer oteller için tekrar yaz.</div>`
+          : ''}
+      </div>
+      <div class="flex flex-col gap-1 min-w-[240px]">
+        <label class="text-xs font-medium text-on-surface-variant ml-1" for="lp-hotel-choice">Yazılacak otel</label>
+        <select class="form-select form-input-sm" id="lp-hotel-choice" onchange="window.__listHotelChoice(this.value)">
+          <option value="">Seçin…</option>${options}
+        </select>
+      </div>
+    </div>`;
+}
+
+window.__listHotelChoice = function(value) {
+  syncCardsToState();
+  state.hotelChoice = value || '';
+  renderCards();
+};
+
+// ─── Rezervasyon formunu grup bilgisinden doldur (otel, acente, uçuş günü) ───
+function groupDateToSheet(value) {
+  const s = String(value || '').trim();
+  let m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(s);
+  if (m) return `${m[3].padStart(2, '0')}.${m[2].padStart(2, '0')}.${m[1]}`;
+  m = /^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$/.exec(s);
+  if (m) return `${m[1].padStart(2, '0')}.${m[2].padStart(2, '0')}.${m[3]}`;
+  return '';
+}
+
+function findSheet(name) {
+  return state.sheets.find(sheet => String(sheet).trim() === name) || '';
+}
+
+function uniqueGroupValue(records, key) {
+  const values = new Map();
+  for (const rec of records) {
+    const v = String(rec.group?.[key] ?? '').trim();
+    if (v) values.set(fold(v), v);
+  }
+  return values.size === 1 ? [...values.values()][0] : '';
+}
+
+// Alan boşsa ya da daha önce otomatik doldurulmuş ve elle değiştirilmemişse doldur.
+function autofillInput(id, value) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const prevAuto = el.dataset.autoValue || '';
+  const untouched = !el.value.trim() || (prevAuto && el.value === prevAuto);
+  if (value && untouched) {
+    el.value = value;
+    el.dataset.autoValue = value;
+  } else if (!value && prevAuto && el.value === prevAuto) {
+    el.value = '';
+    el.dataset.autoValue = '';
+  }
+}
+
+function autofillReservation() {
+  // Yazım kapsamı: Manuel Kontrol bekleyenler ve başka otelde bekleyenler hariç.
+  const scope = state.records.filter(r => !isPendingManual(r) && !r._deferredHotel);
+  autofillInput('pp-hotel', uniqueGroupValue(scope, 'hotel'));
+  autofillInput('pp-agency', uniqueGroupValue(scope, 'agency'));
+
+  const sheet = findSheet(groupDateToSheet(uniqueGroupValue(scope, 'date')));
+  const sel = document.getElementById('pp-sheet-select');
+  // Aynı hedefe bir kez geçilir; operatör sonra başka gün seçerse ezilmez.
+  if (sheet && sel && state.autoSheet !== sheet) {
+    state.autoSheet = sheet;
+    if (sel.value !== sheet) {
+      sel.value = sheet;
+      loadBlocks(sheet);
+      toast.info('Uçuş günü seçildi', `Listedeki tarihe göre ${sheet} sayfası seçildi.`);
+    }
   }
 }
 
@@ -815,6 +1435,7 @@ function syncCardsToState() {
     const chk = document.getElementById(`pc-approve-${i}`);
     if (chk) state.records[i]._approved = chk.checked;
   }
+  syncPanelsToState();
 }
 
 // Tek tuşla bir taramayı kaldır
@@ -894,7 +1515,10 @@ window.__writePlanning = async function() {
 
   // Onaylı kartları topla; veri olup onaylanmamışları ayrıca listele (veri kaybı uyarısı).
   // Manuel Kontrol'de bekleyen kartlar pasiftir — ne yazılır ne de "onaysız" sayılır.
+  // Başka otel için bekleyen liste satırları (Yazılacak otel seçimi) da "onaysız" sayılmaz:
+  // yazımdan sonra ekranda kalır.
   const approved = [];
+  const approvedIdx = [];
   const skipped = [];
   let pendingManualCount = 0;
   for (let i = 0; i < state.records.length; i++) {
@@ -902,7 +1526,8 @@ window.__writePlanning = async function() {
     if (isPendingManual(rec)) { pendingManualCount++; continue; }
     const card = readCard(i);
     const chk = document.getElementById(`pc-approve-${i}`);
-    if (chk?.checked) approved.push(card);
+    if (chk?.checked) { approved.push(card); approvedIdx.push(i); }
+    else if (rec._deferredHotel) continue;
     else if (card.name || card.passport_no) skipped.push({ index: i, card, rec });
   }
   if (!approved.length) {
@@ -912,6 +1537,15 @@ window.__writePlanning = async function() {
         ? `En az bir kartı onaylayın. ${pendingManualCount} kayıt Manuel Kontrol'de bekliyor.`
         : 'En az bir kartı onaylayın',
     );
+    return;
+  }
+  // Tek rezervasyona tek otel: farklı otellerin satırları birlikte seçiliyse durdur.
+  const approvedHotels = new Set(approvedIdx
+    .map(i => fold(state.records[i]?.group?.hotel || ''))
+    .filter(Boolean));
+  if (approvedHotels.size > 1) {
+    toast.warning('Farklı oteller seçili', 'Bir rezervasyona tek otel yazılır. Üstteki "Yazılacak otel" seçimini yapın.');
+    document.getElementById('list-hotel-bar')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     return;
   }
 
@@ -967,16 +1601,18 @@ window.__writePlanning = async function() {
           sheet, lead_row: leadRow, identities: approved, expected_revision: state.revision,
         });
         toast.success('Kimlikler eklendi', `${approved.length} yolcu mevcut rezervasyona yazıldı`);
+        await resetAfterWrite(sheet, approvedIdx);
       } else {
         const res = await api.post('/api/planning/create-with-identities', {
           sheet, pax, hotel, agency, reserved_by, identities: approved,
           expected_revision: state.revision,
         });
         toast.success('Rezervasyon oluşturuldu', `${res.balloon} balonuna atandı — ${approved.length} yolcu yazıldı`);
+        await resetAfterWrite(sheet, approvedIdx);
       }
-      await resetAfterWrite(sheet);
     } catch (err) {
       if (err.detail?.code === 'capacity_confirmation_required') {
+        pendingOverflowWritten = approvedIdx;
         return showPassportCapacityChoice({
           sheet, pax, hotel, agency, reserved_by, identities: approved,
           expected_revision: state.revision,
@@ -995,15 +1631,47 @@ window.__writePlanning = async function() {
 };
 
 // Başarılı yazımdan sonra: tarama ve rezervasyon formu bir sonraki rezervasyona hazır.
-async function resetAfterWrite(sheet) {
-  resetScan();
-  renderFileList();
-  hideCards();
+// Başka otel için bekleyen liste satırları (ve görselleri) ekranda kalır → "diğer oteller
+// için tekrar yaz". writtenIdx: bu yazımda gönderilen kartların indeksleri.
+async function resetAfterWrite(sheet, writtenIdx = []) {
+  const written = new Set(writtenIdx);
+  if (state.records.length) syncCardsToState();
+  const waiting = state.records.filter((rec, i) => rec._deferredHotel && !written.has(i));
+  if (waiting.length) {
+    const files = [];
+    const next = waiting.map(rec => {
+      const file = recordFile(rec);
+      let index = null;
+      if (file) {
+        index = files.indexOf(file);
+        if (index === -1) { files.push(file); index = files.length - 1; }
+      }
+      return { ...rec, _source_file_index: index, _deferredHotel: false };
+    });
+    releaseObjectUrls();
+    state.files = files;
+    state.records = next;
+    state.hotelChoice = '';
+    for (const rec of state.records) {
+      rec._approved = defaultApproval(rec, listPanels.get(recordFile(rec))?.rule || '');
+    }
+  } else {
+    resetScan();
+    state.hotelChoice = '';
+    state.autoSheet = '';
+  }
   const paxEl = document.getElementById('pp-pax');
   if (paxEl) { paxEl.value = ''; paxEl.dataset.auto = 'on'; }
   for (const id of ['pp-hotel', 'pp-agency', 'pp-reserved']) {
     const el = document.getElementById(id);
-    if (el) el.value = '';
+    if (el) { el.value = ''; el.dataset.autoValue = ''; }
+  }
+  renderFileList();
+  if (state.records.length) {
+    renderCards();
+    toast.info('Diğer oteller bekliyor', `${state.records.length} satır ekranda kaldı. Sıradaki otel için kontrol edip tekrar yazın.`);
+  } else {
+    hideCards();
   }
   if (sheet) await loadBlocks(sheet);
 }
@@ -1039,7 +1707,8 @@ window.__confirmPassportOverflow = async function() {
     window.__pendingPassportOverflow = null;
     modal.close();
     toast.warning('Kapasite aşımı onaylandı', `${res.balloon} balonuna atandı — ${body.identities?.length || 0} yolcu yazıldı`);
-    await resetAfterWrite(body.sheet);
+    await resetAfterWrite(body.sheet, pendingOverflowWritten);
+    pendingOverflowWritten = [];
   } catch (err) {
     toast.error('Rezervasyon oluşturulamadı', err.message);
     if (btn?.isConnected) {

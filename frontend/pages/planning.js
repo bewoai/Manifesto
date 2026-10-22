@@ -304,7 +304,9 @@ async function loadSheets() {
 
     renderCalendar();
   } catch (err) {
-    if (token === loadToken) toast.error('Sayfalar yüklenemedi', err.message);
+    if (token !== loadToken) return;
+    toast.error('Sayfalar yüklenemedi', err.message);
+    renderCalendar(); // takvim "Yükleniyor..." durumunda asılı kalmasın
   }
 }
 

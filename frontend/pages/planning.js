@@ -1,7 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════════
    Planlama — Gün seçimi, rezervasyon blokları, operasyon formu
    ═══════════════════════════════════════════════════════════════════ */
-import { api, toast, modal, renderHeader, helpIcon } from '/app.js';
+import { api, toast, modal, renderHeader, helpIcon, registerUnsavedCheck } from '/app.js';
 import { attachCombobox } from '/combobox.js';
 
 let state = {
@@ -60,6 +60,21 @@ function applyDayData(data) {
   state.revision = data.workbook_revision || '';
   state.readiness = data.readiness || null;
 }
+
+const OPERATION_KEYS = ['pax','room','hotel','pickup','reserved_by','agency','company','balloon','pilot','driver','coming_place','note'];
+
+// Açık operasyon formunda kaydedilmemiş düzenleme veya kaydı süren sıralama varsa
+// pencere yenileme/kapama onay ister.
+registerUnsavedCheck('planning', () => {
+  if (state.pendingReorder) return true;
+  if (!document.getElementById('op-pax')) return false; // form bu ekranda açık değil
+  const block = state.selectedBlock !== null ? state.blocks[state.selectedBlock] : null;
+  if (!block) return false;
+  return OPERATION_KEYS.some(key => {
+    const el = document.getElementById(`op-${key}`);
+    return el && el.value.trim() !== String(block[key] ?? '').trim();
+  });
+});
 
 function todayStart() {
   const d = new Date();
@@ -869,7 +884,7 @@ window.__saveOperation = async function() {
 
   const block = state.blocks[state.selectedBlock];
   const fields = {};
-  for (const key of ['pax','room','hotel','pickup','reserved_by','agency','company','balloon','pilot','driver','coming_place','note']) {
+  for (const key of OPERATION_KEYS) {
     const el = document.getElementById(`op-${key}`);
     if (el) fields[key] = el.value.trim();
   }

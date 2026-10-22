@@ -2,7 +2,7 @@
    Pasaport Tarama — Drag & drop, MRZ okuma, kontrol kartları
    Brief §8: sol görsel, sağ 4 alan, yeşil/sarı status
    ═══════════════════════════════════════════════════════════════════ */
-import { api, toast, renderHeader, modal, helpIcon, appStatus } from '/app.js';
+import { api, toast, renderHeader, modal, helpIcon, appStatus, registerUnsavedCheck } from '/app.js';
 import { attachCombobox } from '/combobox.js';
 
 let state = {
@@ -28,6 +28,12 @@ let overflowSubmitting = false;
 function isPendingManual(rec) {
   return !!rec?.requires_manual_review && !rec?.manual_reviewed;
 }
+
+// Yüklenmiş dosyalar ve planlamaya yazılmamış kartlar yalnız bellektedir; pencere
+// yenilenirse kaybolur. (Manuel Kontrol'de bekleyenler sunucuda durur → sayılmaz.)
+registerUnsavedCheck('passport', () =>
+  state.files.length > 0
+  || state.records.some(rec => !isPendingManual(rec) && (rec.name || rec.passport_no || rec._approved)));
 
 export async function render(container) {
   renderHeader('Pasaport Tarama', 'Fotoğraf yükle, MRZ oku, kontrol et ve planlamaya yaz');

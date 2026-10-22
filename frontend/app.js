@@ -166,10 +166,33 @@ document.addEventListener('keydown', (e) => {
 
 let appShutdownRequested = false;
 
+// ─── Kaydedilmemiş değişiklik kaydı ───
+// Sayfalar registerUnsavedCheck(ad, fn) ile "yazılmamış veri var mı?" kontrolü bildirir.
+// window.__hasUnsavedChanges() hepsini sorar; pencere yenileme/kapama onayı YALNIZ
+// true dönerse istenir (eskiden her yenilemede soruluyordu).
+const unsavedChecks = new Map();
+
+function registerUnsavedCheck(name, fn) {
+  if (typeof fn === 'function') unsavedChecks.set(name, fn);
+  else unsavedChecks.delete(name);
+}
+
+window.__hasUnsavedChanges = function() {
+  for (const fn of unsavedChecks.values()) {
+    try {
+      if (fn()) return true;
+    } catch (err) {
+      console.error('Unsaved-change check failed', err);
+    }
+  }
+  return false;
+};
+
 function handleBeforeUnload(event) {
   if (appShutdownRequested) return;
+  if (!window.__hasUnsavedChanges()) return;
   event.preventDefault();
-  event.returnValue = 'İrtifa penceresi kapatılsın mı?';
+  event.returnValue = 'Kaydedilmemiş değişiklikler var. Pencere kapatılsın mı?';
   return event.returnValue;
 }
 
@@ -542,4 +565,4 @@ function escapeHtml(value) {
 }
 
 // Export for pages
-export { api, toast, modal, renderHeader, helpIcon, appStatus, currentUser };
+export { api, toast, modal, renderHeader, helpIcon, appStatus, currentUser, registerUnsavedCheck };

@@ -34,8 +34,35 @@ export async function render(container) {
         <div class="flex justify-end gap-3 mt-5"><button class="btn-secondary" onclick="document.getElementById('new-user-dialog').close()">İptal</button><button class="btn-primary" onclick="window.__createUser()">Oluştur</button></div>
       </div>
     </dialog>`;
-  await Promise.all([loadUsers(currentToken), loadBackups(currentToken), loadAudit(currentToken), loadUpdate(currentToken)]);
+  // Bölümler bağımsız yüklenir: biri hata verirse yalnız o kartta hata + "Tekrar dene"
+  // gösterilir, sayfanın geri kalanı çalışır (eskiden Promise.all tüm sayfayı düşürüyordu).
+  await Promise.allSettled(SECTIONS.map((_, index) => loadSection(index, currentToken)));
 }
+
+const SECTIONS = [
+  { el: 'admin-users', label: 'Kullanıcılar', load: (token) => loadUsers(token) },
+  { el: 'admin-backups', label: 'Excel yedekleri', load: (token) => loadBackups(token) },
+  { el: 'admin-audit', label: 'İşlem geçmişi', load: (token) => loadAudit(token) },
+  { el: 'admin-update', label: 'Güncelleme durumu', load: (token) => loadUpdate(token) },
+];
+
+async function loadSection(index, token = renderToken) {
+  const section = SECTIONS[index];
+  try {
+    await section.load(token);
+  } catch (err) {
+    if (token !== renderToken) return;
+    const root = document.getElementById(section.el);
+    if (!root) return;
+    root.innerHTML = `
+      <div class="rounded-lg bg-danger/10 border border-danger/20 p-4 text-sm text-danger flex flex-wrap items-center justify-between gap-3">
+        <span>${esc(section.label)} yüklenemedi: ${esc(err?.message || 'Bilinmeyen hata')}</span>
+        <button class="btn-secondary py-2" onclick="window.__adminRetrySection(${index})">Tekrar dene</button>
+      </div>`;
+  }
+}
+
+window.__adminRetrySection = (index) => loadSection(index, renderToken);
 
 async function loadUsers(token) {
   const data = await api.get('/api/admin/users');
@@ -179,7 +206,7 @@ window.__createUser = async function() {
     });
     document.getElementById('new-user-dialog').close();
     toast.success('Kullanıcı oluşturuldu', document.getElementById('nu-user').value.trim() + ' adlı kullanıcı eklendi.');
-    loadUsers(renderToken);
+    loadSection(0);
   } catch (err) { toast.error('Kullanıcı oluşturulamadı', err.message); }
 };
 
@@ -188,10 +215,10 @@ window.__restoreBackup = async function(name) {
   try {
     await api.post('/api/admin/backups/restore', { name });
     toast.success('Yedek geri yüklendi', name + ' başarıyla uygulandı.');
-    loadBackups(renderToken);
+    loadSection(1);
   } catch (err) { toast.error('Geri yükleme başarısız', err.message); }
 };
-window.__checkUpdate = () => loadUpdate(renderToken);
+window.__checkUpdate = () => loadSection(3);
 window.__downloadUpdate = async function() {
   try {
     const data = await api.post('/api/update/download', {});

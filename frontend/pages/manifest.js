@@ -51,6 +51,12 @@ export async function render(container) {
       <div class="card">
         <div class="card-header"><div class="card-title"><span class="material-symbols-outlined">fact_check</span> Uçuşa Hazır Kontrolü</div></div>
         <div id="mf-readiness"></div>
+        <!-- Gerekçe alanı her zaman görünür: kontrol yüklenemese de 409'da kullanıcı çıkmaza girmesin -->
+        <div class="form-group mt-3">
+          <label class="form-label" for="mf-override-reason">Eksiklerle devam gerekçesi</label>
+          <input class="form-input" id="mf-override-reason" placeholder="Örn. Eksik pasaport acenteden bekleniyor" />
+          <div class="form-help">Uyarı varsa manifesto ve toplu çıktı için zorunludur; uyarı yoksa boş bırakılabilir.</div>
+        </div>
       </div>
       <div class="card">
         <div class="card-header">
@@ -113,7 +119,13 @@ async function loadSheets(token) {
       loadBalloons(sel.value);
       loadOperations(sel.value);
     }
-    sel.addEventListener('change', () => { loadBalloons(sel.value); loadOperations(sel.value); });
+    sel.addEventListener('change', () => {
+      // Gerekçe güne özeldir; başka güne geçince taşınmasın
+      const reason = document.getElementById('mf-override-reason');
+      if (reason) reason.value = '';
+      loadBalloons(sel.value);
+      loadOperations(sel.value);
+    });
   } catch (err) {
     toast.error('Sayfalar yüklenemedi', err.message);
   }
@@ -172,22 +184,37 @@ async function loadOperations(sheet) {
     renderDriverSummary();
   } catch (err) {
     toast.error('Operasyon kontrolü yüklenemedi', err.message);
+    const root = document.getElementById('mf-readiness');
+    if (root) {
+      root.innerHTML = `
+        <div class="rounded-lg bg-danger/10 border border-danger/20 p-3 text-danger text-sm">
+          Uçuşa hazır kontrolü yüklenemedi: ${esc(err.message)}.
+          Çıktı alırken uyarı çıkarsa aşağıya gerekçe yazmanız istenebilir.
+        </div>`;
+    }
+    const drivers = document.getElementById('driver-summary');
+    if (drivers) drivers.innerHTML = '<div class="empty-desc">Şoför özeti yüklenemedi.</div>';
   }
 }
 
 function renderReadiness() {
   const root = document.getElementById('mf-readiness');
   const data = state.readiness || {};
+  if (!root) return;
   if (data.ready) {
-    if (!root) return;
-    root.innerHTML = `<div class="rounded-lg bg-success/10 border border-success/20 p-4 text-success flex gap-3"><span class="material-symbols-outlined">task_alt</span><div><strong>Uçuşa hazır</strong><div class="text-sm opacity-80">${data.total_passengers || 0} yolcu kontrol edildi.</div></div></div>`;
+    root.innerHTML = `<div class="rounded-lg bg-success/10 border border-success/20 p-4 text-success flex gap-3"><span class="material-symbols-outlined">task_alt</span><div><strong>Uçuşa hazır</strong><div class="text-sm opacity-80">${Number(data.total_passengers || 0)} yolcu kontrol edildi.</div></div></div>`;
     return;
   }
-  if (!root) return;
   root.innerHTML = `
-    <div class="rounded-lg bg-warning/10 border border-warning/20 p-3 text-warning mb-3">${data.issue_count || 0} uyarı bulundu. Çıktı alınabilir ancak gerekçe istenir.</div>
-    <div class="max-h-52 overflow-auto space-y-2">${(data.issues || []).slice(0, 20).map(issue => `<div class="text-sm text-on-surface-variant border-b border-white/5 pb-2">${esc(issue.message)}</div>`).join('')}</div>
-    <div class="form-group mt-3"><label class="form-label">Eksiklerle devam gerekçesi</label><input class="form-input" id="mf-override-reason" placeholder="Örn. Eksik pasaport acenteden bekleniyor" /></div>`;
+    <div class="rounded-lg bg-warning/10 border border-warning/20 p-3 text-warning mb-3">${Number(data.issue_count || 0)} uyarı bulundu. Çıktı alınabilir ancak gerekçe istenir.</div>
+    <div class="max-h-52 overflow-auto space-y-2">${(data.issues || []).slice(0, 20).map(issue => `<div class="text-sm text-on-surface-variant border-b border-white/5 pb-2">${esc(issue.message)}</div>`).join('')}</div>`;
+}
+
+function focusOverrideReason() {
+  const input = document.getElementById('mf-override-reason');
+  if (!input) return;
+  input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  input.focus();
 }
 
 function renderDriverSummary() {
@@ -278,7 +305,7 @@ function renderTable() {
             <td class="p-4 text-on-surface-variant">${esc(r.nationality)}</td>
             <td class="p-4 text-on-surface-variant font-mono">${esc(r.passport_no)}</td>
             <td class="p-4">${(r.warnings || []).length
-              ? `<span class="badge badge-yellow">${r.warnings.join(', ')}</span>`
+              ? `<span class="badge badge-yellow">${esc(r.warnings.join(', '))}</span>`
               : '<span class="badge badge-green flex items-center gap-1 w-max"><span class="material-symbols-outlined text-[16px]">check</span> Geçerli</span>'
             }</td>
           </tr>
@@ -331,6 +358,16 @@ async function downloadFetch(url, options, fallbackName) {
     if (!response.ok) {
       const payload = await response.json().catch(() => ({ detail: response.statusText }));
       const detail = payload.detail;
+      if (response.status === 409 && detail?.code === 'readiness_override_required') {
+        // Kontrol daha önce yüklenemediyse bile sunucunun gönderdiği listeyi göster
+        if (detail.readiness) {
+          state.readiness = detail.readiness;
+          renderReadiness();
+        }
+        focusOverrideReason();
+        toast.warning('Gerekçe gerekli', `${detail.message || 'Uçuşa hazır kontrolünde eksikler var.'} Gerekçeyi yazıp tekrar deneyin.`);
+        return;
+      }
       throw new Error(typeof detail === 'string' ? detail : (detail?.message || response.statusText));
     }
     const blob = await response.blob();

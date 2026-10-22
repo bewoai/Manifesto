@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 260" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
+  <!-- İrtifa — Kapadokya silueti: peribacaları + 3 balon. Tek renk (tüf beji);
+       opaklık CSS'te verilir (≤ 0.12). Ağdan kaynak çekmez. -->
+  <g fill="#e9dcc7">
+    <!-- Balonlar -->
+    <g transform="translate(780 34)">
+      <path d="M0 0c-17 0-30 13-30 30 0 15 13 28 22 36h16c9-8 22-21 22-36C30 13 17 0 0 0z"/>
+      <path d="M-8 66l3 9h10l3-9z" opacity=".8"/>
+      <rect x="-6" y="77" width="12" height="9" rx="2"/>
+    </g>
+    <g transform="translate(960 70) scale(.62)">
+      <path d="M0 0c-17 0-30 13-30 30 0 15 13 28 22 36h16c9-8 22-21 22-36C30 13 17 0 0 0z"/>
+      <path d="M-8 66l3 9h10l3-9z" opacity=".8"/>
+      <rect x="-6" y="77" width="12" height="9" rx="2"/>
+    </g>
+    <g transform="translate(180 40) scale(.48)">
+      <path d="M0 0c-17 0-30 13-30 30 0 15 13 28 22 36h16c9-8 22-21 22-36C30 13 17 0 0 0z"/>
+      <path d="M-8 66l3 9h10l3-9z" opacity=".8"/>
+      <rect x="-6" y="77" width="12" height="9" rx="2"/>
+    </g>
+
+    <!-- Peribacaları ve vadi -->
+    <path d="M0 260V214c38-6 70-4 96-10l22-62c4-10 16-10 20 0l20 58c22-2 40 0 60-6l26-92c4-12 18-12 22 0l26 96c26 4 46 0 70 2l14-40c3-8 13-8 16 0l14 42c40 2 70-8 104-6l30-110c4-13 20-13 24 0l30 112c30 0 56 6 84 2l18-54c4-9 14-9 18 0l18 56c34 2 62-6 96-4l24-76c4-11 18-11 22 0l24 78c34 4 60-2 92 2l16-44c3-8 13-8 16 0l16 46c30 2 52-4 80-2L1200 206V260z"/>
+    <!-- Şapkalar (tüf üzerindeki bazalt başlıklar) -->
+    <ellipse cx="128" cy="140" rx="16" ry="6"/>
+    <ellipse cx="255" cy="100" rx="20" ry="7"/>
+    <ellipse cx="384" cy="158" rx="13" ry="5"/>
+    <ellipse cx="552" cy="84" rx="22" ry="8"/>
+    <ellipse cx="705" cy="144" rx="15" ry="6"/>
+    <ellipse cx="863" cy="120" rx="18" ry="7"/>
+    <ellipse cx="1014" cy="156" rx="13" ry="5"/>
+  </g>
+</svg>

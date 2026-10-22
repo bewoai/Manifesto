@@ -31,32 +31,67 @@ export async function render(container) {
   `;
 
   await loadData();
-  renderContent(document.getElementById('manual-review-content'));
+  const content = document.getElementById('manual-review-content');
+  if (content) renderContent(content); // kullanıcı bu arada başka sayfaya geçtiyse çizme
 }
 
 async function loadData() {
   state.loading = true;
+  state.error = null;
   try {
-    const [reviewRes, countriesRes] = await Promise.all([
+    // Ülke listesi yalnız öneri içindir; o düşerse kuyruk yine gösterilir.
+    const [reviewRes, countriesRes] = await Promise.allSettled([
       api.get('/api/passport/manual-review'),
       api.get('/api/countries')
     ]);
-    state.items = reviewRes.items || [];
-    state.countries = countriesRes.countries || [];
-  } catch (err) {
-    toast.error('Veri alınamadı', err.message);
+    if (reviewRes.status === 'fulfilled') {
+      state.items = reviewRes.value.items || [];
+    } else {
+      state.items = [];
+      state.error = reviewRes.reason?.message || 'Bilinmeyen hata';
+      toast.error('Veri alınamadı', state.error);
+    }
+    state.countries = countriesRes.status === 'fulfilled' ? (countriesRes.value.countries || []) : [];
   } finally {
     state.loading = false;
   }
 }
 
+window.__reloadManualReview = async function() {
+  const container = document.getElementById('manual-review-content');
+  if (!container) return;
+  container.innerHTML = `
+    <div class="flex justify-center p-12">
+      <div class="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+    </div>`;
+  await loadData();
+  const current = document.getElementById('manual-review-content');
+  if (current) renderContent(current);
+};
+
 function renderContent(container) {
   if (state.loading) return;
+
+  // Veri çekilemediyse "bekleyen yok" demek yanıltıcı olur → ayrı hata durumu
+  if (state.error) {
+    container.innerHTML = `
+      <div class="empty-state glass-panel rounded-[40px] p-12">
+        <div class="empty-icon material-symbols-outlined text-danger">cloud_off</div>
+        <div class="empty-title">Manuel kontrol listesi alınamadı</div>
+        <div class="empty-desc">${esc(state.error)}</div>
+        <div class="empty-desc mt-1">Bekleyen kayıt olabilir; liste yüklenene kadar pasaportları onaylı saymayın.</div>
+        <button class="btn-secondary mt-6" onclick="window.__reloadManualReview()">
+          <span class="material-symbols-outlined text-[18px] align-middle">refresh</span> Tekrar dene
+        </button>
+      </div>
+    `;
+    return;
+  }
 
   if (state.items.length === 0) {
     container.innerHTML = `
       <div class="empty-state glass-panel rounded-[40px] p-12">
-        <div class="empty-icon text-green-400">task_alt</div>
+        <div class="empty-icon material-symbols-outlined text-success">task_alt</div>
         <div class="empty-title">Bekleyen Kontrol Yok</div>
         <div class="empty-desc">Harika! Şu anda manuel kontrole düşen hiçbir kimlik bulunmuyor.</div>
       </div>
@@ -83,7 +118,7 @@ function renderContent(container) {
           <div class="flex-1 flex flex-col justify-between">
             <div>
               <div class="flex items-center gap-3 mb-4">
-                <span class="material-symbols-outlined text-yellow-400">warning</span>
+                <span class="material-symbols-outlined text-warning">warning</span>
                 <h3 class="text-lg font-semibold text-on-surface">Kontrol Gerekli</h3>
                 <span class="text-sm px-2 py-1 bg-surface-light rounded-md border border-white/5 font-mono text-on-surface-variant">
                   ${esc(item.fallback_reason || 'Düşük Güven Skoru')}
@@ -97,10 +132,7 @@ function renderContent(container) {
                 <!-- Uyruk -->
                 <div class="form-group">
                   <label class="form-label">Uyruk</label>
-                  <input type="text" class="form-input font-mono uppercase tracking-widest" id="nat-${item.id}" value="${esc(item.nationality || '')}" list="dl-nat-${item.id}" placeholder="TUR" maxlength="3" />
-                  <datalist id="dl-nat-${item.id}">
-                    ${state.countries.map(c => `<option value="${esc(c.code)}">${esc(c.name)}</option>`).join('')}
-                  </datalist>
+                  <input type="text" class="form-input font-mono uppercase tracking-widest" id="nat-${item.id}" value="${esc(item.nationality || '')}" placeholder="TUR" maxlength="3" />
                 </div>
                 <!-- Cinsiyet -->
                 <div class="form-group">
@@ -129,7 +161,7 @@ function renderContent(container) {
                 <span class="material-symbols-outlined">check</span>
                 Onayla & Kaydet
               </button>
-              <button class="btn-secondary py-3 text-red-400 hover:text-red-300 hover:bg-red-400/10 border-red-400/20" onclick="window.__resolveManualReview(${item.id}, 'reject')">
+              <button class="btn-secondary py-3 text-danger hover:bg-danger/10 border-danger/20" onclick="window.__resolveManualReview(${item.id}, 'reject')">
                 <span class="material-symbols-outlined">delete</span>
                 Reddet
               </button>
@@ -149,13 +181,12 @@ function renderContent(container) {
     ${itemsHtml}
   `;
 
-  // Attach comboboxes
-  setTimeout(() => {
-    state.items.forEach(item => {
-      const el = document.getElementById(`nat-${item.id}`);
-      if (el) attachCombobox(el, state.countries.map(c => ({ value: c.code, label: `${c.code} — ${c.name}` })));
-    });
-  }, 50);
+  // Uyruk alanı yalnız combobox ile tamamlanır (datalist ile çift öneri paneli açılıyordu)
+  const countryOptions = state.countries.map(c => ({ value: c.code, label: `${c.code} — ${c.name}` }));
+  state.items.forEach(item => {
+    const el = document.getElementById(`nat-${item.id}`);
+    if (el) attachCombobox(el, () => countryOptions);
+  });
 }
 
 window.__openImageModal = function(url) {
@@ -182,7 +213,23 @@ window.__resolveManualReview = async function(id, action) {
       toast.warning('Eksik Bilgi', 'Onaylamak için zorunlu alanları doldurun.');
       return;
     }
+  } else if (action === 'reject') {
+    const item = state.items.find(i => i.id === id) || {};
+    const name = document.getElementById(`name-${id}`)?.value || item.name || '';
+    const docNo = document.getElementById(`pass-${id}`)?.value || item.document_number || '';
+    const ok = await modal.confirm({
+      title: 'Kayıt reddedilsin mi?',
+      bodyHtml: `
+        <p class="text-on-surface mb-2">Bu belge manuel kontrol listesinden çıkarılacak ve <strong>planlamaya yazılmayacak</strong>.</p>
+        <p class="text-sm text-on-surface-variant">${esc(name || '(isimsiz)')} <span class="font-mono">${esc(docNo || '—')}</span></p>
+        <p class="text-sm text-on-surface-variant mt-2">Yolcu gerçekse pasaportu yeniden tarayın veya Pasaport ekranında manuel kart oluşturun.</p>`,
+      confirmLabel: 'Reddet',
+      cancelLabel: 'Vazgeç',
+      tone: 'danger',
+    });
+    if (!ok) return;
   }
+  if (!container) return;
 
   container.style.opacity = '0.5';
   container.style.pointerEvents = 'none';
@@ -212,7 +259,8 @@ window.__resolveManualReview = async function(id, action) {
     container.style.opacity = '0';
     setTimeout(() => {
       state.items = state.items.filter(i => i.id !== id);
-      renderContent(document.getElementById('manual-review-content'));
+      const content = document.getElementById('manual-review-content');
+      if (content) renderContent(content);
     }, 300);
   } catch (err) {
     container.style.opacity = '1';

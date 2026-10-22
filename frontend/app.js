@@ -66,10 +66,10 @@ const toast = {
   show(type, title, message = '', duration = 4000) {
     if (!this._container) this.init();
     const icons = {
-      success: '<span class="material-symbols-outlined text-green-400">check_circle</span>',
-      error: '<span class="material-symbols-outlined text-red-400">error</span>',
-      warning: '<span class="material-symbols-outlined text-yellow-400">warning</span>',
-      info: '<span class="material-symbols-outlined text-primary">info</span>',
+      success: '<span class="material-symbols-outlined text-success">check_circle</span>',
+      error: '<span class="material-symbols-outlined text-danger">error</span>',
+      warning: '<span class="material-symbols-outlined text-warning">warning</span>',
+      info: '<span class="material-symbols-outlined text-info">info</span>',
     };
     const el = document.createElement('div');
     el.className = `toast ${type}`;
@@ -99,7 +99,15 @@ const toast = {
 
 // ─── Modal System ───
 const modal = {
+  _resolve: null,
+  _settle(value) {
+    const resolve = this._resolve;
+    this._resolve = null;
+    if (resolve) resolve(value);
+  },
   open(title, contentHtml, footerHtml = '') {
+    // Açık bir onay penceresi başka bir modalla değiştirilirse "vazgeç" sayılır.
+    this._settle(false);
     const root = document.getElementById('modal-root');
     root.innerHTML = `
       <div class="modal-overlay" id="modal-overlay">
@@ -121,16 +129,70 @@ const modal = {
   },
   close() {
     document.getElementById('modal-root').innerHTML = '';
+    this._settle(false);
+  },
+  isOpen() {
+    return !!document.getElementById('modal-root')?.firstElementChild;
+  },
+  /**
+   * Uygulama içi onay penceresi (window.confirm yerine). Promise<boolean> döner:
+   * onay → true; vazgeç / kapat / dışarı tıklama / Esc → false.
+   * bodyHtml çağıran tarafından escape edilmiş olmalıdır.
+   */
+  confirm({ title, bodyHtml = '', confirmLabel = 'Devam Et', cancelLabel = 'Vazgeç', tone = 'primary' } = {}) {
+    return new Promise((resolve) => {
+      const confirmClass = tone === 'danger' ? 'btn-danger' : 'btn-primary';
+      this.open(escapeHtml(title || 'Onay'), bodyHtml, `
+        <button type="button" class="btn-secondary" data-modal-cancel>${escapeHtml(cancelLabel)}</button>
+        <button type="button" class="${confirmClass}" data-modal-confirm>${escapeHtml(confirmLabel)}</button>
+      `);
+      this._resolve = resolve;
+      const root = document.getElementById('modal-root');
+      root.querySelector('[data-modal-cancel]')?.addEventListener('click', () => this.close());
+      const ok = root.querySelector('[data-modal-confirm]');
+      ok?.addEventListener('click', () => {
+        this._settle(true);
+        this.close();
+      }, { once: true });
+      // Güvenli varsayılan: odak "Vazgeç"te (Enter yanlışlıkla onaylamasın)
+      root.querySelector('[data-modal-cancel]')?.focus();
+    });
   },
 };
 window.__closeModal = () => modal.close();
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && modal.isOpen()) modal.close();
+});
 
 let appShutdownRequested = false;
 
+// ─── Kaydedilmemiş değişiklik kaydı ───
+// Sayfalar registerUnsavedCheck(ad, fn) ile "yazılmamış veri var mı?" kontrolü bildirir.
+// window.__hasUnsavedChanges() hepsini sorar; pencere yenileme/kapama onayı YALNIZ
+// true dönerse istenir (eskiden her yenilemede soruluyordu).
+const unsavedChecks = new Map();
+
+function registerUnsavedCheck(name, fn) {
+  if (typeof fn === 'function') unsavedChecks.set(name, fn);
+  else unsavedChecks.delete(name);
+}
+
+window.__hasUnsavedChanges = function() {
+  for (const fn of unsavedChecks.values()) {
+    try {
+      if (fn()) return true;
+    } catch (err) {
+      console.error('Unsaved-change check failed', err);
+    }
+  }
+  return false;
+};
+
 function handleBeforeUnload(event) {
   if (appShutdownRequested) return;
+  if (!window.__hasUnsavedChanges()) return;
   event.preventDefault();
-  event.returnValue = 'İrtifa penceresi kapatılsın mı?';
+  event.returnValue = 'Kaydedilmemiş değişiklikler var. Pencere kapatılsın mı?';
   return event.returnValue;
 }
 
@@ -169,8 +231,8 @@ function renderSidebar(activeRoute) {
     return `
       <a href="#/${item.route}" id="nav-${item.id}"
          class="group flex items-center gap-3.5 px-3.5 py-2.5 rounded-2xl transition-all ${on
-           ? 'bg-white/10 ring-1 ring-white/15 shadow-lg shadow-black/20'
-           : 'hover:bg-white/5'}">
+           ? 'bg-primary/10 ring-1 ring-primary/25'
+           : 'hover:bg-tertiary/[.05]'}">
         <span class="block transition-transform group-hover:-translate-y-0.5 ${on ? '' : 'opacity-90 group-hover:opacity-100'}">${icon3d(item.id, 30)}</span>
         <span class="text-[15px] font-medium ${on ? 'text-on-surface' : 'text-on-surface-variant group-hover:text-on-surface'}">${item.label}</span>
       </a>`;
@@ -261,9 +323,16 @@ window.__updateAppStatus = function(status) {
   renderSidebar(getRoute());
 };
 
-function renderHeader(title, subtitle = '') {
+// Kapadokya silueti yalnız giriş/lisans ekranında ve panel (dashboard) başlığında;
+// operasyon ekranlarında dekor yok. Görsel yerel (frontend/public), opaklık ≤ 0.12.
+const CAPPADOCIA_SVG = '/cappadocia-silhouette.svg';
+const cappadociaBackdrop = () =>
+  `<img src="${CAPPADOCIA_SVG}" class="cappadocia-backdrop" alt="" aria-hidden="true" />`;
+
+function renderHeader(title, subtitle = '', { decor = false } = {}) {
   const header = document.getElementById('page-header');
   header.innerHTML = `
+    ${decor ? `<img src="${CAPPADOCIA_SVG}" class="header-decor" alt="" aria-hidden="true" />` : ''}
     <div class="flex items-center gap-4">
       <h1 class="font-headline text-headline-md text-on-surface tracking-tight">${title}</h1>
       ${subtitle ? `<span class="hidden lg:block text-on-surface-variant text-sm">— ${subtitle}</span>` : ''}
@@ -396,7 +465,8 @@ async function bootWorkspace(authStatus = {}) {
 
 function renderAuth(container, setupRequired) {
   container.innerHTML = `
-    <div class="min-h-[80vh] flex items-center justify-center">
+    ${cappadociaBackdrop()}
+    <div class="relative z-10 min-h-[80vh] flex items-center justify-center">
       <div class="glass-panel rounded-3xl p-8 w-full max-w-md">
         <div class="flex items-center gap-4 mb-7">
           <img src="/irtifa-logo.png" class="w-16 h-16 rounded-2xl" alt="İrtifa" />
@@ -452,7 +522,8 @@ async function renderLicense(container, canConfigure) {
   } catch(e) {}
 
   container.innerHTML = `
-    <div class="min-h-[80vh] flex items-center justify-center">
+    ${cappadociaBackdrop()}
+    <div class="relative z-10 min-h-[80vh] flex items-center justify-center">
       <div class="glass-panel rounded-3xl p-8 w-full max-w-md">
         <div class="flex items-center gap-4 mb-7">
           <img src="/irtifa-logo.png" class="w-16 h-16 rounded-2xl" alt="İrtifa" />
@@ -494,4 +565,4 @@ function escapeHtml(value) {
 }
 
 // Export for pages
-export { api, toast, modal, renderHeader, helpIcon, appStatus, currentUser };
+export { api, toast, modal, renderHeader, helpIcon, appStatus, currentUser, registerUnsavedCheck };

@@ -275,3 +275,11 @@ Hatalı-eksik), acente bazlı eksik görünümü, kapasite (Sayfa2) entegrasyonu
   yazma bitti). `reorder_reservation` hedefi `_is_block_boundary` ile doğrular (blok ortası → 422)
   ve `insert_rows`/`delete_rows` çevresinde birleşik hücreleri `_detach_merges`/`_reattach_merges`
   ile kaydırır (openpyxl birleşmeleri taşımaz; diğer blokların PAX/otel birleşmeleri kayıyordu).
+
+### Karar (2026-10-23) — OCR katmanı ve dağıtım biçimi
+- **Dağıtım: exe kalır.** Web, ancak ikinci müşteriyle ve planlama DB'ye taşınırsa gündeme gelir.
+- **OCR: şimdi sunucusuz.** İstemci `OcrProvider` arayüzü üzerinden doğrudan Claude'a gider (anahtar DPAPI'de);
+  model yalnız MRZ satırlarını döner, checksum `app/mrz`'de. Irtifa OCR Server bağımlılığı kalkar.
+- **İnce proxy (`server/`, Cloud Run + Supabase) ikinci müşteride.** HTTP sözleşmesi şimdiden donduruldu.
+- Gerekçe, maliyet tablosu, sözleşme ve PR bazlı geçiş planı: `docs/mimari-v2-ocr-sunucu.md`.
+  Alternatif değerlendirme (proxy şimdi): `claude/dreamy-goldwasser-88b24b` dalındaki `docs/mimari-v2.md`, birleştirilmedi.

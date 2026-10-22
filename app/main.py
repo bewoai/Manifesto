@@ -52,7 +52,7 @@ from app.manifest.planning import (
     write_identity as planning_write_identity,
     write_operation_details as planning_write_operation_details,
 )
-from app.manifest.writer import ManifestRow, build_rows, export, write_manifest
+from app.manifest.writer import ManifestRow, build_rows, export, normalize_balloon_code, write_manifest
 from app.vision.extractor import PassportRecord, process_image
 from app.validation.flags import Flag, ValidationOutcome
 from app.passport_store import (
@@ -74,14 +74,26 @@ from app import updater as updater_mod
 
 app = FastAPI(title="İrtifa Uçuş Sistemi", version=APP_VERSION)
 
-# --- CORS: geliştirme ortamında tüm origin'lere izin ---
+# --- CORS: yalnız yerel origin'ler ---
+# Uygulama 127.0.0.1'de (rastgele port) çalışır; pywebview aynı origin'den, Vite dev
+# proxy üzerinden ister. Başka bir web sayfasının tarayıcı aracılığıyla yerel API'yi
+# (pasaport görselleri, planlama) okumasına izin verilmez.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[],
+    allow_origin_regex=r"^https?://(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def _balloon_param(balloon: str) -> str:
+    """Query'den gelen balon kodunu doğrular; geçersizse 422."""
+    try:
+        return normalize_balloon_code(balloon)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
 
 
 @app.middleware("http")
@@ -1946,6 +1958,7 @@ def api_manifest_preview(
     balloon: str = Query(..., description="Balon kodu, ör. BZR"),
 ) -> dict:
     """Balon için manifesto satırlarını JSON olarak önizle."""
+    balloon = _balloon_param(balloon)
     s = _load_settings()
     try:
         xlsx_path = _resolve_planning_path(s)
@@ -1971,6 +1984,7 @@ def api_manifest_export(
     override_reason: str = "",
 ) -> FileResponse:
     """Balon için manifesto xlsx dosyasını üret ve indir."""
+    balloon = _balloon_param(balloon)
     s = _load_settings()
     out_dir = s.output_path()
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -2323,6 +2337,7 @@ def manifest_preview(
     balloon: str = Query(..., description="Balon kodu, ör. BZR"),
 ) -> dict:
     """Eski endpoint — geriye dönük uyumluluk için korunuyor."""
+    balloon = _balloon_param(balloon)
     try:
         rows = build_rows(config.PLANNING_XLSX, date, balloon)
     except KeyError as e:
@@ -2341,6 +2356,7 @@ def manifest_export(
     balloon: str = Query(..., description="Balon kodu, ör. BZR"),
 ) -> FileResponse:
     """Eski endpoint — geriye dönük uyumluluk için korunuyor."""
+    balloon = _balloon_param(balloon)
     out_dir = Path(tempfile.mkdtemp())
     try:
         path = export(config.PLANNING_XLSX, date, balloon, out_dir)

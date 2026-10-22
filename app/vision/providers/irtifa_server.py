@@ -5,7 +5,7 @@ import logging
 
 import requests
 
-from app.vision.providers.base import CONFIDENCE_LEVELS, OcrResult
+from app.vision.providers.base import CONFIDENCE_LEVELS, KINDS, OcrResult
 
 logger = logging.getLogger("irtifa_ocr")
 
@@ -64,6 +64,10 @@ class IrtifaServerProvider:
         passenger = data.get("passenger") if isinstance(data.get("passenger"), dict) else {}
         confidence = data.get("confidence") if data.get("confidence") in CONFIDENCE_LEVELS else "red"
         usage = data.get("usage") if isinstance(data.get("usage"), dict) else None
+        # Çok yolculu sözleşme (isteğe bağlı alanlar; eski sunucu yalnız `passenger` döner)
+        kind = data.get("kind") if data.get("kind") in KINDS else ("passport_mrz" if data.get("raw_text") else "other")
+        group = data.get("group") if isinstance(data.get("group"), dict) else {}
+        passengers = [p for p in (data.get("passengers") or []) if isinstance(p, dict)]
         return OcrResult(
             status="success",
             passenger=passenger,
@@ -72,6 +76,9 @@ class IrtifaServerProvider:
             warnings=[str(w) for w in (data.get("warnings") or [])],
             source=str(data.get("source") or self.name),
             usage=usage,
+            kind=kind,
+            group=group,
+            passengers=passengers,
         )
 
     @staticmethod

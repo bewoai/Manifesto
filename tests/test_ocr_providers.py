@@ -165,12 +165,27 @@ class FakeAnthropic:
         )
 
 
+def _mrz_payload(lines, confidence=0.97, document_no=""):
+    return {
+        "kind": "passport_mrz",
+        "group": {"date": "", "hotel": "", "agency": "", "booking_code": "", "pax": None,
+                  "nationality_hint": "", "note": ""},
+        "passengers": [{
+            "format": "TD3", "lines": lines,
+            "fields": {"first_name": "", "last_name": "", "nationality": "", "gender": "",
+                       "document_no": document_no, "document_type": "", "birth_date": "", "expiry_date": ""},
+            "confidence": confidence, "annotation": "", "selected": None,
+        }],
+        "confidence": confidence,
+    }
+
+
 def test_claude_direct_returns_mrz_lines_and_usage():
-    client = FakeAnthropic({"format": "TD3", "lines": [TD3_L1, TD3_L2], "confidence": 0.97})
+    client = FakeAnthropic(_mrz_payload([TD3_L1, TD3_L2]))
     result = ClaudeDirectProvider(client, "claude-sonnet-5-5").read(b"img", "image/jpeg")
-    assert result.ok and result.confidence == "green"
+    assert result.ok and result.confidence == "green" and result.kind == "passport_mrz"
     assert result.raw_text == TD3_RAW
-    assert result.passenger == {}
+    assert result.passengers[0]["lines"] == [TD3_L1, TD3_L2]
     assert result.source == "claude:claude-sonnet-5-5"
     assert result.usage == {"input_tokens": 1200, "output_tokens": 60}
 
@@ -178,31 +193,35 @@ def test_claude_direct_returns_mrz_lines_and_usage():
     assert kw["model"] == "claude-sonnet-5-5"
     assert "tool_choice" not in kw and "tools" not in kw          # güncel modellerde zorunlu tool_choice 400
     assert kw["output_config"]["format"]["type"] == "json_schema"
-    assert kw["output_config"]["effort"] == "low"
+    assert kw["output_config"]["effort"] == "medium"
+    assert kw["max_tokens"] >= 4096                                 # uzun listeler için
     assert kw["messages"][0]["content"][0]["source"]["media_type"] == "image/jpeg"
 
 
 def test_claude_direct_end_to_end_is_green_only_after_local_checksum():
-    client = FakeAnthropic({"format": "TD3", "lines": [TD3_L1, TD3_L2], "confidence": 0.95})
+    client = FakeAnthropic(_mrz_payload([TD3_L1, TD3_L2], 0.95))
     s = settings_mod.Settings(vision_mode="claude_direct", anthropic_api_key="k")
     rec = process_image(b"img", settings=s, ocr_provider=ClaudeDirectProvider(client, "claude-sonnet-5-5"), today=TODAY)[0]
     assert rec.is_green and rec.to_fields()["passport_no"] == "L898902C3"
-    assert rec.processing_route == "claude_direct"
+    assert rec.processing_route == "claude_direct" and rec.source_kind == "passport_mrz"
 
     bad_l2 = TD3_L2[:9] + "5" + TD3_L2[10:]
-    client = FakeAnthropic({"format": "TD3", "lines": [TD3_L1, bad_l2], "confidence": 0.99})
+    client = FakeAnthropic(_mrz_payload([TD3_L1, bad_l2], 0.99))
     rec = process_image(b"img", settings=s, ocr_provider=ClaudeDirectProvider(client, "claude-sonnet-5-5"), today=TODAY)[0]
     assert Flag.CHECKSUM_FAIL in rec.flags and not rec.is_green
 
 
-def test_claude_direct_no_mrz_and_errors():
-    result = ClaudeDirectProvider(FakeAnthropic({"format": "NONE", "lines": [], "confidence": 0.2}), "m").read(b"img", "image/jpeg")
-    assert result.ok and result.raw_text == "" and "no_mrz" in result.warnings
+def test_claude_direct_no_passengers_and_errors():
+    empty = {"kind": "other", "group": {}, "passengers": [], "confidence": 0.2}
+    result = ClaudeDirectProvider(FakeAnthropic(empty), "m").read(b"img", "image/jpeg")
+    assert result.ok and result.passengers == [] and "no_passengers" in result.warnings
+    rec = process_image(b"img", ocr_provider=ClaudeDirectProvider(FakeAnthropic(empty), "m"))[0]
+    assert rec.mrz is None and Flag.UNREADABLE in rec.flags
 
     result = ClaudeDirectProvider(FakeAnthropic(raise_exc=RuntimeError("network down")), "m").read(b"img", "image/jpeg")
     assert not result.ok and "network down" in result.error
 
-    result = ClaudeDirectProvider(FakeAnthropic({"format": "TD3", "lines": [TD3_L1, TD3_L2], "confidence": 1}, stop_reason="refusal"), "m").read(b"img", "image/jpeg")
+    result = ClaudeDirectProvider(FakeAnthropic(_mrz_payload([TD3_L1, TD3_L2]), stop_reason="refusal"), "m").read(b"img", "image/jpeg")
     assert not result.ok and "reddetti" in result.error
 
 

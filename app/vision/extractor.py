@@ -20,8 +20,9 @@ from typing import Optional
 from app import settings as settings_mod
 from app.mrz.parser import MRZResult, parse_td1, parse_td3
 from app.validation.flags import Flag, ValidationOutcome, validate_mrz
-from app.vision.providers.base import OcrProvider, to_mrz
+from app.vision.providers.base import KIND_LABELS, OcrProvider, to_records
 from app.vision.providers.claude_direct import ClaudeDirectProvider
+from app.vision.providers.image_prep import prepare_image
 from app.vision.providers.irtifa_server import IrtifaServerProvider
 
 # Claude'a hem MRZ hem de serbest metinden tüm yolcuları çıkarttırıyoruz.
@@ -114,6 +115,12 @@ class PassportRecord:
     ai_model_used: Optional[str] = None
     fallback_reason: Optional[str] = None
     requires_manual_review: bool = False
+    # Kaynak meta (çok yolculu sözleşme): belge türü, satır işareti, grup başlığı
+    source_kind: str = ""            # passport_mrz | id_front | printed_list | handwritten_list | chat_message | ...
+    annotation: str = ""             # satırın yanındaki ham işaret: "✓", "SI", "21", "highlight", ""
+    selected: Optional[bool] = None  # liste kendisi açık evet/hayır kolonu taşıyorsa
+    group: dict = field(default_factory=dict)   # date, hotel, agency, booking_code, pax, nationality_hint, note
+    document_type: str = ""          # P | I | ""
 
     @property
     def is_green(self) -> bool:
@@ -125,13 +132,22 @@ class PassportRecord:
 
     def to_fields(self) -> dict:
         """Kontrol ekranının sağ panelindeki 4 alan + meta."""
+        meta = {
+            "source_kind": self.source_kind,
+            "source_kind_label": KIND_LABELS.get(self.source_kind, ""),
+            "annotation": self.annotation,
+            "selected": self.selected,
+            "group": dict(self.group) if self.group else {},
+            "document_type": self.document_type,
+        }
         if self.mrz is None:
             return {"nationality": "", "sex": "", "name": "", "passport_no": "",
                     "green": False, "flags": [f.value for f in self.flags],
                     "error": self.error, "source": self.source,
                     "confidence_score": self.confidence_score,
                     "processing_route": self.processing_route,
-                    "requires_manual_review": self.requires_manual_review}
+                    "requires_manual_review": self.requires_manual_review,
+                    **meta}
         return {
             "nationality": self.mrz.nationality,     # alpha-3 -> planlama col 2
             "sex": self.mrz.sex,                      # M/F -> planlama col 3
@@ -147,7 +163,8 @@ class PassportRecord:
             "confidence_score": self.confidence_score,
             "processing_route": self.processing_route,
             "ai_model_used": self.ai_model_used,
-            "requires_manual_review": self.requires_manual_review
+            "requires_manual_review": self.requires_manual_review,
+            **meta,
         }
 
 
@@ -375,36 +392,49 @@ def process_image(
                 route=settings_mod.VISION_MODE_MANUAL,
             )]
 
+    # EXIF yönü düzelt + uzun kenarı sınırla (dönük telefon fotoğrafları, token maliyeti)
+    image_bytes, media_type = prepare_image(image_bytes, media_type)
+
     result = ocr_provider.read(image_bytes, media_type)
-    mrz, outcome, error_msg, conf, route, ai_model = to_mrz(result, provider_name=ocr_provider.name)
+    outs = to_records(result, provider_name=ocr_provider.name)
 
-    if mrz is not None:
-        local_outcome = validate_mrz(
-            mrz,
-            seen_document_numbers=seen_document_numbers,
-            today=today,
-        )
-        for flag in local_outcome.flags:
-            outcome.add(flag)
-        if not all((mrz.nationality, mrz.document_number, mrz.name, mrz.sex)):
-            outcome.add(Flag.MISSING_REQUIRED_FIELDS)
+    # Aynı görsel içindeki tekrarlar da yakalansın (liste satırları)
+    seen_in_batch: set[str] = set(seen_document_numbers or ())
+    records: list[PassportRecord] = []
+    for out in outs:
+        mrz, outcome, error_msg, conf, route, ai_model = out.as_tuple()
+        if mrz is not None:
+            local_outcome = validate_mrz(mrz, seen_document_numbers=seen_in_batch, today=today)
+            for flag in local_outcome.flags:
+                outcome.add(flag)
+            # Manifesto 4 alan ister; cinsiyet 'X' (bilinmiyor) eksik sayılır, operatör seçer
+            if not all((mrz.nationality, mrz.document_number, mrz.name, mrz.sex in ("M", "F"))):
+                outcome.add(Flag.MISSING_REQUIRED_FIELDS)
+            if mrz.document_number:
+                seen_in_batch.add(mrz.document_number)
 
-    req_manual = False
-    if error_msg or conf < settings.ai_confidence_threshold_manual_review:
-        req_manual = True
-        if not error_msg:
-            outcome.add(Flag.LOW_CONFIDENCE)
-            
-    return [PassportRecord(
-        source=source,
-        mrz=mrz,
-        outcome=outcome,
-        error=error_msg,
-        confidence_score=conf,
-        processing_route=route,
-        ai_model_used=ai_model,
-        requires_manual_review=req_manual
-    )]
+        req_manual = False
+        if error_msg or conf < settings.ai_confidence_threshold_manual_review:
+            req_manual = True
+            if not error_msg:
+                outcome.add(Flag.LOW_CONFIDENCE)
+
+        records.append(PassportRecord(
+            source=source,
+            mrz=mrz,
+            outcome=outcome,
+            error=error_msg,
+            confidence_score=conf,
+            processing_route=route,
+            ai_model_used=ai_model,
+            requires_manual_review=req_manual,
+            source_kind=out.kind,
+            annotation=out.annotation,
+            selected=out.selected,
+            group=out.group,
+            document_type=out.document_type,
+        ))
+    return records
 
 
 def _parse_and_validate_mrz(passengers: list[dict], source: str, seen_document_numbers: Optional[set[str]], today: Optional[_dt.date]) -> list[PassportRecord]:

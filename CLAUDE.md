@@ -289,3 +289,10 @@ Hatalı-eksik), acente bazlı eksik görünümü, kapasite (Sayfa2) entegrasyonu
   `/api/app/status` claude_direct modunda lisans = API anahtarı var mı.
 - Sözleşme testleri: `tests/contract/fixtures/*.json` tek doğruluk kaynağı; ileride `server/` aynı
   fixture'larla test edilir. Varsayılanı `claude_direct`e çevirmek PR 4 (benchmark sonrası).
+- **Sözleşme çok yolculu (2026-10-23, saha örnekleri sonrası):** gerçek girdilerin çoğu MRZ'siz (el yazısı/basılı
+  listeler, kimlik ön yüzleri, WhatsApp rezervasyon mesajı; listelerde ✓/fosfor/B/sıra no/SI işaretleri uçanı
+  gösteriyor, acenteye göre değişir). `OcrResult.kind` + `group` (tarih/otel/acente/pax/uyruk ipucu) +
+  `passengers[]` (format, lines, fields, confidence, annotation, selected); `to_records()` her satırı ayrı
+  kayıt yapar, MRZ varsa checksum (yeşil mümkün), yoksa alanlar + FREE_TEXT_UNVERIFIED (sarı). İşaretler
+  yorumlanmaz, `annotation` olarak taşınır; kural seçimi UI'da (liste bazında, acenteye kaydedilir) — sıradaki.
+  Görsel ön işleme `providers/image_prep.py` (EXIF yön + 2000 px). Benchmark seti: `%USERPROFILE%\Irtifa-benchmark\`.

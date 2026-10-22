@@ -27,9 +27,36 @@ export async function render(container) {
           <span class="material-symbols-outlined text-primary text-3xl">document_scanner</span>
           <h2 class="font-headline text-headline-sm text-on-surface">İrtifa OCR Servisi</h2>
         </div>
-        <div class="form-group" style="display:none;">
-          <input type="hidden" id="s-vision-mode" value="irtifa_server" />
+        <div class="form-group">
+          <label class="form-label">OCR Sağlayıcı</label>
+          <select class="form-input" id="s-vision-mode" onchange="window.__onVisionModeChange()">
+            <option value="irtifa_server">İrtifa OCR Sunucusu (lisans anahtarı)</option>
+            <option value="claude_direct">Claude API (doğrudan, kendi anahtarınız)</option>
+            <option value="manual">Manuel (OCR kapalı)</option>
+          </select>
+          <div class="form-help">Pasaport görselleri hangi servisle okunacak. Yeşil/sarı kararı her durumda uygulama içinde MRZ checksum ile verilir.</div>
         </div>
+        <div id="s-claude-fields" style="display:none">
+          <div class="form-group">
+            <label class="form-label">Claude API Anahtarı</label>
+            <input class="form-input" id="s-anthropic-key" type="password" placeholder="sk-ant-..." autocomplete="off" />
+            <div class="form-help">Bu bilgisayarda Windows DPAPI ile şifreli saklanır; İrtifa sunucusuna gönderilmez. Boş bırakılırsa kayıtlı anahtar korunur.</div>
+          </div>
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label class="form-label">Model</label>
+              <input class="form-input font-mono text-sm" id="s-claude-model" placeholder="claude-sonnet-5-5" />
+              <div class="form-help">Varsayılan claude-sonnet-5-5. Daha ucuz deneme için claude-haiku-5-5.</div>
+            </div>
+            <div class="form-group flex items-end">
+              <button class="btn-secondary" onclick="window.__testConnection('claude_direct')">
+                <span class="material-symbols-outlined text-base">verified</span>
+                Anahtarı Doğrula
+              </button>
+            </div>
+          </div>
+        </div>
+        <div id="s-irtifa-fields">
         <div class="form-group">
           <label class="form-label">Sunucu Adresi</label>
           <input class="form-input" id="s-irtifa-url" type="url" placeholder="https://..." />
@@ -52,6 +79,7 @@ export async function render(container) {
               Bağlantıyı Test Et
             </button>
           </div>
+        </div>
         </div>
       </div>
 
@@ -254,9 +282,13 @@ function fillForm(s) {
   const val = (id, v) => { const el = document.getElementById(id); if (el) el.value = (v === null || v === undefined) ? '' : v; };
   const chk = (id, v) => { const el = document.getElementById(id); if (el) el.checked = !!v; };
 
+  val('s-vision-mode', s.vision_mode || 'irtifa_server');
+  val('s-anthropic-key', ''); // maskeli anahtar gösterilmez
+  val('s-claude-model', s.model || '');
   val('s-irtifa-url', s.irtifa_server_url);
   val('s-irtifa-key', ''); // Don't show masked key
   val('s-irtifa-device', s.irtifa_device_id);
+  if (window.__onVisionModeChange) window.__onVisionModeChange();
   val('s-data-source', s.data_source);
   val('s-planning-xlsx', s.planning_xlsx);
   val('s-gsheet-json', s.google_credentials_json);
@@ -319,7 +351,7 @@ window.__saveSettings = async function() {
   const gc = (id) => document.getElementById(id)?.checked || false;
 
   const body = {
-    vision_mode: 'irtifa_server',
+    vision_mode: gv('s-vision-mode') || 'irtifa_server',
     irtifa_server_url: gv('s-irtifa-url'),
     data_source: gv('s-data-source'),
     planning_xlsx: gv('s-planning-xlsx'),
@@ -352,6 +384,10 @@ window.__saveSettings = async function() {
   // Only include API key if user typed something new
   const irtifaKey = gv('s-irtifa-key');
   if (irtifaKey) body.irtifa_license_key = irtifaKey;
+  const anthropicKey = gv('s-anthropic-key');
+  if (anthropicKey) body.anthropic_api_key = anthropicKey;
+  const claudeModel = gv('s-claude-model');
+  if (claudeModel) body.model = claudeModel;
   
   const weatherKey = gv('s-weather-key');
   if (weatherKey) body.weather_api_key = weatherKey;
@@ -370,6 +406,14 @@ window.__saveSettings = async function() {
   }
 };
 
+window.__onVisionModeChange = function() {
+  const mode = document.getElementById('s-vision-mode')?.value || 'irtifa_server';
+  const claude = document.getElementById('s-claude-fields');
+  const irtifa = document.getElementById('s-irtifa-fields');
+  if (claude) claude.style.display = mode === 'claude_direct' ? '' : 'none';
+  if (irtifa) irtifa.style.display = mode === 'irtifa_server' ? '' : 'none';
+};
+
 window.__reloadSettings = function() {
   loadSettings(renderToken);
   toast.info('Yenilendi', 'Ayarlar sunucudan tekrar yüklendi');
@@ -381,6 +425,10 @@ window.__testConnection = async function(target) {
     if (target === 'irtifa_server') {
       payload.irtifa_server_url = document.getElementById('s-irtifa-url')?.value?.trim();
       payload.irtifa_license_key = document.getElementById('s-irtifa-key')?.value?.trim();
+    }
+    if (target === 'claude_direct') {
+      payload.anthropic_api_key = document.getElementById('s-anthropic-key')?.value?.trim();
+      payload.model = document.getElementById('s-claude-model')?.value?.trim();
     }
     const data = await api.post('/api/settings/test', payload);
     toast.success('Bağlantı başarılı', data.message);

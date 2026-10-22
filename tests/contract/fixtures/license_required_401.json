@@ -1,0 +1,13 @@
+{
+  "http_status": 401,
+  "body": {
+    "detail": "license key required"
+  },
+  "expect": {
+    "green": false,
+    "flags": [
+      "unreadable"
+    ],
+    "error_contains": "lisans anahtarı gerekli"
+  }
+}

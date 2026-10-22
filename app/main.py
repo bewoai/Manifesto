@@ -313,8 +313,12 @@ def api_auth_logout(request: Request, response: Response) -> dict:
 def api_app_status() -> dict:
     s = _load_settings()
     has_license = bool(s.irtifa_license_key and s.irtifa_license_key.strip())
+    # claude_direct modunda "lisans" = cihazdaki Claude API anahtarı; manuel modda OCR zaten kapalı
+    if s.uses_claude():
+        has_license = s.has_api_key()
     return {
         "licensed": has_license,
+        "vision_mode": s.vision_mode,
         "skipped": s.irtifa_license_skipped,
         "is_setup_complete": s.is_setup_complete,
         "version": APP_VERSION,
@@ -1727,7 +1731,7 @@ async def api_passport_retry_ocr(
         image_bytes,
         source=filename,
         media_type=content_type,
-        provider=settings_mod.VISION_MODE_IRTIFA_SERVER,
+        provider=s.vision_mode,
         settings=s,
         model=s.model,
     )
@@ -2227,6 +2231,20 @@ def api_settings_test(body: dict, request: Request) -> dict:
             except requests.exceptions.RequestException:
                 raise ValueError("Sunucuya ulaşılamıyor. URL'yi kontrol edin.")
             return {"success": True, "message": "İrtifa OCR Servisi ile bağlantı başarılı."}
+        if target == "claude_direct":
+            # Kaydedilmemiş form değeri önceliklidir; maskeli değer geldiyse kayıtlı anahtar kullanılır
+            form_key = str(body.get("anthropic_api_key") or "").strip()
+            test_key = form_key if form_key and "*" not in form_key else s.anthropic_api_key.strip()
+            test_model = str(body.get("model") or s.model or settings_mod.DEFAULT_MODEL).strip()
+            if not test_key and not s.has_api_key():
+                raise ValueError("Claude API anahtarı gerekli.")
+            from app.vision.extractor import _make_client
+            try:
+                client = _make_client(test_key or None)
+                client.models.retrieve(test_model)
+            except Exception as exc:
+                raise ValueError(f"Claude API doğrulanamadı: {exc}")
+            return {"success": True, "message": f"Claude API bağlantısı başarılı ({test_model})."}
         raise ValueError("Geçersiz bağlantı testi.")
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Bağlantı kurulamadı: {exc}")

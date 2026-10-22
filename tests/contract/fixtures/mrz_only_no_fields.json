@@ -1,0 +1,15 @@
+{
+  "http_status": 200,
+  "body": {
+    "status": "success",
+    "passenger": {},
+    "confidence": "green",
+    "raw_text": "P<UTOERIKSSON<<ANNA<MARIA<<<<<<<<<<<<<<<<<<<\nL898902C36UTO7408122F1204159ZE184226B<<<<<10",
+    "warnings": [],
+    "source": "claude:claude-sonnet-5-5"
+  },
+  "expect": {
+    "green": true,
+    "passport_no": "L898902C3"
+  }
+}

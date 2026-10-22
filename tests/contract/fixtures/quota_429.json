@@ -1,0 +1,13 @@
+{
+  "http_status": 429,
+  "body": {
+    "detail": "quota exceeded"
+  },
+  "expect": {
+    "green": false,
+    "flags": [
+      "unreadable"
+    ],
+    "error_contains": "kota"
+  }
+}

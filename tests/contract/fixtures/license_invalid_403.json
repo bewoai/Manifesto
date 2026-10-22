@@ -1,0 +1,13 @@
+{
+  "http_status": 403,
+  "body": {
+    "detail": "license invalid"
+  },
+  "expect": {
+    "green": false,
+    "flags": [
+      "unreadable"
+    ],
+    "error_contains": "geçersiz"
+  }
+}

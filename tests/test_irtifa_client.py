@@ -59,35 +59,18 @@ def test_server_client_rejects_large_image_without_network(monkeypatch):
 
 
 def test_server_result_gets_local_expiry_and_duplicate_checks(monkeypatch):
-    mrz = MRZResult(
-        format="SERVER_OCR",
-        document_type="P",
-        issuing_country="TUR",
-        nationality="TUR",
-        document_number="U123456",
-        sex="F",
-        surname="YILMAZ",
-        given_names="AYSE",
-        birth_date=None,
-        expiry_date=dt.date(2020, 1, 1),
-        checks={},
-        raw_lines=[],
-    )
+    """Sunucu ne derse desin expired/duplicate yerel hesaplanır (OcrProvider sözleşmesi)."""
+    from app.vision.providers import IrtifaServerProvider, OcrResult
 
-    def fake_server(**kwargs):
-        return (
-            mrz,
-            ValidationOutcome(),
-            None,
-            1.0,
-            "irtifa_server",
-            "google_vision",
+    def fake_read(self, image_bytes, media_type="image/jpeg"):
+        return OcrResult(
+            status="success",
+            passenger={"first_name": "AYSE", "last_name": "YILMAZ", "nationality": "TUR",
+                       "gender": "F", "document_no": "U123456", "expiry_date": "2020-01-01"},
+            confidence="green", raw_text="", source="google_vision",
         )
 
-    monkeypatch.setattr(
-        "app.vision.irtifa_client.call_irtifa_ocr_server",
-        fake_server,
-    )
+    monkeypatch.setattr(IrtifaServerProvider, "read", fake_read)
     settings = settings_mod.Settings(
         irtifa_license_key="LICENSE",
         irtifa_device_id="DEVICE",
@@ -100,7 +83,9 @@ def test_server_result_gets_local_expiry_and_duplicate_checks(monkeypatch):
     )[0]
     assert Flag.EXPIRED in record.flags
     assert Flag.DUPLICATE in record.flags
+    assert Flag.FREE_TEXT_UNVERIFIED in record.flags   # MRZ metni yok → doğrulanmamış
     assert not record.is_green
+    assert record.ai_model_used == "google_vision"
 
 
 def test_operational_errors_do_not_belong_in_manual_review():

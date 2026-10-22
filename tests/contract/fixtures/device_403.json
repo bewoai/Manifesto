@@ -1,0 +1,13 @@
+{
+  "http_status": 403,
+  "body": {
+    "detail": "device mismatch"
+  },
+  "expect": {
+    "green": false,
+    "flags": [
+      "unreadable"
+    ],
+    "error_contains": "başka bir bilgisayara"
+  }
+}

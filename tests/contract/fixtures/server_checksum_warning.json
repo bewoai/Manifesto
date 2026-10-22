@@ -1,0 +1,28 @@
+{
+  "http_status": 200,
+  "body": {
+    "status": "success",
+    "passenger": {
+      "first_name": "ANNA MARIA",
+      "last_name": "ERIKSSON",
+      "nationality": "UTO",
+      "gender": "F",
+      "document_no": "L898902C3",
+      "birth_date": "1974-08-12",
+      "expiry_date": "2012-04-15"
+    },
+    "confidence": "yellow",
+    "raw_text": "P<UTOERIKSSON<<ANNA<MARIA<<<<<<<<<<<<<<<<<<<\nL898902C36UTO7408122F1204159ZE184226B<<<<<10",
+    "warnings": [
+      "checksum"
+    ],
+    "source": "claude:claude-sonnet-5-5"
+  },
+  "expect": {
+    "green": false,
+    "flags": [
+      "checksum_fail",
+      "low_confidence"
+    ]
+  }
+}

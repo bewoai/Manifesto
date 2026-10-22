@@ -20,7 +20,10 @@ from typing import Optional
 from app import settings as settings_mod
 from app.mrz.parser import MRZResult, parse_td1, parse_td3
 from app.validation.flags import Flag, ValidationOutcome, validate_mrz
-from app.vision.ocr import extract_with_google_vision
+from app.vision.providers.base import KIND_LABELS, OcrProvider, to_records
+from app.vision.providers.claude_direct import ClaudeDirectProvider
+from app.vision.providers.image_prep import prepare_image
+from app.vision.providers.irtifa_server import IrtifaServerProvider
 
 # Claude'a hem MRZ hem de serbest metinden tüm yolcuları çıkarttırıyoruz.
 SYSTEM_PROMPT = (
@@ -112,6 +115,12 @@ class PassportRecord:
     ai_model_used: Optional[str] = None
     fallback_reason: Optional[str] = None
     requires_manual_review: bool = False
+    # Kaynak meta (çok yolculu sözleşme): belge türü, satır işareti, grup başlığı
+    source_kind: str = ""            # passport_mrz | id_front | printed_list | handwritten_list | chat_message | ...
+    annotation: str = ""             # satırın yanındaki ham işaret: "✓", "SI", "21", "highlight", ""
+    selected: Optional[bool] = None  # liste kendisi açık evet/hayır kolonu taşıyorsa
+    group: dict = field(default_factory=dict)   # date, hotel, agency, booking_code, pax, nationality_hint, note
+    document_type: str = ""          # P | I | ""
 
     @property
     def is_green(self) -> bool:
@@ -123,13 +132,22 @@ class PassportRecord:
 
     def to_fields(self) -> dict:
         """Kontrol ekranının sağ panelindeki 4 alan + meta."""
+        meta = {
+            "source_kind": self.source_kind,
+            "source_kind_label": KIND_LABELS.get(self.source_kind, ""),
+            "annotation": self.annotation,
+            "selected": self.selected,
+            "group": dict(self.group) if self.group else {},
+            "document_type": self.document_type,
+        }
         if self.mrz is None:
             return {"nationality": "", "sex": "", "name": "", "passport_no": "",
                     "green": False, "flags": [f.value for f in self.flags],
                     "error": self.error, "source": self.source,
                     "confidence_score": self.confidence_score,
                     "processing_route": self.processing_route,
-                    "requires_manual_review": self.requires_manual_review}
+                    "requires_manual_review": self.requires_manual_review,
+                    **meta}
         return {
             "nationality": self.mrz.nationality,     # alpha-3 -> planlama col 2
             "sex": self.mrz.sex,                      # M/F -> planlama col 3
@@ -145,7 +163,8 @@ class PassportRecord:
             "confidence_score": self.confidence_score,
             "processing_route": self.processing_route,
             "ai_model_used": self.ai_model_used,
-            "requires_manual_review": self.requires_manual_review
+            "requires_manual_review": self.requires_manual_review,
+            **meta,
         }
 
 
@@ -286,6 +305,46 @@ def _process_with_injected_client(
             record.outcome.add(Flag.LOW_CONFIDENCE)
     return records
 
+def make_provider(
+    settings: settings_mod.Settings,
+    *,
+    mode: Optional[str] = None,
+    client=None,
+    model: Optional[str] = None,
+) -> Optional[OcrProvider]:
+    """`vision_mode`'a göre sağlayıcı seçer. Manuel modda None döner.
+
+    - irtifa_server : merkezi OCR sunucusu (lisans anahtarı)
+    - claude_direct : doğrudan Claude, anahtar cihazda (DPAPI); `client` testler için enjekte edilebilir
+    - manual        : OCR kapalı
+    """
+    mode = settings_mod._LEGACY_VISION_MODES.get(mode or settings.vision_mode, mode or settings.vision_mode)
+    if mode == settings_mod.VISION_MODE_IRTIFA_SERVER:
+        return IrtifaServerProvider(
+            settings.irtifa_server_url, settings.irtifa_license_key, settings.irtifa_device_id
+        )
+    if mode == settings_mod.VISION_MODE_CLAUDE_DIRECT:
+        return ClaudeDirectProvider(
+            client or _make_client(settings.anthropic_api_key.strip() or None),
+            model or settings.model or settings_mod.DEFAULT_MODEL,
+        )
+    if mode == settings_mod.VISION_MODE_MANUAL:
+        return None
+    raise ValueError(f"Desteklenmeyen OCR modu: {mode!r}. Ayarlar'dan Claude veya İrtifa sunucusu seçin.")
+
+
+def _error_record(source: str, message: str, *, route: str) -> PassportRecord:
+    return PassportRecord(
+        source=source,
+        mrz=None,
+        outcome=ValidationOutcome(flags=[Flag.UNREADABLE]),
+        error=message,
+        confidence_score=0.0,
+        processing_route=route,
+        requires_manual_review=True,
+    )
+
+
 def process_image(
     image_bytes: bytes,
     *,
@@ -293,20 +352,24 @@ def process_image(
     media_type: str = "image/jpeg",
     client=None,
     model: Optional[str] = None,
-    provider: str = settings_mod.VISION_MODE_IRTIFA_SERVER,
+    provider: Optional[str] = None,
     settings: Optional[settings_mod.Settings] = None,
     seen_document_numbers: Optional[set[str]] = None,
     today: Optional[_dt.date] = None,
+    ocr_provider: Optional[OcrProvider] = None,
 ) -> list[PassportRecord]:
-    """Uçtan uca: görsel -> Irtifa OCR Sunucusu -> list[PassportRecord].
-    Müşteri sürümünde (Customer Build) yerel Google Vision veya Claude fallback devre dışıdır.
-    SADECE Irtifa sunucusu kullanılır.
+    """Uçtan uca: görsel -> OcrProvider -> yerel MRZ checksum -> list[PassportRecord].
+
+    Sağlayıcı `provider` (vision_mode adı) ya da `settings.vision_mode`'dan seçilir;
+    `ocr_provider` ile hazır bir sağlayıcı enjekte edilebilir (testler). Hangi sağlayıcı
+    olursa olsun yeşil karar yalnız `app/mrz` checksum'ı geçince verilir (brief §6).
+
+    `client` verilmesi eski çok-yolcu Claude yolunu (serbest metin/liste okuma) çalıştırır;
+    yalnız test ve geliştirici araçları içindir.
     """
     settings = settings or settings_mod.Settings()
 
-    # Üretim sürümü merkezi OCR sunucusunu kullanır. Açıkça istemci verilmesi
-    # yalnız test/geliştirici doğrulaması içindir ve dağıtılan anahtarları etkilemez.
-    if client is not None:
+    if client is not None and ocr_provider is None:
         return _process_with_injected_client(
             image_bytes,
             source=source,
@@ -317,44 +380,61 @@ def process_image(
             seen_document_numbers=seen_document_numbers,
             today=today,
         )
-    
-    # Müşteri derlemesinde provider ne olursa olsun her zaman Irtifa Server kullanılır.
-    from app.vision.irtifa_client import call_irtifa_ocr_server
-    mrz, outcome, error_msg, conf, route, ai_model = call_irtifa_ocr_server(
-        image_bytes=image_bytes,
-        server_url=settings.irtifa_server_url,
-        license_key=settings.irtifa_license_key,
-        device_id=settings.irtifa_device_id,
-        media_type=media_type,
-    )
-    
-    if mrz is not None:
-        local_outcome = validate_mrz(
-            mrz,
-            seen_document_numbers=seen_document_numbers,
-            today=today,
-        )
-        for flag in local_outcome.flags:
-            outcome.add(flag)
-        if not all((mrz.nationality, mrz.document_number, mrz.name, mrz.sex)):
-            outcome.add(Flag.MISSING_REQUIRED_FIELDS)
 
-    req_manual = False
-    if error_msg or conf < settings.ai_confidence_threshold_manual_review:
-        req_manual = True
-        if not error_msg:
-            outcome.add(Flag.LOW_CONFIDENCE)
-            
-    return [PassportRecord(
-        source=source,
-        mrz=mrz,
-        outcome=outcome,
-        error=error_msg,
-        confidence_score=conf,
-        processing_route=route,
-        ai_model_used=ai_model,
-        requires_manual_review=req_manual
-    )]
+    if ocr_provider is None:
+        try:
+            ocr_provider = make_provider(settings, mode=provider, model=model)
+        except ValueError as exc:
+            return [_error_record(source, str(exc), route=str(provider or settings.vision_mode))]
+        if ocr_provider is None:
+            return [_error_record(
+                source, "Manuel mod: otomatik OCR kapalı. Bilgileri elle girin.",
+                route=settings_mod.VISION_MODE_MANUAL,
+            )]
+
+    # EXIF yönü düzelt + uzun kenarı sınırla (dönük telefon fotoğrafları, token maliyeti)
+    image_bytes, media_type = prepare_image(image_bytes, media_type)
+
+    result = ocr_provider.read(image_bytes, media_type)
+    outs = to_records(result, provider_name=ocr_provider.name)
+
+    # Aynı görsel içindeki tekrarlar da yakalansın (liste satırları)
+    seen_in_batch: set[str] = set(seen_document_numbers or ())
+    records: list[PassportRecord] = []
+    for out in outs:
+        mrz, outcome, error_msg, conf, route, ai_model = out.as_tuple()
+        if mrz is not None:
+            local_outcome = validate_mrz(mrz, seen_document_numbers=seen_in_batch, today=today)
+            for flag in local_outcome.flags:
+                outcome.add(flag)
+            # Manifesto 4 alan ister; cinsiyet 'X' (bilinmiyor) eksik sayılır, operatör seçer
+            if not all((mrz.nationality, mrz.document_number, mrz.name, mrz.sex in ("M", "F"))):
+                outcome.add(Flag.MISSING_REQUIRED_FIELDS)
+            if mrz.document_number:
+                seen_in_batch.add(mrz.document_number)
+
+        req_manual = False
+        if error_msg or conf < settings.ai_confidence_threshold_manual_review:
+            req_manual = True
+            if not error_msg:
+                outcome.add(Flag.LOW_CONFIDENCE)
+
+        records.append(PassportRecord(
+            source=source,
+            mrz=mrz,
+            outcome=outcome,
+            error=error_msg,
+            confidence_score=conf,
+            processing_route=route,
+            ai_model_used=ai_model,
+            requires_manual_review=req_manual,
+            source_kind=out.kind,
+            annotation=out.annotation,
+            selected=out.selected,
+            group=out.group,
+            document_type=out.document_type,
+        ))
+    return records
 
 
 def _parse_and_validate_mrz(passengers: list[dict], source: str, seen_document_numbers: Optional[set[str]], today: Optional[_dt.date]) -> list[PassportRecord]:

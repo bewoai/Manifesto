@@ -1,6 +1,9 @@
 import { api, toast, renderHeader } from '/app.js';
 
+let renderToken = 0;
+
 export async function render(container) {
+  const currentToken = ++renderToken;
   renderHeader('Yönetim', 'Kullanıcılar, audit, yedekler ve güncellemeler');
   container.innerHTML = `
     <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
@@ -31,11 +34,12 @@ export async function render(container) {
         <div class="flex justify-end gap-3 mt-5"><button class="btn-secondary" onclick="document.getElementById('new-user-dialog').close()">İptal</button><button class="btn-primary" onclick="window.__createUser()">Oluştur</button></div>
       </div>
     </dialog>`;
-  await Promise.all([loadUsers(), loadBackups(), loadAudit(), loadUpdate()]);
+  await Promise.all([loadUsers(currentToken), loadBackups(currentToken), loadAudit(currentToken), loadUpdate(currentToken)]);
 }
 
-async function loadUsers() {
+async function loadUsers(token) {
   const data = await api.get('/api/admin/users');
+  if (token !== renderToken) return;
   document.getElementById('admin-users').innerHTML = (data.users || []).map(user => `
     <div class="flex items-center justify-between border-b border-white/5 py-3">
       <div><strong class="text-on-surface">${esc(user.display_name)}</strong><div class="text-xs text-on-surface-variant">${esc(user.username)}</div></div>
@@ -43,8 +47,9 @@ async function loadUsers() {
     </div>`).join('');
 }
 
-async function loadBackups() {
+async function loadBackups(token) {
   const data = await api.get('/api/admin/backups');
+  if (token !== renderToken) return;
   document.getElementById('admin-backups').innerHTML = (data.backups || []).slice(0, 50).map(item => `
     <div class="flex items-center justify-between gap-3 border-b border-white/5 py-3">
       <div class="min-w-0"><strong class="block truncate text-sm">${esc(item.name)}</strong><span class="text-xs text-on-surface-variant">${new Date(item.created_at).toLocaleString('tr-TR')}</span></div>
@@ -124,8 +129,9 @@ function formatActionDetail(row) {
   return `<span class="font-semibold text-on-surface">${esc(baseName)}</span><span class="text-xs text-on-surface-variant/80 ml-1.5">${esc(desc)}</span>`;
 }
 
-async function loadAudit() {
+async function loadAudit(token) {
   const data = await api.get('/api/admin/audit?limit=200');
+  if (token !== renderToken) return;
   document.getElementById('admin-audit').innerHTML = `
     <table class="w-full text-sm">
       <thead>
@@ -149,8 +155,9 @@ async function loadAudit() {
     </table>`;
 }
 
-async function loadUpdate() {
+async function loadUpdate(token) {
   const data = await api.get('/api/update/status');
+  if (token !== renderToken) return;
   const root = document.getElementById('admin-update');
   if (!data.configured) {
     root.innerHTML = '<div class="text-on-surface-variant">Güncelleme deposu Ayarlar bölümünde henüz yapılandırılmamış.</div>';
@@ -171,8 +178,8 @@ window.__createUser = async function() {
       role: document.getElementById('nu-role').value,
     });
     document.getElementById('new-user-dialog').close();
-    toast.success('Kullanıcı oluşturuldu');
-    loadUsers();
+    toast.success('Kullanıcı oluşturuldu', document.getElementById('nu-user').value.trim() + ' adlı kullanıcı eklendi.');
+    loadUsers(renderToken);
   } catch (err) { toast.error('Kullanıcı oluşturulamadı', err.message); }
 };
 
@@ -180,11 +187,11 @@ window.__restoreBackup = async function(name) {
   if (!confirm(`${name} geri yüklensin mi? Mevcut dosyanın ayrıca güvenlik yedeği alınır.`)) return;
   try {
     await api.post('/api/admin/backups/restore', { name });
-    toast.success('Yedek geri yüklendi');
-    loadBackups();
+    toast.success('Yedek geri yüklendi', name + ' başarıyla uygulandı.');
+    loadBackups(renderToken);
   } catch (err) { toast.error('Geri yükleme başarısız', err.message); }
 };
-window.__checkUpdate = loadUpdate;
+window.__checkUpdate = () => loadUpdate(renderToken);
 window.__downloadUpdate = async function() {
   try {
     const data = await api.post('/api/update/download', {});

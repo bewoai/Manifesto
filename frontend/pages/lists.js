@@ -5,6 +5,7 @@
 import { api, toast, renderHeader } from '/app.js';
 
 let state = { balloons: [], capacity: 28, options: {} };
+let renderToken = 0;
 
 // kategori anahtarı → başlık / ikon / yer tutucu
 const CATEGORIES = [
@@ -18,6 +19,7 @@ const CATEGORIES = [
 ];
 
 export async function render(container) {
+  const currentToken = ++renderToken;
   renderHeader('Listeler', 'Tekrar eden verileri kaydet — formlarda öneri olarak çıkar');
   container.innerHTML = `
     <div id="lists-root" class="max-w-[860px] mx-auto flex flex-col gap-6 pb-12 w-full">
@@ -34,18 +36,19 @@ export async function render(container) {
       <div id="lists-cards" class="flex flex-col gap-6"></div>
     </div>
   `;
-  await load();
+  await load(currentToken);
 }
 
-async function load() {
+async function load(token) {
   try {
     const data = await api.get('/api/lists');
+    if (token !== renderToken) return;
     state.balloons = data.balloons || [];
     state.capacity = data.capacity || 28;
     state.options = data.options || {};
     renderCards();
   } catch (err) {
-    toast.error('Listeler yüklenemedi', err.message);
+    if (token === renderToken) toast.error('Listeler yüklenemedi', err.message);
   }
 }
 
@@ -141,7 +144,11 @@ window.__scanLists = async function() {
     state.capacity = data.capacity || state.capacity;
     state.options = data.options || {};
     renderCards();
-    toast.success('Tarama Tamamlandı', 'Tüm geçmiş veriler listelere eklendi!');
+    if (data.added && data.added > 0) {
+      toast.success('Tarama Tamamlandı', `Toplam ${data.added} yeni veri listelere eklendi.`);
+    } else {
+      toast.success('Tarama Tamamlandı', 'Yeni veri bulunmadı, listeler zaten güncel.');
+    }
   } catch (err) {
     toast.error('Tarama Başarısız', err.message);
   } finally {

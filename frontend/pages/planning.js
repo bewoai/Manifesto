@@ -84,10 +84,12 @@ export async function render(container) {
           <div class="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center text-primary mb-4">
             <span class="material-symbols-outlined text-3xl">calendar_month</span>
           </div>
-          <h3 class="text-lg font-bold text-on-surface mb-2">Uçuş Planı Yüklenmedi</h3>
-          <p class="text-on-surface-variant max-w-sm mx-auto text-sm leading-relaxed">
-            Rezervasyon bloklarını görüntülemek, pilot/şoför atamalarını yapmak veya yeni rezervasyon eklemek için sol taraftaki takvimden bir uçuş günü seçin.
-          </p>
+          <h3 class="font-headline text-headline-sm text-on-surface mb-4">Uçuş Planı Seçilmedi</h3>
+          <div class="text-on-surface-variant max-w-lg space-y-4 text-sm text-left bg-surface/30 p-6 rounded-2xl border border-white/5">
+            <p><strong class="text-on-surface">Ne yok?</strong> Ekranda henüz görüntülenen bir uçuş planı veya rezervasyon listesi yok.</p>
+            <p><strong class="text-on-surface">Neden olabilir?</strong> İşlem yapmak istediğiniz tarih henüz sol taraftaki takvimden seçilmemiş olabilir.</p>
+            <p><strong class="text-on-surface">Şimdi ne yapmalıyım?</strong> Sol taraftaki takvimden uçuş tarihinizi seçebilirsiniz. Eğer takvimde işlem yapacağınız gün yoksa "Yeni Gün Oluştur" butonuyla yeni bir gün başlatabilirsiniz.</p>
+          </div>
         </div>
 
         <!-- Rezervasyon Blokları Kartı (Gün seçildiğinde) -->

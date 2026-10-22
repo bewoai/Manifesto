@@ -432,18 +432,20 @@
            text-xs font-bold;
   }
 
-  /* ─── Combobox ─── */
-  .cb-panel {
+  /* ─── Combobox (combobox.js: panel .cb-list, seçenek .cb-opt) ───
+     Panel body'e eklenir; position:fixed burada verilir → kartların
+     overflow:hidden'ı kırpmaz, konumu combobox.js getBoundingClientRect ile ayarlar. */
+  .cb-list {
     @apply fixed z-[250] glass-panel rounded-2xl py-2 min-w-[200px] max-h-[240px]
            overflow-y-auto shadow-2xl;
   }
 
-  .cb-item {
+  .cb-opt {
     @apply px-4 py-2 text-sm text-on-surface cursor-pointer hover:bg-white/10
            transition-colors;
   }
 
-  .cb-item.active {
+  .cb-opt.active {
     @apply bg-primary/15 text-primary;
   }
 

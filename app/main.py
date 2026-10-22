@@ -418,6 +418,13 @@ def update_settings(body: dict, request: Request) -> dict:
                 continue
             if key == "google_credentials_json" and body[key] == "Korumalı depoda kayıtlı":
                 continue
+            if key == "operation_options" and isinstance(body[key], dict):
+                # Ayarlar/onboarding yalnız acente+şoför gönderir; Listeler'deki
+                # otel/pilot/geleceği yer gibi diğer kategoriler korunmalı.
+                merged = dict(current_dict.get("operation_options") or {})
+                merged.update({k: v for k, v in body[key].items() if isinstance(v, list)})
+                current_dict[key] = merged
+                continue
             current_dict[key] = body[key]
 
     try:

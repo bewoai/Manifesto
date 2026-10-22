@@ -66,6 +66,19 @@ export default {
         'error-container': '#991b1b',
         'on-error-container': '#fef2f2',
 
+        // ─── Durum renkleri (kontrol kartları yeşil/sarı, rozetler, uyarılar) ───
+        // Sayfalarda text-success / bg-warning/10 / border-danger/20 / text-info olarak
+        // kullanılıyor; token tanımlı değilken derlenmiş CSS'te bu sınıflar yoktu.
+        'success': '#4ade80',
+        'on-success': '#052e16',
+        'warning': '#fbbf24',
+        'on-warning': '#451a03',
+        'danger': '#f87171',
+        'on-danger': '#450a0a',
+        'info': '#38bdf8',
+        'on-info': '#082f49',
+        'surface-light': '#1e293b', // Slate 800 — kart içi açık yüzey
+
         // ─── Balon vurgu paleti (illüstrasyon + 3D ikon + grafik) ───
         'balloon-red': '#ff6b6b',
         'balloon-orange': '#ff9f5a',

@@ -1019,6 +1019,8 @@ def api_planning_reorder_block(body: dict, request: Request) -> dict:
         )
     except (WorkbookConflictError, WorkbookLockedError) as e:
         raise _atomic_error(e)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Sıralama hatası: {e}")
     

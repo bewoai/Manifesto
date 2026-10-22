@@ -214,12 +214,71 @@ def pilot_for_balloon(rows: list[PlanningRow], code: str) -> str:
     return ""
 
 
+def _row_is_empty(ws, r: int) -> bool:
+    """Tüm planlama kolonları (PAX..PASAPORT NO) boş mu? max_row sonrası boş sayılır."""
+    if r > ws.max_row:
+        return True
+    return not any(_cell(ws, r, col) for col in range(1, config.COL_PASSPORT_NO + 1))
+
+
 def next_free_row(ws) -> int:
     """Tüm planlama kolonları boş olan ilk veri satırı."""
-    for r in range(config.PLANNING_FIRST_DATA_ROW, ws.max_row + 1):
-        if not any(_cell(ws, r, col) for col in range(1, config.COL_PASSPORT_NO + 1)):
+    return next_free_rows(ws, 1)
+
+
+def next_free_rows(ws, count: int) -> int:
+    """`count` ardışık boş satırın ilkini döndürür.
+
+    Yeni blok hiçbir dolu satırın üzerine yazılmaz: aradaki küçük boşluklar (ör.
+    silinmiş tek yolcu) yalnız sığan bloklar için kullanılır; sığmayan blok sona eklenir.
+    """
+    count = max(1, int(count))
+    r = config.PLANNING_FIRST_DATA_ROW
+    while r <= ws.max_row:
+        if all(_row_is_empty(ws, r + k) for k in range(count)):
             return r
+        r += 1
     return ws.max_row + 1
+
+
+def _is_block_boundary(ws, row: int) -> bool:
+    """Satır bir rezervasyon sınırı mı? (blok başı, boş satır veya verinin sonu)
+
+    Bir bloğun ortasına taşıma, o bloğu ikiye böler ve PAX/otel gibi lider alanları
+    yanlış satıra düşürür; bu yüzden reorder yalnız sınırlara izin verir.
+    """
+    if row < config.PLANNING_FIRST_DATA_ROW:
+        return False
+    if row == config.PLANNING_FIRST_DATA_ROW or row > ws.max_row:
+        return True
+    if _row_is_empty(ws, row) or _row_is_empty(ws, row - 1):
+        return True
+    return bool(_cell(ws, row, config.COL_PAX))  # PAX dolu = lider satır
+
+
+def _detach_merges(ws, *, from_row: int) -> list[tuple[int, int, int, int]]:
+    """`from_row` ve altında başlayan birleşik aralıkları çözer ve koordinatlarını döndürür.
+
+    openpyxl `insert_rows`/`delete_rows` birleşik hücreleri taşımaz; satır eklemeden
+    önce ayırıp (`_detach_merges`), sonra kaydırılmış konuma geri takmak
+    (`_reattach_merges`) gerekir. Aksi hâlde diğer blokların birleşmeleri yanlış
+    satırlara düşer ve Excel değerleri gizler.
+    """
+    detached = []
+    for rng in list(ws.merged_cells.ranges):
+        if rng.min_row >= from_row:
+            ws.unmerge_cells(str(rng))
+            detached.append((rng.min_row, rng.min_col, rng.max_row, rng.max_col))
+    return detached
+
+
+def _reattach_merges(ws, detached: list[tuple[int, int, int, int]], *, delta: int) -> None:
+    for min_row, min_col, max_row, max_col in detached:
+        min_row += delta
+        max_row += delta
+        if min_row >= config.PLANNING_FIRST_DATA_ROW and max_row >= min_row:
+            ws.merge_cells(start_row=min_row, start_column=min_col,
+                           end_row=max_row, end_column=max_col)
 
 
 def _unmerge_rows(ws, lo: int, hi: int) -> None:
@@ -257,8 +316,10 @@ def create_reservation(
 
     wb = openpyxl.load_workbook(planning_xlsx)
     ws = wb[sheet]
-    lead = next_free_row(ws)
-    rows = list(range(lead, lead + max(1, int(pax))))
+    pax_rows = max(1, int(pax))
+    # Hedef satırların TAMAMI boş olmalı; aksi hâlde sonraki bloğun üzerine yazılırdı.
+    lead = next_free_rows(ws, pax_rows)
+    rows = list(range(lead, lead + pax_rows))
     last = rows[-1]
 
     # Hedef satırlarla kesişen mevcut birleşmeleri çöz (kaynak günden miras kalan,
@@ -365,16 +426,27 @@ def reorder_reservation(planning_xlsx: Path, sheet: str, source_rows: list[int],
     """Belirli bir rezervasyon bloğunu (source_rows) hedef satırın (target_row) üstüne taşır."""
     if not source_rows or target_row in source_rows:
         return planning_xlsx
-    
+
+    target_row = int(target_row)
     wb = openpyxl.load_workbook(planning_xlsx)
     ws = wb[sheet]
     lo, hi = min(source_rows), max(source_rows)
     num_rows = hi - lo + 1
-    
+
+    if not _is_block_boundary(ws, target_row):
+        wb.close()
+        raise ValueError(
+            f"Hedef satır {target_row} bir rezervasyon sınırı değil; "
+            "bloğu başka bir bloğun başına veya listenin sonuna bırakın."
+        )
+
     _unmerge_rows(ws, lo, hi)
-    
+
+    # insert_rows birleşmeleri taşımaz → hedefin altındakileri ayır, ekle, kaydırarak geri tak
+    detached = _detach_merges(ws, from_row=target_row)
     ws.insert_rows(target_row, num_rows)
-    
+    _reattach_merges(ws, detached, delta=num_rows)
+
     new_lo = lo + num_rows if lo >= target_row else lo
     
     from copy import copy
@@ -393,8 +465,11 @@ def reorder_reservation(planning_xlsx: Path, sheet: str, source_rows: list[int],
                 tc.protection = copy(sc.protection)
                 tc.alignment = copy(sc.alignment)
     
+    # delete_rows da birleşmeleri taşımaz → silinen bandın altındakileri ayır, sil, geri tak
+    detached = _detach_merges(ws, from_row=new_lo + num_rows)
     ws.delete_rows(new_lo, num_rows)
-    
+    _reattach_merges(ws, detached, delta=-num_rows)
+
     final_target = target_row if target_row <= lo else target_row - num_rows
     _merge_lead_columns(ws, final_target, final_target + num_rows - 1)
     

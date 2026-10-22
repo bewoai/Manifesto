@@ -25,7 +25,49 @@ const monthsTR = [
   "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"
 ];
 
+// Gün yükleme istek token'ı: hızlı ardışık tıklamada yalnız SON isteğin yanıtı uygulanır.
+let loadToken = 0;
+let creatingDay = false;
+
+// Seçili bloğu indeks yerine kimliğiyle izlemek için imza. Sürükle-bırak sonrası sunucu
+// satırları kaydırdığından lead_row değişir; imza (lider + PAX + yolcular) değişmez.
+function blockKey(block) {
+  if (!block) return '';
+  const people = (block.passengers || []).map(p => p.passport_no || p.name || '').join(',');
+  return `${block.lead_name || ''}|${block.pax ?? ''}|${block.hotel || ''}|${people}`;
+}
+
+function selectedRef() {
+  const block = state.selectedBlock !== null ? state.blocks[state.selectedBlock] : null;
+  return block ? { leadRow: block.lead_row, key: blockKey(block) } : null;
+}
+
+// Yeni blok listesinde seçimi geri bul. byKey: satırlar kaydıysa (sıralama) imzayla eşle.
+function restoreSelection(ref, { byKey = false } = {}) {
+  if (!ref) { state.selectedBlock = null; return; }
+  let idx = byKey
+    ? state.blocks.findIndex(b => blockKey(b) === ref.key)
+    : state.blocks.findIndex(b => b.lead_row === ref.leadRow);
+  if (idx < 0 && !byKey) idx = state.blocks.findIndex(b => blockKey(b) === ref.key);
+  state.selectedBlock = idx < 0 ? null : idx;
+}
+
+function applyDayData(data) {
+  state.blocks = data.blocks || [];
+  state.balloons = data.balloon_codes || [];
+  state.balloonLoad = data.balloon_load || {};
+  state.capacity = data.capacity || 28;
+  state.revision = data.workbook_revision || '';
+  state.readiness = data.readiness || null;
+}
+
+function todayStart() {
+  const d = new Date();
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
 export async function render(container) {
+  loadToken++; // önceki sayfa ziyaretinden kalan yanıtlar uygulanmasın
   renderHeader('Planlama', 'Uçuş günü yönetimi ve rezervasyon blokları');
 
   container.innerHTML = `
@@ -88,7 +130,7 @@ export async function render(container) {
           <div class="text-on-surface-variant max-w-lg space-y-4 text-sm text-left bg-surface/30 p-6 rounded-2xl border border-white/5">
             <p><strong class="text-on-surface">Ne yok?</strong> Ekranda henüz görüntülenen bir uçuş planı veya rezervasyon listesi yok.</p>
             <p><strong class="text-on-surface">Neden olabilir?</strong> İşlem yapmak istediğiniz tarih henüz sol taraftaki takvimden seçilmemiş olabilir.</p>
-            <p><strong class="text-on-surface">Şimdi ne yapmalıyım?</strong> Sol taraftaki takvimden uçuş tarihinizi seçebilirsiniz. Eğer takvimde işlem yapacağınız gün yoksa "Yeni Gün Oluştur" butonuyla yeni bir gün başlatabilirsiniz.</p>
+            <p><strong class="text-on-surface">Şimdi ne yapmalıyım?</strong> Sol taraftaki takvimden uçuş tarihinizi seçebilirsiniz. İşlem yapacağınız gün henüz yoksa takvimde bugün veya ileri bir boş güne tıklayıp onaylayarak yeni gün oluşturabilirsiniz.</p>
           </div>
         </div>
 
@@ -193,24 +235,34 @@ function renderCalendar() {
   }
 
   // Ayın günleri
+  const today = todayStart();
   for (let day = 1; day <= daysInMonth; day++) {
     const formatted = formatCalendarDate(day, calState.currentMonth, calState.currentYear);
     const hasPlan = state.sheets.includes(formatted);
     const isSelected = state.currentSheet === formatted;
+    const date = new Date(calState.currentYear, calState.currentMonth - 1, day);
+    const isPast = date < today;
+    const isToday = date.getTime() === today.getTime();
 
     let cls = 'calendar-day';
     if (isSelected) {
       cls += ' selected';
     } else if (hasPlan) {
       cls += ' has-plan';
+    } else if (isPast) {
+      cls += ' past';
     } else {
       cls += ' no-plan';
     }
+    if (isToday) cls += ' today';
 
     if (hasPlan) {
       html += `<div class="${cls}" onclick="window.__loadDayDate('${formatted}')" title="Günü Yükle: ${formatted}">${day}</div>`;
+    } else if (isPast) {
+      // Geçmiş ve planı olmayan gün: yanlışlıkla gün oluşturulmasın diye tıklanamaz
+      html += `<div class="${cls}" title="Geçmiş tarih — uçuş günü yok">${day}</div>`;
     } else {
-      html += `<div class="${cls}" onclick="window.__createDayDate('${formatted}')" title="Yeni Gün Oluştur: ${formatted}">${day}</div>`;
+      html += `<div class="${cls}" onclick="window.__askCreateDay('${formatted}')" title="Uçuş günü yok: ${formatted}">${day}</div>`;
     }
   }
 
@@ -218,11 +270,13 @@ function renderCalendar() {
 }
 
 async function loadSheets() {
+  const token = loadToken;
   try {
     const data = await api.get('/api/planning/sheets');
+    if (token !== loadToken) return;
     state.sheets = data.sheets || [];
     state.source = data.source || 'excel';
-    
+
     // Takvim başlangıç tarihini son uçuş gününe eşitleyelim
     if (state.sheets.length) {
       const lastSheet = state.sheets[state.sheets.length - 1];
@@ -232,10 +286,10 @@ async function loadSheets() {
         calState.currentMonth = parsed.month;
       }
     }
-    
+
     renderCalendar();
   } catch (err) {
-    toast.error('Sayfalar yüklenemedi', err.message);
+    if (token === loadToken) toast.error('Sayfalar yüklenemedi', err.message);
   }
 }
 
@@ -261,6 +315,10 @@ window.__loadDay = function() {
 };
 
 window.__loadDayDate = async function(sheet) {
+  const token = ++loadToken;
+  const sameDay = state.currentSheet === sheet;
+  // Başka güne geçerken seçim taşınmaz (aynı satır no başka günde başka rezervasyondur)
+  const ref = sameDay ? selectedRef() : null;
   state.currentSheet = sheet;
   renderCalendar();
   showPlanningSkeletons();
@@ -271,20 +329,15 @@ window.__loadDayDate = async function(sheet) {
   }
 
   try {
-    const selectedLead = state.selectedBlock !== null ? state.blocks[state.selectedBlock]?.lead_row : null;
     const data = await api.get(`/api/planning/load?sheet=${encodeURIComponent(sheet)}`);
-    state.blocks = data.blocks || [];
-    state.selectedBlock = selectedLead
-      ? state.blocks.findIndex(b => b.lead_row === selectedLead)
-      : state.selectedBlock;
-    if (state.selectedBlock < 0) state.selectedBlock = null;
-    state.balloons = data.balloon_codes || [];
-    state.balloonLoad = data.balloon_load || {};
-    state.capacity = data.capacity || 28;
-    state.revision = data.workbook_revision || '';
-    state.readiness = data.readiness || null;
-    try { state.lists = (await api.get('/api/lists')).options || {}; } catch (e) { state.lists = {}; }
-    
+    if (token !== loadToken) return; // daha yeni bir istek var — eski yanıtı uygulama
+    applyDayData(data);
+    restoreSelection(ref);
+    let lists = {};
+    try { lists = (await api.get('/api/lists')).options || {}; } catch (e) { lists = {}; }
+    if (token !== loadToken) return;
+    state.lists = lists;
+
     const filterSelect = document.getElementById('block-filter');
     if (filterSelect) {
       const currentVal = filterSelect.value;
@@ -302,19 +355,44 @@ window.__loadDayDate = async function(sheet) {
 
     renderBlocks();
     renderBalloonLoad();
-    toast.success('Gün yüklendi', `${state.blocks.length} rezervasyon bloku bulundu`);
+    // Başarılı yüklemede toast yok: takvimde seçili gün ve liste zaten geri bildirim.
   } catch (err) {
+    if (token !== loadToken) return;
     toast.error('Yükleme hatası', err.message);
+    const list = document.getElementById('blocks-list');
+    if (list) {
+      list.innerHTML = `
+        <div class="empty-state">
+          <div class="material-symbols-outlined empty-icon text-danger">error</div>
+          <div class="empty-title">Gün yüklenemedi</div>
+          <div class="empty-desc">${escHtml(err.message || '')}</div>
+          <button class="btn-secondary mt-4" onclick="window.__loadDay()">Tekrar dene</button>
+        </div>`;
+    }
   } finally {
-    renderCalendar();
+    if (token === loadToken) renderCalendar();
   }
+};
+
+// Planı olmayan bugün/ileri tarih: önce kısa onay, sonra oluşturma penceresi.
+window.__askCreateDay = async function(date) {
+  if (!state.sheets.length) {
+    toast.warning('Kaynak gün yok', 'Yeni gün mevcut bir günden kopyalanır; önce planlama dosyasını kontrol edin.');
+    return;
+  }
+  const ok = await modal.confirm({
+    title: 'Uçuş günü yok',
+    bodyHtml: `<p class="text-on-surface"><strong>${escHtml(date)}</strong> için planlama sayfası yok. Bu tarihe yeni uçuş günü oluşturulsun mu?</p>`,
+    confirmLabel: 'Yeni gün oluştur',
+  });
+  if (ok) window.__createDayDate(date);
 };
 
 window.__createDayDate = function(date) {
   modal.open('Yeni Gün Oluştur', `
     <div class="form-group">
       <label class="form-label">Yeni gün adı</label>
-      <input class="form-input" id="new-day-name" value="${date}" readonly />
+      <input class="form-input" id="new-day-name" value="${escHtml(date)}" readonly />
       <div class="form-help">Bu tarihe yeni uçuş günü sayfası oluşturulacak.</div>
     </div>
     <div class="form-group mt-4">
@@ -325,15 +403,22 @@ window.__createDayDate = function(date) {
     </div>
   `, `
     <button class="btn-secondary" onclick="window.__closeModal()">İptal</button>
-    <button class="btn-primary" onclick="window.__submitNewDayDate()">Oluştur</button>
+    <button class="btn-primary" id="btn-new-day" onclick="window.__submitNewDayDate()">Oluştur</button>
   `);
 };
 
 window.__submitNewDayDate = async function() {
+  if (creatingDay) return;
   const name = document.getElementById('new-day-name')?.value.trim();
   const source = document.getElementById('new-day-source')?.value;
   if (!name) { toast.warning('Gün adı girin'); return; }
 
+  const btn = document.getElementById('btn-new-day');
+  creatingDay = true;
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="material-symbols-outlined animate-spin text-sm" style="vertical-align: text-bottom; margin-right: 4px;">progress_activity</span> Oluşturuluyor...';
+  }
   try {
     await api.post('/api/planning/create-day', { new_sheet: name, source_sheet: source });
     toast.success('Gün oluşturuldu', `${name} başarıyla eklendi`);
@@ -342,6 +427,12 @@ window.__submitNewDayDate = async function() {
     window.__loadDayDate(name);
   } catch (err) {
     toast.error('Oluşturma hatası', err.message);
+    if (btn?.isConnected) {
+      btn.disabled = false;
+      btn.textContent = 'Oluştur';
+    }
+  } finally {
+    creatingDay = false;
   }
 };
 
@@ -561,12 +652,19 @@ window.__onDrop = function(e, targetIndex) {
     state.originalBlocks = [...state.blocks];
   }
 
+  // Seçim indeksle değil blok nesnesiyle izlenir; taşıma sonrası yeni indeksi bulunur.
+  const selectedObj = state.selectedBlock !== null ? state.blocks[state.selectedBlock] : null;
   const [movedBlock] = state.blocks.splice(sourceIndex, 1);
   let newTargetIdx = state.blocks.findIndex(b => b.lead_row === targetBlock.lead_row);
   if (dropPos === 'after') {
     state.blocks.splice(newTargetIdx + 1, 0, movedBlock);
   } else {
     state.blocks.splice(newTargetIdx, 0, movedBlock);
+  }
+
+  if (selectedObj) {
+    const idx = state.blocks.indexOf(selectedObj);
+    state.selectedBlock = idx < 0 ? null : idx;
   }
 
   state.pendingReorder = {
@@ -615,7 +713,8 @@ window.__autoSaveReorder = async function() {
       }, 2500);
     }
 
-    await reloadDaySilently();
+    // Sunucu satırları kaydırdı → lead_row'lar değişti; seçimi imzayla geri bul.
+    await reloadDaySilently({ afterReorder: true });
   } catch (err) {
     toast.error('Sıralama kaydedilemedi', err.message);
     if (statusEl) {
@@ -623,7 +722,12 @@ window.__autoSaveReorder = async function() {
       statusEl.className = 'text-xs font-semibold text-danger flex items-center ml-3';
     }
     if (state.originalBlocks) {
+      const selectedObj = state.selectedBlock !== null ? state.blocks[state.selectedBlock] : null;
       state.blocks = state.originalBlocks;
+      if (selectedObj) {
+        const idx = state.blocks.indexOf(selectedObj);
+        state.selectedBlock = idx < 0 ? null : idx;
+      }
     }
     state.pendingReorder = null;
     state.originalBlocks = null;
@@ -631,21 +735,16 @@ window.__autoSaveReorder = async function() {
   }
 };
 
-async function reloadDaySilently() {
+async function reloadDaySilently({ afterReorder = false } = {}) {
   if (!state.currentSheet) return;
+  const token = ++loadToken;
+  const sheet = state.currentSheet;
   try {
-    const selectedLead = state.selectedBlock !== null ? state.blocks[state.selectedBlock]?.lead_row : null;
-    const data = await api.get(`/api/planning/load?sheet=${encodeURIComponent(state.currentSheet)}`);
-    state.blocks = data.blocks || [];
-    state.selectedBlock = selectedLead
-      ? state.blocks.findIndex(b => b.lead_row === selectedLead)
-      : state.selectedBlock;
-    if (state.selectedBlock < 0) state.selectedBlock = null;
-    state.balloons = data.balloon_codes || [];
-    state.balloonLoad = data.balloon_load || {};
-    state.capacity = data.capacity || 28;
-    state.revision = data.workbook_revision || '';
-    state.readiness = data.readiness || null;
+    const ref = selectedRef();
+    const data = await api.get(`/api/planning/load?sheet=${encodeURIComponent(sheet)}`);
+    if (token !== loadToken || sheet !== state.currentSheet) return;
+    applyDayData(data);
+    restoreSelection(ref, { byKey: afterReorder });
 
     renderBlocks();
     renderBalloonLoad();
@@ -924,120 +1023,6 @@ window.__submitReservation = async function() {
   }
 };
 
-window.__openMonthlyPlanModal = function() {
-  const d = new Date();
-  const currentYear = d.getFullYear();
-  const currentMonth = d.getMonth() + 1;
-  const ALLOW_CURRENT_MONTH = true;
-
-  const monthsTR = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
-
-  let yearOptions = '';
-  for (let y = currentYear; y <= currentYear + 2; y++) {
-    yearOptions += `<option value="${y}">${y}</option>`;
-  }
-
-  modal.open('Uçuş Planı Oluştur', `
-    <div class="mb-4 text-sm text-on-surface-variant">
-      Oluşturmak istediğiniz uçuş planı ayını seçin. Seçilen aya göre şablon çoğaltılarak temiz bir Excel dosyası kaydedilecektir.
-    </div>
-    <div class="form-group mb-4">
-      <label class="form-label">Yıl</label>
-      <select class="form-select w-full" id="mp-year" onchange="window.__renderMonthGrid()">
-        ${yearOptions}
-      </select>
-    </div>
-    <div class="form-group mb-6">
-      <label class="form-label">Ay</label>
-      <div id="mp-month-grid" class="grid grid-cols-3 gap-2"></div>
-    </div>
-    <div class="flex justify-end gap-3">
-      <button class="btn-secondary" onclick="modal.close()">İptal</button>
-      <button class="btn-primary" onclick="window.__submitMonthlyPlan()" id="btn-mp-submit" disabled>Devam / Oluştur</button>
-    </div>
-  `);
-
-  window.selectedMonthlyPlan = null;
-  window.__renderMonthGrid();
-};
-
-window.__renderMonthGrid = function() {
-  const d = new Date();
-  const currentYear = d.getFullYear();
-  const currentMonth = d.getMonth() + 1; // 1-12
-  const ALLOW_CURRENT_MONTH = true;
-
-  const yearSel = document.getElementById('mp-year');
-  if (!yearSel) return;
-  const selectedYear = parseInt(yearSel.value, 10);
-  const grid = document.getElementById('mp-month-grid');
-  
-  const monthsTR = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
-  
-  let html = '';
-  for (let m = 1; m <= 12; m++) {
-    let disabled = false;
-    if (selectedYear < currentYear) {
-      disabled = true;
-    } else if (selectedYear === currentYear) {
-      if (ALLOW_CURRENT_MONTH) {
-        if (m < currentMonth) disabled = true;
-      } else {
-        if (m <= currentMonth) disabled = true;
-      }
-    }
-
-    const isSelected = window.selectedMonthlyPlan === m;
-    const btnClass = disabled 
-      ? 'bg-surface-variant opacity-50 cursor-not-allowed text-on-surface-variant' 
-      : isSelected 
-        ? 'bg-primary text-on-primary ring-2 ring-primary ring-offset-2 ring-offset-surface' 
-        : 'bg-surface-variant hover:bg-surface text-on-surface cursor-pointer';
-
-    html += `<div class="p-3 text-center rounded-lg text-sm font-medium transition-all ${btnClass}" 
-                 ${!disabled ? `onclick="window.__selectMonthlyPlan(${m})"` : ''}>
-               ${monthsTR[m-1]}
-             </div>`;
-  }
-  grid.innerHTML = html;
-  
-  // Re-check submit button
-  const submitBtn = document.getElementById('btn-mp-submit');
-  if (submitBtn) {
-    submitBtn.disabled = !window.selectedMonthlyPlan;
-  }
-};
-
-window.__selectMonthlyPlan = function(m) {
-  window.selectedMonthlyPlan = m;
-  window.__renderMonthGrid();
-};
-
-window.__submitMonthlyPlan = async function() {
-  const year = parseInt(document.getElementById('mp-year').value, 10);
-  const month = window.selectedMonthlyPlan;
-  if (!year || !month) return;
-  
-  const btn = document.getElementById('btn-mp-submit');
-  btn.innerHTML = '<span class="material-symbols-outlined animate-spin">progress_activity</span> Bekleniyor...';
-  btn.disabled = true;
-
-  try {
-    const res = await api.post('/api/planning/generate-monthly', { year, month });
-    if (res.success) {
-      toast.success('Başarılı', res.message || 'Excel dosyası kaydedildi ve açıldı.');
-      modal.close();
-    } else {
-      toast.info('İptal', res.message || 'İşlem iptal edildi.');
-      modal.close();
-    }
-  } catch (err) {
-    toast.error('Oluşturma hatası', err.message);
-    btn.innerHTML = 'Devam / Oluştur';
-    btn.disabled = false;
-  }
-};
-
 function showCapacityChoice(body, detail) {
   window.__pendingOverflowBody = body;
   modal.open('Balon Kapasitesi Doldu', `
@@ -1065,40 +1050,6 @@ window.__confirmOverflow = async function() {
     toast.warning('Kapasite aşımı onaylandı', `${res.balloon} balonuna atandı`);
     window.__loadDay();
   } catch (err) { toast.error('Oluşturma hatası', err.message); }
-};
-
-window.__createDay = function() {
-  modal.open('Yeni Gün Oluştur', `
-    <div class="form-group">
-      <label class="form-label">Yeni gün adı</label>
-      <input class="form-input" id="new-day-name" placeholder="ör. 24.06.2026" />
-      <div class="form-help">Tarih formatı: gg.aa.yyyy</div>
-    </div>
-    <div class="form-group mt-4">
-      <label class="form-label">Kaynak gün (kopyalanacak)</label>
-      <select class="form-select" id="new-day-source">
-        ${state.sheets.map(s => `<option value="${escHtml(s)}">${escHtml(s)}</option>`).join('')}
-      </select>
-    </div>
-  `, `
-    <button class="btn-secondary" onclick="window.__closeModal()">İptal</button>
-    <button class="btn-primary" onclick="window.__submitNewDay()">Oluştur</button>
-  `);
-};
-
-window.__submitNewDay = async function() {
-  const name = document.getElementById('new-day-name')?.value.trim();
-  const source = document.getElementById('new-day-source')?.value;
-  if (!name) { toast.warning('Gün adı girin'); return; }
-
-  try {
-    await api.post('/api/planning/create-day', { new_sheet: name, source_sheet: source, expected_revision: state.revision || null });
-    toast.success('Gün oluşturuldu', `${name} başarıyla eklendi`);
-    modal.close();
-    loadSheets();
-  } catch (err) {
-    toast.error('Oluşturma hatası', err.message);
-  }
 };
 
 function escHtml(s) {

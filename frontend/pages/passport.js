@@ -749,7 +749,7 @@ function renderCards() {
                 <span class="material-symbols-outlined text-[18px]">${status.icon}</span>
                 ${status.label}
               </div>
-              ${flags ? `<div class="flex flex-wrap justify-end gap-1.5 mb-2">${flags.split(', ').map(f => `<span class="bg-surface-light border border-white/5 text-on-surface-variant text-[11px] font-medium px-2 py-1 rounded-md uppercase tracking-wide">${esc(f)}</span>`).join('')}</div>` : ''}
+              ${flags ? `<div class="flex flex-wrap justify-end gap-1.5 mb-2">${flags.split(', ').map(f => `<span class="bg-surface-light border border-white/5 text-on-surface-variant text-[11px] font-medium px-2 py-1 rounded-md tracking-wide">${esc(flagLabel(f))}</span>`).join('')}</div>` : ''}
               ${rec.error ? `<div class="text-[11px] text-danger font-medium mt-1 text-right bg-danger/10 px-2 py-1.5 rounded-md border border-danger/20">${esc(rec.error)}</div>` : ''}
             </div>
             
@@ -866,7 +866,7 @@ function readCard(i) {
 // Onaysız (sarı veya işareti kaldırılmış) kayıtları açıkça listeleyen uyarı penceresi.
 function unapprovedWarningHtml(skipped, pendingManualCount, approvedCount) {
   const rows = skipped.map(({ index, card, rec }) => {
-    const flags = (rec.flags || []).map(f => `<span class="badge badge-yellow">${esc(f)}</span>`).join(' ');
+    const flags = (rec.flags || []).map(f => `<span class="badge badge-yellow">${esc(flagLabel(f))}</span>`).join(' ');
     const kind = rec.green ? '<span class="badge badge-green">yeşil, işaretsiz</span>' : '<span class="badge badge-yellow">sarı</span>';
     return `
       <li class="flex flex-wrap items-center gap-2 py-2 border-b border-tertiary/10 last:border-0">
@@ -1050,6 +1050,12 @@ window.__confirmPassportOverflow = async function() {
     overflowSubmitting = false;
   }
 };
+
+// Bayrak kodları İngilizce sabit etiket: sayfa lang="tr" olduğu için CSS `uppercase` ve
+// toUpperCase() 'i'yi 'İ' yapıyordu ("LOW_CONFİDENCE"). Locale sabit en-US.
+function flagLabel(flag) {
+  return String(flag || '').toLocaleUpperCase('en-US');
+}
 
 function esc(s) {
   return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');

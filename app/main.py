@@ -59,6 +59,7 @@ from app.passport_store import (
     ROOT as PASSPORT_IMAGE_ROOT,
     cleanup_day as cleanup_passport_day,
     cleanup_stale,
+    delete_image as delete_passport_image,
     save_image,
 )
 from app.readiness import check_blocks, check_workbook
@@ -1378,23 +1379,45 @@ def _validate_passport_upload(image_bytes: bytes, content_type: str) -> None:
         raise ValueError("Görsel en fazla 10 MB olabilir.")
 
 
-def _mark_extractions_approved(identities: list[dict], sheet: str, rows: list[int]) -> None:
+def _mark_extractions_approved(identities: list[dict], sheet: str, rows: list[int]) -> int:
+    """Yazılan kimliklerin çıkarım kayıtlarını onaylı işaretler.
+
+    `delete_images_after_write` açıksa (varsayılan) ham pasaport görseli planlamaya
+    yazıldığı anda diskten silinir ve kayıttaki yol temizlenir (KVKK, brief §10).
+    Silinen görsel sayısını döndürür.
+    """
+    delete_images = bool(_load_settings().delete_images_after_write)
+    removed = 0
     conn = connect()
     try:
         for identity, row in zip(identities, rows):
             extraction_id = identity.get("extraction_id")
-            if extraction_id:
+            if not extraction_id:
+                continue
+            conn.execute(
+                """
+                UPDATE passport_extraction
+                SET status = 'approved', planning_date = ?, planning_row = ?
+                WHERE id = ?
+                """,
+                (sheet, row, extraction_id),
+            )
+            if not delete_images:
+                continue
+            rec = conn.execute(
+                "SELECT source_media_id FROM passport_extraction WHERE id = ?",
+                (extraction_id,),
+            ).fetchone()
+            if rec and rec["source_media_id"] and delete_passport_image(rec["source_media_id"]):
+                removed += 1
                 conn.execute(
-                    """
-                    UPDATE passport_extraction
-                    SET status = 'approved', planning_date = ?, planning_row = ?
-                    WHERE id = ?
-                    """,
-                    (sheet, row, extraction_id),
+                    "UPDATE passport_extraction SET source_media_id = NULL WHERE id = ?",
+                    (extraction_id,),
                 )
         conn.commit()
     finally:
         conn.close()
+    return removed
 
 
 @app.post("/api/planning/create-with-identities")
@@ -1906,7 +1929,8 @@ def api_passport_cleanup(request: Request, body: dict) -> dict:
     conn = connect()
     try:
         conn.execute(
-            "DELETE FROM passport_extraction WHERE date(created_at) = date(?)",
+            # created_at SQLite'ta UTC; seçilen gün yerel takvim günü → 'localtime' ile karşılaştır
+            "DELETE FROM passport_extraction WHERE date(created_at, 'localtime') = date(?)",
             (result["day"],),
         )
         conn.commit()
@@ -2231,7 +2255,7 @@ def api_update_download(request: Request, body: dict) -> dict:
     if not status.get("available"):
         raise HTTPException(status_code=409, detail="Yeni sürüm bulunamadı.")
     try:
-        path = updater_mod.stage(status["manifest"], s.update_public_key)
+        path = updater_mod.stage(status["manifest"])
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Güncelleme doğrulanamadı: {exc}")
     audit_mod.record(

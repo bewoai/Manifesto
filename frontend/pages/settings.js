@@ -202,7 +202,7 @@ export async function render(container) {
           <h2 class="font-headline text-headline-sm text-on-surface">Otomatik Güncelleme</h2>
         </div>
         <div class="form-group"><label class="form-label">Sürüm manifesti URL</label><input class="form-input" id="s-update-url" placeholder="https://.../update.json" /></div>
-        <div class="form-group"><label class="form-label">Ed25519 açık anahtar</label><input class="form-input font-mono" id="s-update-key" placeholder="Base64 açık anahtar" /></div>
+        <p class="text-xs text-on-surface-variant">İmza doğrulama anahtarı uygulamaya gömülüdür; güvenlik gereği ayarlardan değiştirilemez.</p>
       </div>
 
       <!-- Save -->
@@ -269,7 +269,6 @@ function fillForm(s) {
   }
 
   val('s-update-url', s.update_manifest_url);
-  val('s-update-key', s.update_public_key);
   val('s-template', s.manifest_template);
   val('s-output-dir', s.output_dir);
   val('s-balloon-capacity', s.balloon_capacity);
@@ -331,7 +330,6 @@ window.__saveSettings = async function() {
       driver: gv('s-drivers').split(',').map(s => s.trim()).filter(Boolean)
     },
     update_manifest_url: gv('s-update-url'),
-    update_public_key: gv('s-update-key'),
     manifest_template: gv('s-template'),
     output_dir: gv('s-output-dir'),
     delete_images_after_write: gc('s-delete-images'),

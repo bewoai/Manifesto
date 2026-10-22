@@ -429,6 +429,25 @@ def update_settings(body: dict, request: Request) -> dict:
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Ayar doğrulama hatası: {e}")
 
+    if "irtifa_license_key" in body and body["irtifa_license_key"] and "*" not in body["irtifa_license_key"]:
+        import requests
+        test_url = updated.irtifa_server_url
+        test_key = updated.irtifa_license_key
+        test_device = updated.irtifa_device_id
+        if test_key and test_url:
+            endpoint = test_url.rstrip("/") + "/ocr/passport"
+            headers = {
+                "x-license-key": str(test_key),
+                "x-device-id": str(test_device),
+            }
+            files = {"file": ("test.jpg", b"1", "image/jpeg")}
+            try:
+                resp = requests.post(endpoint, headers=headers, files=files, timeout=15)
+                if resp.status_code in (401, 403):
+                    raise HTTPException(status_code=400, detail="Lisans anahtarı geçersiz veya hatalı.")
+            except requests.RequestException:
+                pass
+
     # Kaydet
     settings_mod.save(updated)
 

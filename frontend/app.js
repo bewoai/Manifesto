@@ -226,28 +226,19 @@ window.__validateLicense = async function() {
   const button = document.getElementById('license-submit');
   if (button) {
     button.disabled = true;
-    button.innerHTML = '<span class="material-symbols-outlined animate-spin">progress_activity</span> Doğrulanıyor...';
+    button.innerHTML = '<span class="material-symbols-outlined animate-spin">progress_activity</span> Kaydediliyor...';
   }
   try {
-    const res = await api.post('/api/settings/test', {
-      target: 'irtifa_server',
+    await api.put('/api/settings', {
       irtifa_server_url: 'https://irtifa-ocr-server-1011336814601.europe-west1.run.app',
-      irtifa_license_key: key
+      irtifa_license_key: key,
+      irtifa_license_skipped: false,
+      vision_mode: 'irtifa_server'
     });
-    if (res.success) {
-      await api.put('/api/settings', {
-        irtifa_server_url: 'https://irtifa-ocr-server-1011336814601.europe-west1.run.app',
-        irtifa_license_key: key,
-        irtifa_license_skipped: false,
-        vision_mode: 'irtifa_server'
-      });
-      toast.success('Başarılı', 'Lisans doğrulandı.');
-      await bootWorkspace();
-    } else {
-      toast.error('Hata', 'Lisans anahtarı geçersiz. Lütfen kontrol edin.');
-    }
+    toast.success('Başarılı', 'Lisans kaydedildi.');
+    await bootWorkspace();
   } catch (err) {
-    toast.error('Hata', err.message || 'Lisans doğrulama başarısız.');
+    toast.error('Hata', err.message || 'Lisans kaydetme başarısız.');
   } finally {
     if (button) {
       button.disabled = false;
@@ -261,6 +252,13 @@ window.__skipLicense = async function() {
     await api.post('/api/app/skip_license', {});
     await bootWorkspace();
   } catch (err) { toast.error('Hata', err.message); }
+};
+
+window.__updateAppStatus = function(status) {
+  appStatus.licensed = status.licensed;
+  appStatus.skipped = status.skipped;
+  if (status.version) appStatus.version = status.version;
+  renderSidebar(getRoute());
 };
 
 function renderHeader(title, subtitle = '') {

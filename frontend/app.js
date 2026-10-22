@@ -99,7 +99,15 @@ const toast = {
 
 // ─── Modal System ───
 const modal = {
+  _resolve: null,
+  _settle(value) {
+    const resolve = this._resolve;
+    this._resolve = null;
+    if (resolve) resolve(value);
+  },
   open(title, contentHtml, footerHtml = '') {
+    // Açık bir onay penceresi başka bir modalla değiştirilirse "vazgeç" sayılır.
+    this._settle(false);
     const root = document.getElementById('modal-root');
     root.innerHTML = `
       <div class="modal-overlay" id="modal-overlay">
@@ -121,9 +129,40 @@ const modal = {
   },
   close() {
     document.getElementById('modal-root').innerHTML = '';
+    this._settle(false);
+  },
+  isOpen() {
+    return !!document.getElementById('modal-root')?.firstElementChild;
+  },
+  /**
+   * Uygulama içi onay penceresi (window.confirm yerine). Promise<boolean> döner:
+   * onay → true; vazgeç / kapat / dışarı tıklama / Esc → false.
+   * bodyHtml çağıran tarafından escape edilmiş olmalıdır.
+   */
+  confirm({ title, bodyHtml = '', confirmLabel = 'Devam Et', cancelLabel = 'Vazgeç', tone = 'primary' } = {}) {
+    return new Promise((resolve) => {
+      const confirmClass = tone === 'danger' ? 'btn-danger' : 'btn-primary';
+      this.open(escapeHtml(title || 'Onay'), bodyHtml, `
+        <button type="button" class="btn-secondary" data-modal-cancel>${escapeHtml(cancelLabel)}</button>
+        <button type="button" class="${confirmClass}" data-modal-confirm>${escapeHtml(confirmLabel)}</button>
+      `);
+      this._resolve = resolve;
+      const root = document.getElementById('modal-root');
+      root.querySelector('[data-modal-cancel]')?.addEventListener('click', () => this.close());
+      const ok = root.querySelector('[data-modal-confirm]');
+      ok?.addEventListener('click', () => {
+        this._settle(true);
+        this.close();
+      }, { once: true });
+      // Güvenli varsayılan: odak "Vazgeç"te (Enter yanlışlıkla onaylamasın)
+      root.querySelector('[data-modal-cancel]')?.focus();
+    });
   },
 };
 window.__closeModal = () => modal.close();
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && modal.isOpen()) modal.close();
+});
 
 let appShutdownRequested = false;
 

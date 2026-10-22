@@ -277,6 +277,12 @@ def init_db(db_path: Path | None = None) -> None:
             "fallback_reason": "TEXT",
             "requires_manual_review": "INTEGER NOT NULL DEFAULT 0",
             "manual_review_reason": "TEXT",
+            # v3: çok yolculu sözleşme — kaynak türü, satır işareti, grup başlığı
+            "source_kind": "TEXT",        # passport_mrz | id_front | printed_list | handwritten_list | chat_message
+            "annotation": "TEXT",         # satırın yanındaki ham işaret: ✓ / highlight / 21 / SI / B
+            "selected": "INTEGER",        # listenin kendi evet/hayır kolonu (NULL = yok)
+            "group_json": "TEXT",         # {date, hotel, agency, booking_code, pax, nationality_hint, note}
+            "document_type": "TEXT",      # P | I
         }
         for column, definition in passport_columns.items():
             if column not in columns_pe:

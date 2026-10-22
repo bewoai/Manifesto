@@ -140,3 +140,9 @@ def test_insert_extraction_persists_meta(tmp_path, monkeypatch):
     assert row["document_type"] == "P"
     assert json.loads(row["group_json"])["agency"] == "Karavan"
     assert row["nationality"] == "GBR"       # grup ipucu uygulandı
+
+
+def test_strike_in_turkish_is_excluded_from_any_mark():
+    assert annotation_matches("any_mark", "üstü çizili") is False
+    assert annotation_matches("any_mark", "ÜSTÜ ÇİZİLİ") is False
+    assert annotation_matches("check", "✓ üstü çizili") is False

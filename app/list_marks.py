@@ -22,7 +22,7 @@ MARK_RULES: dict[str, str] = {
 _CHECK_TOKENS = ("✓", "✔", "√", "☑", "tick", "check")
 _HIGHLIGHT_TOKENS = ("highlight", "fosfor", "marker", "yellow", "green")
 _YES_TOKENS = {"si", "sí", "yes", "evet", "ok", "y", "x"}
-_STRIKE_TOKENS = ("strike", "üstü çizili", "crossed")
+_STRIKE_TOKENS = ("strike", "ustu cizili", "crossed")
 
 
 def _fold(text: str) -> str:

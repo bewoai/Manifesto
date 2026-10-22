@@ -7,7 +7,7 @@
 const CHECK_TOKENS = ['✓', '✔', '√', '☑', 'tick', 'check'];
 const HIGHLIGHT_TOKENS = ['highlight', 'fosfor', 'marker', 'yellow', 'green'];
 const YES_TOKENS = new Set(['si', 'sí', 'yes', 'evet', 'ok', 'y', 'x']);
-const STRIKE_TOKENS = ['strike', 'üstü çizili', 'crossed'];
+const STRIKE_TOKENS = ['strike', 'ustu cizili', 'crossed'];
 
 // Rehber / kaptan / şoför satırları listede yolcu gibi durur ama uçan yolcu değildir.
 const STAFF_TOKENS = ['rehber', 'kaptan', 'guide', 'pilot', 'driver'];

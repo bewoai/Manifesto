@@ -606,8 +606,8 @@ window.__autoSaveReorder = async function() {
     state.originalBlocks = null;
 
     if (statusEl) {
-      statusEl.innerHTML = `<span class="material-symbols-outlined text-[16px] text-green-500 mr-1">check_circle</span> Sıralama kaydedildi`;
-      statusEl.className = 'text-xs font-semibold text-green-500 flex items-center ml-3';
+      statusEl.innerHTML = `<span class="material-symbols-outlined text-[16px] text-success mr-1">check_circle</span> Sıralama kaydedildi`;
+      statusEl.className = 'text-xs font-semibold text-success flex items-center ml-3';
       setTimeout(() => {
         if (!state.pendingReorder && statusEl.innerHTML.includes('kaydedildi')) {
           statusEl.style.display = 'none';
@@ -619,8 +619,8 @@ window.__autoSaveReorder = async function() {
   } catch (err) {
     toast.error('Sıralama kaydedilemedi', err.message);
     if (statusEl) {
-      statusEl.innerHTML = `<span class="material-symbols-outlined text-[16px] text-red-500 mr-1">error</span> Hata`;
-      statusEl.className = 'text-xs font-semibold text-red-500 flex items-center ml-3';
+      statusEl.innerHTML = `<span class="material-symbols-outlined text-[16px] text-danger mr-1">error</span> Hata`;
+      statusEl.className = 'text-xs font-semibold text-danger flex items-center ml-3';
     }
     if (state.originalBlocks) {
       state.blocks = state.originalBlocks;

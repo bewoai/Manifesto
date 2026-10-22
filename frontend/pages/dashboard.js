@@ -4,7 +4,7 @@ let renderId = 0;
 
 export async function render(container) {
   const myRenderId = ++renderId;
-  renderHeader('Bugünün Operasyonu', 'Günü hazırlayın, eksikleri tamamlayın ve çıktıları alın');
+  renderHeader('Bugünün Operasyonu', 'Günü hazırlayın, eksikleri tamamlayın ve çıktıları alın', { decor: true });
   container.innerHTML = `
     <div id="today-weather" class="mb-5"></div>
     <div class="card mb-6">

@@ -56,7 +56,7 @@ function renderContent(container) {
   if (state.items.length === 0) {
     container.innerHTML = `
       <div class="empty-state glass-panel rounded-[40px] p-12">
-        <div class="empty-icon text-green-400">task_alt</div>
+        <div class="empty-icon material-symbols-outlined text-success">task_alt</div>
         <div class="empty-title">Bekleyen Kontrol Yok</div>
         <div class="empty-desc">Harika! Şu anda manuel kontrole düşen hiçbir kimlik bulunmuyor.</div>
       </div>
@@ -83,7 +83,7 @@ function renderContent(container) {
           <div class="flex-1 flex flex-col justify-between">
             <div>
               <div class="flex items-center gap-3 mb-4">
-                <span class="material-symbols-outlined text-yellow-400">warning</span>
+                <span class="material-symbols-outlined text-warning">warning</span>
                 <h3 class="text-lg font-semibold text-on-surface">Kontrol Gerekli</h3>
                 <span class="text-sm px-2 py-1 bg-surface-light rounded-md border border-white/5 font-mono text-on-surface-variant">
                   ${esc(item.fallback_reason || 'Düşük Güven Skoru')}
@@ -129,7 +129,7 @@ function renderContent(container) {
                 <span class="material-symbols-outlined">check</span>
                 Onayla & Kaydet
               </button>
-              <button class="btn-secondary py-3 text-red-400 hover:text-red-300 hover:bg-red-400/10 border-red-400/20" onclick="window.__resolveManualReview(${item.id}, 'reject')">
+              <button class="btn-secondary py-3 text-danger hover:bg-danger/10 border-danger/20" onclick="window.__resolveManualReview(${item.id}, 'reject')">
                 <span class="material-symbols-outlined">delete</span>
                 Reddet
               </button>

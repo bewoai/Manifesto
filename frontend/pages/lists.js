@@ -70,7 +70,7 @@ function renderCards() {
           <span class="badge badge-amber flex items-center gap-1.5 m-1 py-1 px-3">
             ${esc(v)}
             <button title="Sil" onclick="window.__listDel('${cat.key}', this)" data-val="${esc(v)}"
-                    class="opacity-70 hover:opacity-100 hover:text-red-400 transition-opacity flex items-center outline-none cursor-pointer">
+                    class="opacity-70 hover:opacity-100 hover:text-danger transition-opacity flex items-center outline-none cursor-pointer">
               <span class="material-symbols-outlined text-[16px]">close</span>
             </button>
           </span>`).join('')

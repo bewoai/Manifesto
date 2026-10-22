@@ -80,7 +80,7 @@ export async function render(container) {
     </div>
 
     <!-- Drop Zone -->
-    <div class="glass-panel rounded-[40px] border-2 border-dashed border-primary-container/30 p-12 text-center cursor-pointer transition-all duration-300 hover:border-primary hover:bg-primary/5 hover:shadow-[0_0_30px_rgba(255,182,141,0.05)] mb-6 animate-fade-in" id="dropzone"
+    <div class="glass-panel rounded-[40px] border-2 border-dashed border-tertiary/15 p-12 text-center cursor-pointer transition-all duration-300 hover:border-primary/50 hover:bg-primary/5 mb-6 animate-fade-in" id="dropzone"
          ondragover="event.preventDefault(); this.classList.add('border-primary', 'bg-primary/10')"
          ondragleave="this.classList.remove('border-primary', 'bg-primary/10')"
          ondrop="window.__handleDrop(event)"
@@ -540,7 +540,7 @@ function renderCards() {
     return `
       <div class="glass-panel p-5 flex flex-col md:flex-row gap-5 relative animate-fade-in overflow-hidden" id="pcard-${i}">
         <!-- Status Indicator Edge -->
-        <div class="absolute left-0 top-0 bottom-0 w-1.5 ${rec.is_manual ? 'bg-info shadow-[0_0_10px_rgba(56,189,248,0.5)]' : isGreen ? 'bg-success shadow-[0_0_10px_rgba(74,222,128,0.5)]' : 'bg-warning shadow-[0_0_10px_rgba(250,204,21,0.5)]'}"></div>
+        <div class="absolute left-0 top-0 bottom-0 w-1.5 ${rec.is_manual ? 'bg-info' : isGreen ? 'bg-success' : 'bg-warning'}"></div>
 
         <!-- Bu taramayı sil -->
         <button onclick="window.__removeCard(${i})" title="Bu taramayı sil" aria-label="Bu taramayı sil"

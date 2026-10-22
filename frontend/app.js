@@ -66,10 +66,10 @@ const toast = {
   show(type, title, message = '', duration = 4000) {
     if (!this._container) this.init();
     const icons = {
-      success: '<span class="material-symbols-outlined text-green-400">check_circle</span>',
-      error: '<span class="material-symbols-outlined text-red-400">error</span>',
-      warning: '<span class="material-symbols-outlined text-yellow-400">warning</span>',
-      info: '<span class="material-symbols-outlined text-primary">info</span>',
+      success: '<span class="material-symbols-outlined text-success">check_circle</span>',
+      error: '<span class="material-symbols-outlined text-danger">error</span>',
+      warning: '<span class="material-symbols-outlined text-warning">warning</span>',
+      info: '<span class="material-symbols-outlined text-info">info</span>',
     };
     const el = document.createElement('div');
     el.className = `toast ${type}`;
@@ -169,8 +169,8 @@ function renderSidebar(activeRoute) {
     return `
       <a href="#/${item.route}" id="nav-${item.id}"
          class="group flex items-center gap-3.5 px-3.5 py-2.5 rounded-2xl transition-all ${on
-           ? 'bg-white/10 ring-1 ring-white/15 shadow-lg shadow-black/20'
-           : 'hover:bg-white/5'}">
+           ? 'bg-primary/10 ring-1 ring-primary/25'
+           : 'hover:bg-tertiary/[.05]'}">
         <span class="block transition-transform group-hover:-translate-y-0.5 ${on ? '' : 'opacity-90 group-hover:opacity-100'}">${icon3d(item.id, 30)}</span>
         <span class="text-[15px] font-medium ${on ? 'text-on-surface' : 'text-on-surface-variant group-hover:text-on-surface'}">${item.label}</span>
       </a>`;
@@ -261,9 +261,16 @@ window.__updateAppStatus = function(status) {
   renderSidebar(getRoute());
 };
 
-function renderHeader(title, subtitle = '') {
+// Kapadokya silueti yalnız giriş/lisans ekranında ve panel (dashboard) başlığında;
+// operasyon ekranlarında dekor yok. Görsel yerel (frontend/public), opaklık ≤ 0.12.
+const CAPPADOCIA_SVG = '/cappadocia-silhouette.svg';
+const cappadociaBackdrop = () =>
+  `<img src="${CAPPADOCIA_SVG}" class="cappadocia-backdrop" alt="" aria-hidden="true" />`;
+
+function renderHeader(title, subtitle = '', { decor = false } = {}) {
   const header = document.getElementById('page-header');
   header.innerHTML = `
+    ${decor ? `<img src="${CAPPADOCIA_SVG}" class="header-decor" alt="" aria-hidden="true" />` : ''}
     <div class="flex items-center gap-4">
       <h1 class="font-headline text-headline-md text-on-surface tracking-tight">${title}</h1>
       ${subtitle ? `<span class="hidden lg:block text-on-surface-variant text-sm">— ${subtitle}</span>` : ''}
@@ -396,7 +403,8 @@ async function bootWorkspace(authStatus = {}) {
 
 function renderAuth(container, setupRequired) {
   container.innerHTML = `
-    <div class="min-h-[80vh] flex items-center justify-center">
+    ${cappadociaBackdrop()}
+    <div class="relative z-10 min-h-[80vh] flex items-center justify-center">
       <div class="glass-panel rounded-3xl p-8 w-full max-w-md">
         <div class="flex items-center gap-4 mb-7">
           <img src="/irtifa-logo.png" class="w-16 h-16 rounded-2xl" alt="İrtifa" />
@@ -452,7 +460,8 @@ async function renderLicense(container, canConfigure) {
   } catch(e) {}
 
   container.innerHTML = `
-    <div class="min-h-[80vh] flex items-center justify-center">
+    ${cappadociaBackdrop()}
+    <div class="relative z-10 min-h-[80vh] flex items-center justify-center">
       <div class="glass-panel rounded-3xl p-8 w-full max-w-md">
         <div class="flex items-center gap-4 mb-7">
           <img src="/irtifa-logo.png" class="w-16 h-16 rounded-2xl" alt="İrtifa" />

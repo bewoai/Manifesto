@@ -3,24 +3,32 @@
 @tailwind utilities;
 
 /* ═══════════════════════════════════════════════════════════════════
-   İrtifa — Aetheria Flights Design System
-   Material Design 3 Dark Theme + Warm Amber Palette
+   İrtifa — Aetheria Design System (Kapadokya şafağı)
+   Zemin: şafak öncesi gök (koyu indigo). Kart/metin: tüf taşı sıcak nötrleri.
+   Vurgu: gün doğumu amberi (primary). Bilgi/link: gök mavisi (secondary/info).
+   İlke: sakin, az dekor, neon/parıltı yok — gece 03:00'te göz yormasın.
+   Renkler tailwind.config.js token'larından gelir; burada ham değer yalnız
+   rgba() karışımları için kullanılır (tüf: 233,220,199 · amber: 242,166,90).
    ═══════════════════════════════════════════════════════════════════ */
 
 @layer base {
   body {
     min-height: 100vh;
-    color: #f4ecde;
+    color: theme('colors.on-surface');
     overflow-x: hidden;
-    /* Şafak öncesi Kapadokya gökyüzü: indigo → erik → sıcak ufuk + balon parıltıları */
+    /* Şafak öncesi gök: düz koyu indigo + ufukta çok hafif sıcak ışık (parlak gradyan yok) */
     background:
-      radial-gradient(135% 90% at 80% -12%, rgba(255,170,90,0.22), transparent 55%),
-      radial-gradient(120% 85% at 10% 112%, rgba(240,116,192,0.16), transparent 55%),
-      radial-gradient(95% 70% at 98% 108%, rgba(91,168,255,0.12), transparent 60%),
-      linear-gradient(180deg, #140e22 0%, #1b1430 36%, #2a1c3c 68%, #3c2638 100%);
+      radial-gradient(120% 55% at 50% 118%, rgba(242,166,90,0.06), transparent 62%),
+      linear-gradient(180deg, #0b1020 0%, #0e1428 45%, #141a33 100%);
+    background-color: theme('colors.background');
     background-attachment: fixed;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
+  }
+
+  :focus-visible {
+    outline: 2px solid rgb(242 166 90 / 0.7);
+    outline-offset: 2px;
   }
 
   .material-symbols-outlined {
@@ -29,10 +37,11 @@
 }
 
 @layer components {
-  /* ─── Glass Panel ─── */
+  /* ─── Glass Panel (tüf tonlu, sıcak) ─── */
   .glass-panel {
-    @apply bg-surface-container-lowest/55 backdrop-blur-2xl border border-white/10;
-    box-shadow: 0 14px 44px -14px rgba(8,5,18,0.65), inset 0 1px 0 rgba(255,255,255,0.06);
+    @apply backdrop-blur-2xl border border-tertiary/[.12];
+    background-color: rgb(233 220 199 / 0.06);
+    box-shadow: 0 14px 40px -16px rgba(3,6,18,0.7), inset 0 1px 0 rgba(233,220,199,0.05);
   }
 
   /* ─── Liquid Background Blobs ─── */
@@ -55,39 +64,46 @@
 
   /* ─── Custom Scrollbar ─── */
   .custom-scrollbar::-webkit-scrollbar {
-    width: 4px;
+    width: 6px;
   }
   .custom-scrollbar::-webkit-scrollbar-track {
-    background: rgba(255, 255, 255, 0.05);
+    background: rgba(233, 220, 199, 0.03);
   }
   .custom-scrollbar::-webkit-scrollbar-thumb {
-    background: #ff9f5a;
+    background: rgba(233, 220, 199, 0.18);
     border-radius: 10px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgba(242, 166, 90, 0.45);
   }
 
   /* ─── Buttons ─── */
   .btn-primary {
-    @apply px-6 py-3 bg-primary-container text-on-primary-container rounded-full font-medium
-           hover:brightness-110 active:scale-95 transition-all shadow-lg shadow-primary-container/20;
+    @apply px-6 py-3 bg-primary text-on-primary rounded-full font-semibold
+           hover:bg-primary-fixed-dim active:scale-95 transition-all shadow-md shadow-black/20
+           disabled:opacity-60 disabled:cursor-not-allowed disabled:active:scale-100;
   }
 
   .btn-secondary {
-    @apply px-6 py-3 border border-white/10 text-on-surface-variant rounded-full font-medium
-           hover:bg-white/5 active:scale-95 transition-all;
+    @apply px-6 py-3 border border-tertiary/15 text-on-surface-variant rounded-full font-medium
+           hover:bg-tertiary/[.06] hover:text-on-surface active:scale-95 transition-all
+           disabled:opacity-60 disabled:cursor-not-allowed;
   }
 
   .btn-success {
-    @apply px-6 py-3 bg-green-600 text-white rounded-full font-medium
-           hover:bg-green-500 active:scale-95 transition-all;
+    @apply px-6 py-3 bg-success/15 text-success border border-success/30 rounded-full font-semibold
+           hover:bg-success/25 active:scale-95 transition-all
+           disabled:opacity-60 disabled:cursor-not-allowed;
   }
 
   .btn-danger {
     @apply px-6 py-3 bg-error-container text-on-error-container rounded-full font-medium
-           hover:brightness-110 active:scale-95 transition-all;
+           hover:brightness-110 active:scale-95 transition-all
+           disabled:opacity-60 disabled:cursor-not-allowed;
   }
 
   .btn-ghost {
-    @apply p-2 rounded-full text-on-surface-variant hover:bg-white/5 transition-all;
+    @apply p-2 rounded-full text-on-surface-variant hover:bg-tertiary/[.06] hover:text-on-surface transition-all;
   }
 
   .btn-icon {
@@ -96,14 +112,16 @@
 
   /* ─── Forms ─── */
   .form-input {
-    @apply w-full bg-surface-container-low border border-white/10 rounded-xl px-4 py-3
+    @apply w-full bg-surface-container-low border border-tertiary/[.12] rounded-xl px-4 py-3
            text-on-surface placeholder-on-surface-variant/50
-           focus:ring-2 focus:ring-primary/50 focus:border-primary/30 transition-all;
+           focus:ring-2 focus:ring-primary/40 focus:border-primary/40 transition-all
+           disabled:opacity-60;
   }
 
   .form-select {
-    @apply w-full bg-surface-container-low border border-white/10 rounded-xl px-4 py-3
-           text-on-surface focus:ring-2 focus:ring-primary/50 focus:border-primary/30 transition-all;
+    @apply w-full bg-surface-container-low border border-tertiary/[.12] rounded-xl px-4 py-3
+           text-on-surface focus:ring-2 focus:ring-primary/40 focus:border-primary/40 transition-all
+           disabled:opacity-60;
   }
 
   .form-label {
@@ -111,7 +129,7 @@
   }
 
   .form-help {
-    @apply text-xs text-on-surface-variant/60 mt-1;
+    @apply text-xs text-on-surface-variant/70 mt-1;
   }
 
   /* ─── Cards ─── */
@@ -123,8 +141,12 @@
     @apply flex justify-between items-center mb-6;
   }
 
+  /* Başlık metni sakin (tüf beji); amber yalnız ikonda */
   .card-title {
-    @apply font-headline text-headline-sm text-primary flex items-center gap-3;
+    @apply font-headline text-headline-sm text-on-surface flex items-center gap-3;
+  }
+  .card-title .material-symbols-outlined {
+    @apply text-primary;
   }
 
   /* ─── Badges ─── */
@@ -133,43 +155,43 @@
   }
 
   .badge-green {
-    @apply bg-green-500/15 text-green-400;
+    @apply bg-success/15 text-success;
   }
 
   .badge-yellow {
-    @apply bg-yellow-500/15 text-yellow-400;
+    @apply bg-warning/15 text-warning;
   }
 
   .badge-red {
-    @apply bg-red-500/15 text-red-400;
+    @apply bg-danger/15 text-danger;
   }
 
   .badge-blue {
-    @apply bg-primary/15 text-primary;
+    @apply bg-info/15 text-info;
   }
 
   .badge-amber {
-    @apply bg-secondary-container/20 text-secondary-container;
+    @apply bg-primary/15 text-primary;
   }
 
   /* ─── Toast ─── */
   .toast {
-    @apply pointer-events-auto flex items-start gap-3 glass-panel rounded-2xl px-5 py-4
+    @apply pointer-events-auto flex items-start gap-3 glass-panel bg-surface-container/95 rounded-2xl px-5 py-4
            min-w-[320px] max-w-[420px] animate-slide-in relative overflow-hidden;
   }
 
-  .toast.success { @apply border-l-4 border-l-green-500; }
-  .toast.error   { @apply border-l-4 border-l-red-500; }
-  .toast.warning  { @apply border-l-4 border-l-yellow-500; }
-  .toast.info     { @apply border-l-4 border-l-primary; }
+  .toast.success { @apply border-l-4 border-l-success; }
+  .toast.error   { @apply border-l-4 border-l-danger; }
+  .toast.warning  { @apply border-l-4 border-l-warning; }
+  .toast.info     { @apply border-l-4 border-l-info; }
 
   .toast-icon {
     @apply text-lg mt-0.5 flex-shrink-0;
   }
-  .toast.success .toast-icon { @apply text-green-400; }
-  .toast.error .toast-icon   { @apply text-red-400; }
-  .toast.warning .toast-icon  { @apply text-yellow-400; }
-  .toast.info .toast-icon     { @apply text-primary; }
+  .toast.success .toast-icon { @apply text-success; }
+  .toast.error .toast-icon   { @apply text-danger; }
+  .toast.warning .toast-icon  { @apply text-warning; }
+  .toast.info .toast-icon     { @apply text-info; }
 
   .toast-title {
     @apply font-semibold text-on-surface text-sm;
@@ -184,7 +206,7 @@
   }
 
   .toast-progress {
-    @apply absolute bottom-0 left-0 h-0.5 bg-white/20 w-full;
+    @apply absolute bottom-0 left-0 h-0.5 bg-tertiary/20 w-full;
     animation: toast-shrink linear forwards;
   }
 
@@ -209,15 +231,15 @@
   }
 
   .modal {
-    @apply glass-panel rounded-3xl w-full max-w-lg max-h-[90vh] overflow-auto;
+    @apply glass-panel bg-surface-container/95 rounded-3xl w-full max-w-lg max-h-[90vh] overflow-auto;
   }
 
   .modal-header {
-    @apply flex justify-between items-center p-6 pb-4 border-b border-white/5;
+    @apply flex justify-between items-center p-6 pb-4 border-b border-tertiary/10;
   }
 
   .modal-header h3 {
-    @apply font-headline text-headline-sm text-primary;
+    @apply font-headline text-headline-sm text-on-surface;
   }
 
   .modal-body {
@@ -225,7 +247,7 @@
   }
 
   .modal-footer {
-    @apply flex justify-end gap-3 p-6 pt-4 border-t border-white/5;
+    @apply flex justify-end gap-3 p-6 pt-4 border-t border-tertiary/10;
   }
 
   @keyframes fade-in {
@@ -236,8 +258,8 @@
   /* ─── Dropzone ─── */
   .dropzone {
     @apply glass-panel rounded-3xl p-12 text-center cursor-pointer
-           border-2 border-dashed border-white/10 hover:border-primary/30
-           transition-all hover:bg-white/5;
+           border-2 border-dashed border-tertiary/15 hover:border-primary/40
+           transition-all hover:bg-tertiary/[.04];
   }
 
   .dropzone.drag-over {
@@ -264,11 +286,11 @@
   }
 
   .passport-card.green {
-    @apply border-l-4 border-l-green-500;
+    @apply border-l-4 border-l-success;
   }
 
   .passport-card.yellow {
-    @apply border-l-4 border-l-yellow-500;
+    @apply border-l-4 border-l-warning;
   }
 
   .passport-card .thumb {
@@ -310,10 +332,10 @@
     align-items: center;
     justify-content: center;
     margin-left: 6px;
-    border: 1px solid rgb(255 255 255 / 16%);
+    border: 1px solid rgb(233 220 199 / 16%);
     border-radius: 50%;
-    background: rgb(255 255 255 / 6%);
-    color: rgb(255 203 170);
+    background: rgb(233 220 199 / 6%);
+    color: theme('colors.primary');
     font-size: 12px;
     font-weight: 700;
     cursor: help;
@@ -328,10 +350,10 @@
     bottom: calc(100% + 9px);
     width: min(280px, 70vw);
     padding: 10px 12px;
-    border: 1px solid rgb(255 255 255 / 12%);
+    border: 1px solid rgb(233 220 199 / 12%);
     border-radius: 8px;
-    background: #110d1d;
-    color: #eee7f4;
+    background: theme('colors.surface-container');
+    color: theme('colors.on-surface');
     box-shadow: 0 12px 35px rgb(0 0 0 / 45%);
     font-size: 12px;
     font-weight: 400;
@@ -350,12 +372,12 @@
   }
 
   .block-shell.selected {
-    @apply border-primary/25 bg-white/[.025];
+    @apply border-primary/25 bg-tertiary/[.025];
   }
 
   .block-item {
-    @apply flex items-center gap-4 p-5 rounded-3xl bg-white/5 hover:bg-white/10
-           transition-all border border-transparent hover:border-white/10 cursor-pointer;
+    @apply flex items-center gap-4 p-5 rounded-3xl bg-tertiary/[.05] hover:bg-tertiary/[.08]
+           transition-all border border-transparent hover:border-tertiary/10 cursor-pointer;
   }
 
   .block-item.selected {
@@ -368,7 +390,7 @@
 
   .block-pax {
     @apply w-16 h-16 flex items-center justify-center rounded-2xl
-           bg-primary-container/20 text-primary font-bold text-sm;
+           bg-primary/10 text-primary font-bold text-sm;
   }
 
   .block-main {
@@ -384,7 +406,7 @@
   }
 
   .block-passenger {
-    @apply text-xs px-2 py-1 rounded-lg bg-white/5 text-on-surface;
+    @apply text-xs px-2 py-1 rounded-lg bg-tertiary/[.06] text-on-surface;
   }
 
   .block-passenger.empty {
@@ -396,7 +418,7 @@
   }
 
   .detail-panel {
-    @apply rounded-3xl border border-white/10 bg-black/10 p-5;
+    @apply rounded-3xl border border-tertiary/10 bg-black/10 p-5;
   }
 
   .detail-header {
@@ -408,7 +430,7 @@
   }
 
   .passenger-row {
-    @apply flex items-center justify-between gap-3 rounded-2xl border border-white/5 bg-white/[.035] px-3 py-2;
+    @apply flex items-center justify-between gap-3 rounded-2xl border border-tertiary/[.06] bg-tertiary/[.035] px-3 py-2;
   }
 
   .passenger-row.empty {
@@ -427,8 +449,9 @@
     @apply text-error hover:bg-error/10;
   }
 
+  /* Balon kodu rozeti — balon paletinin kullanıldığı az sayıdaki yerden biri */
   .block-balloon {
-    @apply px-3 py-1 rounded-full bg-secondary-container/20 text-secondary-container
+    @apply px-3 py-1 rounded-full bg-balloon-teal/15 text-balloon-teal border border-balloon-teal/20
            text-xs font-bold;
   }
 
@@ -436,12 +459,12 @@
      Panel body'e eklenir; position:fixed burada verilir → kartların
      overflow:hidden'ı kırpmaz, konumu combobox.js getBoundingClientRect ile ayarlar. */
   .cb-list {
-    @apply fixed z-[250] glass-panel rounded-2xl py-2 min-w-[200px] max-h-[240px]
+    @apply fixed z-[250] glass-panel bg-surface-container/95 rounded-2xl py-2 min-w-[200px] max-h-[240px]
            overflow-y-auto shadow-2xl;
   }
 
   .cb-opt {
-    @apply px-4 py-2 text-sm text-on-surface cursor-pointer hover:bg-white/10
+    @apply px-4 py-2 text-sm text-on-surface cursor-pointer hover:bg-tertiary/[.08]
            transition-colors;
   }
 
@@ -455,18 +478,17 @@
   }
 
   .checkbox-label input[type="checkbox"] {
-    @apply w-4 h-4 rounded bg-surface-container border-white/20 text-primary
+    @apply w-4 h-4 rounded bg-surface-container border-tertiary/20 text-primary
            focus:ring-primary/50;
   }
 
   /* ─── Progress Bar ─── */
   .progress-bar {
-    @apply w-full bg-white/5 h-1.5 rounded-full overflow-hidden;
+    @apply w-full bg-tertiary/[.06] h-1.5 rounded-full overflow-hidden;
   }
 
   .progress-fill {
-    @apply h-full bg-primary rounded-full transition-all duration-500
-           shadow-[0_0_8px_rgba(255,159,90,0.55)];
+    @apply h-full bg-primary rounded-full transition-all duration-500;
   }
 
   /* ─── Empty State ─── */
@@ -488,7 +510,7 @@
 
   /* ─── Skeleton ─── */
   .skeleton {
-    @apply bg-white/5 rounded-2xl animate-pulse;
+    @apply bg-tertiary/[.05] rounded-2xl animate-pulse;
   }
 
   .skeleton-title {
@@ -505,13 +527,13 @@
 
   /* ─── Weather Slots ─── */
   .weather-slot {
-    @apply p-3 rounded-xl border border-white/5 bg-white/[.035];
+    @apply p-3 rounded-xl border border-tertiary/[.06] bg-tertiary/[.035];
   }
 
-  .weather-slot.low { @apply border-green-500/40; }
-  .weather-slot.medium { @apply border-yellow-500/50; }
-  .weather-slot.high { @apply border-red-500/50; }
-  .weather-slot.unknown { @apply border-white/10; }
+  .weather-slot.low { @apply border-success/40; }
+  .weather-slot.medium { @apply border-warning/50; }
+  .weather-slot.high { @apply border-danger/50; }
+  .weather-slot.unknown { @apply border-tertiary/10; }
 
   .slot-time {
     @apply font-extrabold text-on-surface text-sm;
@@ -526,7 +548,7 @@
   }
 
   .calendar-day-label {
-    @apply flex items-center justify-between gap-3 py-2 border-b border-white/10 mt-3 first:mt-0;
+    @apply flex items-center justify-between gap-3 py-2 border-b border-tertiary/10 mt-3 first:mt-0;
   }
 
   .calendar-day-label span {
@@ -538,7 +560,7 @@
   }
 
   .calendar-day-label strong {
-    @apply text-xs font-bold px-2 py-1 rounded-full bg-white/5 text-on-surface;
+    @apply text-xs font-bold px-2 py-1 rounded-full bg-tertiary/[.06] text-on-surface;
   }
 
   .calendar-day-slots {
@@ -563,10 +585,10 @@
     @apply glass-panel rounded-3xl p-5;
   }
 
-  .weather-metric.risk-low { @apply border-l-4 border-l-green-500; }
-  .weather-metric.risk-medium { @apply border-l-4 border-l-yellow-500; }
-  .weather-metric.risk-high { @apply border-l-4 border-l-red-500; }
-  .weather-metric.risk-unknown { @apply border-l-4 border-l-white/10; }
+  .weather-metric.risk-low { @apply border-l-4 border-l-success; }
+  .weather-metric.risk-medium { @apply border-l-4 border-l-warning; }
+  .weather-metric.risk-high { @apply border-l-4 border-l-danger; }
+  .weather-metric.risk-unknown { @apply border-l-4 border-l-tertiary/10; }
 
   .metric-label {
     @apply text-xs font-bold uppercase tracking-wider text-on-surface-variant;
@@ -577,7 +599,7 @@
   }
 
   .metric-sub {
-    @apply text-xs text-on-surface-variant/60;
+    @apply text-xs text-on-surface-variant/70;
   }
 
   /* ─── Section Header ─── */
@@ -586,7 +608,7 @@
   }
 
   .section-title {
-    @apply font-headline text-headline-sm text-primary;
+    @apply font-headline text-headline-sm text-on-surface;
   }
 
   /* ─── Btn Spinner ─── */
@@ -609,7 +631,7 @@
   }
 
   .data-table thead tr {
-    @apply text-left text-on-surface-variant/60 text-label-md;
+    @apply text-left text-on-surface-variant/70 text-label-md;
   }
 
   .data-table thead th {
@@ -617,7 +639,7 @@
   }
 
   .data-table tbody tr {
-    @apply bg-white/5 hover:bg-white/10 transition-colors cursor-pointer;
+    @apply bg-tertiary/[.05] hover:bg-tertiary/[.08] transition-colors cursor-pointer;
   }
 
   .data-table tbody td {
@@ -637,10 +659,10 @@
     @apply glass-panel rounded-[40px] p-8 flex justify-between items-start;
   }
 
-  .weather-hero.risk-low { @apply border-l-4 border-l-green-500; }
-  .weather-hero.risk-medium { @apply border-l-4 border-l-yellow-500; }
-  .weather-hero.risk-high { @apply border-l-4 border-l-red-500; }
-  .weather-hero.risk-unknown { @apply border-l-4 border-l-white/10; }
+  .weather-hero.risk-low { @apply border-l-4 border-l-success; }
+  .weather-hero.risk-medium { @apply border-l-4 border-l-warning; }
+  .weather-hero.risk-high { @apply border-l-4 border-l-danger; }
+  .weather-hero.risk-unknown { @apply border-l-4 border-l-tertiary/10; }
 
   /* ─── Hava Durumu Şeridi (dashboard üst, sade + ikonlu + uçuş tahmini) ─── */
   .wx-strip {
@@ -649,157 +671,54 @@
   .wx-now { @apply flex items-center gap-3 pr-2; }
   .wx-temp { @apply font-headline text-4xl text-on-surface leading-none; }
   .wx-cond { @apply text-on-surface-variant text-xs; }
-  .wx-sep { @apply hidden lg:block w-px self-stretch bg-white/10 mx-1; }
+  .wx-sep { @apply hidden lg:block w-px self-stretch bg-tertiary/10 mx-1; }
   .wx-metric { @apply flex items-center gap-2; }
-  .wx-metric .lbl { @apply text-on-surface-variant/60 text-[10px] uppercase tracking-wider leading-tight; }
+  .wx-metric .lbl { @apply text-on-surface-variant/70 text-[10px] uppercase tracking-wider leading-tight; }
   .wx-metric .val { @apply text-on-surface text-sm font-semibold leading-tight; }
   .wx-verdict {
     @apply ml-auto flex items-center gap-3 rounded-2xl pl-4 pr-5 py-2 border;
   }
-  .wx-verdict.flyable { @apply bg-balloon-green/15 border-balloon-green/30 text-balloon-green; }
-  .wx-verdict.caution { @apply bg-balloon-amber/15 border-balloon-amber/30 text-balloon-amber; }
-  .wx-verdict.no_go   { @apply bg-balloon-red/15 border-balloon-red/30 text-balloon-red; }
-  .wx-verdict.unknown { @apply bg-white/5 border-white/10 text-on-surface-variant; }
+  /* Uçuş kararı semantiktir → durum renkleri (balon paleti değil) */
+  .wx-verdict.flyable { @apply bg-success/10 border-success/30 text-success; }
+  .wx-verdict.caution { @apply bg-warning/10 border-warning/30 text-warning; }
+  .wx-verdict.no_go   { @apply bg-danger/10 border-danger/30 text-danger; }
+  .wx-verdict.unknown { @apply bg-tertiary/[.05] border-tertiary/10 text-on-surface-variant; }
   .wx-verdict .v-cap { @apply text-[10px] uppercase tracking-wider opacity-80 leading-tight; }
   .wx-verdict .v-status { @apply font-headline text-lg leading-none; }
   .wx-verdict .v-window { @apply text-[10px] opacity-70 leading-tight; }
 
   /* ─── 3D ikon kabı (yumuşak gölge) ─── */
   .icon3d { @apply inline-flex items-center justify-center shrink-0; }
-  .icon3d.shadow { filter: drop-shadow(0 6px 9px rgba(8,5,18,0.45)); }
-}
+  .icon3d.shadow { filter: drop-shadow(0 6px 9px rgba(3,6,18,0.45)); }
 
-@layer utilities {
-  .animate-slide-in {
-    animation: slide-in 0.3s ease-out;
+  /* ─── Kapadokya silueti (yalnız giriş/lisans ekranı ve panel başlığı; opaklık ≤ 0.12) ─── */
+  .cappadocia-backdrop {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    height: auto;
+    max-height: 45vh;
+    object-fit: cover;
+    object-position: bottom center;
+    opacity: 0.1;
+    pointer-events: none;
+    user-select: none;
+    z-index: 0;
   }
 
-  .calendar-day-slots {
-    @apply grid grid-cols-[repeat(auto-fill,minmax(100px,1fr))] gap-2;
+  .header-decor {
+    position: absolute;
+    right: 120px;
+    bottom: 0;
+    height: 100%;
+    width: auto;
+    opacity: 0.1;
+    pointer-events: none;
+    user-select: none;
+    z-index: -1;
   }
-
-  /* ─── History Row ─── */
-  .history-row {
-    @apply grid grid-cols-3 gap-3 py-2 text-sm items-center;
-  }
-
-  .history-row span {
-    @apply text-on-surface-variant;
-  }
-
-  .history-row strong {
-    @apply text-secondary;
-  }
-
-  /* ─── Weather Metrics ─── */
-  .weather-metric {
-    @apply glass-panel rounded-3xl p-5;
-  }
-
-  .weather-metric.risk-low { @apply border-l-4 border-l-green-500; }
-  .weather-metric.risk-medium { @apply border-l-4 border-l-yellow-500; }
-  .weather-metric.risk-high { @apply border-l-4 border-l-red-500; }
-  .weather-metric.risk-unknown { @apply border-l-4 border-l-white/10; }
-
-  .metric-label {
-    @apply text-xs font-bold uppercase tracking-wider text-on-surface-variant;
-  }
-
-  .metric-value {
-    @apply text-2xl font-bold text-on-surface mt-2;
-  }
-
-  .metric-sub {
-    @apply text-xs text-on-surface-variant/60;
-  }
-
-  /* ─── Section Header ─── */
-  .section-header {
-    @apply flex justify-between items-center mb-6;
-  }
-
-  .section-title {
-    @apply font-headline text-headline-sm text-primary;
-  }
-
-  /* ─── Btn Spinner ─── */
-  .btn-spinner {
-    @apply inline-block w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin;
-  }
-
-  /* ─── Form Row ─── */
-  .form-row {
-    @apply grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4;
-  }
-
-  .form-group {
-    @apply flex flex-col;
-  }
-
-  /* ─── Table ─── */
-  .data-table {
-    @apply w-full border-separate border-spacing-y-2;
-  }
-
-  .data-table thead tr {
-    @apply text-left text-on-surface-variant/60 text-label-md;
-  }
-
-  .data-table thead th {
-    @apply px-5 py-2;
-  }
-
-  .data-table tbody tr {
-    @apply bg-white/5 hover:bg-white/10 transition-colors cursor-pointer;
-  }
-
-  .data-table tbody td {
-    @apply px-5 py-4;
-  }
-
-  .data-table tbody td:first-child {
-    @apply rounded-l-2xl;
-  }
-
-  .data-table tbody td:last-child {
-    @apply rounded-r-2xl;
-  }
-
-  /* ─── Weather Hero ─── */
-  .weather-hero {
-    @apply glass-panel rounded-[40px] p-8 flex justify-between items-start;
-  }
-
-  .weather-hero.risk-low { @apply border-l-4 border-l-green-500; }
-  .weather-hero.risk-medium { @apply border-l-4 border-l-yellow-500; }
-  .weather-hero.risk-high { @apply border-l-4 border-l-red-500; }
-  .weather-hero.risk-unknown { @apply border-l-4 border-l-white/10; }
-
-  /* ─── Hava Durumu Şeridi (dashboard üst, sade + ikonlu + uçuş tahmini) ─── */
-  .wx-strip {
-    @apply glass-panel rounded-[28px] px-5 py-4 flex flex-wrap items-center gap-x-5 gap-y-3;
-  }
-  .wx-now { @apply flex items-center gap-3 pr-2; }
-  .wx-temp { @apply font-headline text-4xl text-on-surface leading-none; }
-  .wx-cond { @apply text-on-surface-variant text-xs; }
-  .wx-sep { @apply hidden lg:block w-px self-stretch bg-white/10 mx-1; }
-  .wx-metric { @apply flex items-center gap-2; }
-  .wx-metric .lbl { @apply text-on-surface-variant/60 text-[10px] uppercase tracking-wider leading-tight; }
-  .wx-metric .val { @apply text-on-surface text-sm font-semibold leading-tight; }
-  .wx-verdict {
-    @apply ml-auto flex items-center gap-3 rounded-2xl pl-4 pr-5 py-2 border;
-  }
-  .wx-verdict.flyable { @apply bg-balloon-green/15 border-balloon-green/30 text-balloon-green; }
-  .wx-verdict.caution { @apply bg-balloon-amber/15 border-balloon-amber/30 text-balloon-amber; }
-  .wx-verdict.no_go   { @apply bg-balloon-red/15 border-balloon-red/30 text-balloon-red; }
-  .wx-verdict.unknown { @apply bg-white/5 border-white/10 text-on-surface-variant; }
-  .wx-verdict .v-cap { @apply text-[10px] uppercase tracking-wider opacity-80 leading-tight; }
-  .wx-verdict .v-status { @apply font-headline text-lg leading-none; }
-  .wx-verdict .v-window { @apply text-[10px] opacity-70 leading-tight; }
-
-  /* ─── 3D ikon kabı (yumuşak gölge) ─── */
-  .icon3d { @apply inline-flex items-center justify-center shrink-0; }
-  .icon3d.shadow { filter: drop-shadow(0 6px 9px rgba(8,5,18,0.45)); }
 }
 
 @layer utilities {
@@ -816,13 +735,13 @@
   }
 }
 
-/* ─── Modern Glassmorphic Calendar ─── */
+/* ─── Takvim (Planlama) ─── */
 .calendar-widget {
-  background: rgba(30, 20, 45, 0.45);
+  background: rgba(233, 220, 199, 0.06);
   backdrop-filter: blur(25px);
   -webkit-backdrop-filter: blur(25px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(233, 220, 199, 0.12);
+  box-shadow: 0 14px 40px -16px rgba(3, 6, 18, 0.7), inset 0 1px 0 rgba(233, 220, 199, 0.05);
 }
 
 .calendar-grid {
@@ -835,9 +754,8 @@
 .calendar-day-header {
   font-size: 13px;
   font-weight: 600;
-  color: #ff9f5a;
+  color: theme('colors.on-surface-variant');
   padding: 8px 0;
-  opacity: 0.85;
 }
 
 .calendar-day {
@@ -849,70 +767,84 @@
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
   position: relative;
+  border: 1px solid transparent;
 }
 
 /* Boş günler (bir önceki/sonraki aydan taşanlar) */
 .calendar-day.empty {
-  color: rgba(244, 236, 222, 0.25);
+  color: rgba(236, 226, 208, 0.25);
   cursor: default;
   pointer-events: none;
 }
 
 /* Normal boş günler (uçuş planı olmayanlar) */
 .calendar-day.no-plan {
-  color: rgba(244, 236, 222, 0.5);
+  color: rgba(236, 226, 208, 0.55);
 }
 
 .calendar-day.no-plan:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #f4ecde;
+  background: rgba(233, 220, 199, 0.08);
+  color: theme('colors.on-surface');
+}
+
+/* Geçmiş ve planı olmayan günler — tıklanamaz */
+.calendar-day.past {
+  color: rgba(236, 226, 208, 0.22);
+  cursor: default;
+}
+
+.calendar-day.past:hover {
+  background: transparent;
+  color: rgba(236, 226, 208, 0.22);
+}
+
+/* Bugün */
+.calendar-day.today {
+  border-color: rgba(233, 220, 199, 0.35);
 }
 
 /* Uçuş planı olan günler (Aktif günler) */
 .calendar-day.has-plan {
-  background: rgba(255, 159, 90, 0.15);
-  border: 1px solid rgba(255, 159, 90, 0.4);
-  color: #ff9f5a;
+  background: rgba(242, 166, 90, 0.12);
+  border-color: rgba(242, 166, 90, 0.35);
+  color: theme('colors.primary');
   font-weight: 700;
-  box-shadow: 0 0 12px rgba(255, 159, 90, 0.1);
 }
 
 .calendar-day.has-plan:hover {
-  background: rgba(255, 159, 90, 0.3);
-  color: #ffffff;
-  box-shadow: 0 0 16px rgba(255, 159, 90, 0.25);
+  background: rgba(242, 166, 90, 0.22);
+  color: theme('colors.primary-fixed');
 }
 
 /* Seçili gün */
 .calendar-day.selected {
-  background: #ff9f5a !important;
-  color: #140e22 !important;
+  background: theme('colors.primary') !important;
+  color: theme('colors.on-primary') !important;
   font-weight: 800;
-  box-shadow: 0 0 20px rgba(255, 159, 90, 0.6) !important;
-  border: none !important;
+  border-color: transparent !important;
 }
 
 /* Gezinme butonları */
 .calendar-nav-btn {
-  background: #4ade80; /* Yeşil */
-  color: #140e22;
-  border-radius: 8px;
-  width: 32px;
-  height: 32px;
+  background: rgba(233, 220, 199, 0.06);
+  color: theme('colors.on-surface');
+  border: 1px solid rgba(233, 220, 199, 0.14);
+  border-radius: 10px;
+  width: 34px;
+  height: 34px;
   display: flex;
   align-items: center;
   justify-content: center;
   font-weight: bold;
   cursor: pointer;
-  transition: all 0.2s;
-  border: none;
+  transition: background-color 0.2s, border-color 0.2s;
 }
 
 .calendar-nav-btn:hover {
-  filter: brightness(1.15);
-  transform: scale(1.05);
+  background: rgba(242, 166, 90, 0.14);
+  border-color: rgba(242, 166, 90, 0.35);
 }
 
 .calendar-nav-btn:active {
@@ -923,9 +855,9 @@
 .shimmer {
   background: linear-gradient(
     90deg,
-    rgba(255, 255, 255, 0.03) 25%,
-    rgba(255, 255, 255, 0.08) 37%,
-    rgba(255, 255, 255, 0.03) 63%
+    rgba(233, 220, 199, 0.03) 25%,
+    rgba(233, 220, 199, 0.07) 37%,
+    rgba(233, 220, 199, 0.03) 63%
   );
   background-size: 400% 100%;
   animation: shimmer-pulse 1.4s ease infinite;
@@ -942,21 +874,21 @@
 
 .skeleton-text {
   height: 14px;
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(233, 220, 199, 0.04);
   border-radius: 4px;
   width: 100%;
 }
 
 .skeleton-title {
   height: 20px;
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(233, 220, 199, 0.05);
   border-radius: 6px;
   width: 60%;
 }
 
 .skeleton-card {
-  background: rgba(30, 20, 45, 0.25);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(233, 220, 199, 0.03);
+  border: 1px solid rgba(233, 220, 199, 0.06);
   border-radius: 20px;
   padding: 20px;
   display: flex;
@@ -964,7 +896,7 @@
   gap: 12px;
 }
 
-/* ─── Premium Drag-and-Drop Spacing and Floating Bar ─── */
+/* ─── Sürükle-bırak aralıkları ve kayan durum çubuğu ─── */
 .block-shell {
   transition: transform 0.2s ease, padding 0.2s ease, border-color 0.2s ease;
 }
@@ -980,17 +912,16 @@
   left: 0;
   right: 0;
   height: 38px;
-  border: 2px dashed rgba(255, 120, 0, 0.4);
+  border: 2px dashed rgba(242, 166, 90, 0.4);
   border-radius: 16px;
-  background: rgba(255, 120, 0, 0.05);
-  color: rgba(255, 120, 0, 0.9);
+  background: rgba(242, 166, 90, 0.05);
+  color: rgba(242, 166, 90, 0.9);
   font-size: 11px;
   font-weight: 600;
   display: flex;
   align-items: center;
   justify-content: center;
   pointer-events: none;
-  box-shadow: 0 0 10px rgba(255, 120, 0, 0.05);
 }
 
 .block-shell.drag-hover-bottom {
@@ -1004,17 +935,16 @@
   left: 0;
   right: 0;
   height: 38px;
-  border: 2px dashed rgba(255, 120, 0, 0.4);
+  border: 2px dashed rgba(242, 166, 90, 0.4);
   border-radius: 16px;
-  background: rgba(255, 120, 0, 0.05);
-  color: rgba(255, 120, 0, 0.9);
+  background: rgba(242, 166, 90, 0.05);
+  color: rgba(242, 166, 90, 0.9);
   font-size: 11px;
   font-weight: 600;
   display: flex;
   align-items: center;
   justify-content: center;
   pointer-events: none;
-  box-shadow: 0 0 10px rgba(255, 120, 0, 0.05);
 }
 
 .block-shell.is-dragging {
@@ -1031,11 +961,11 @@
   align-items: center;
   gap: 16px;
   padding: 12px 24px;
-  background: rgba(22, 17, 39, 0.9);
+  background: rgba(16, 22, 43, 0.94);
   backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 120, 0, 0.3);
+  border: 1px solid rgba(242, 166, 90, 0.3);
   border-radius: 20px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 20px rgba(255, 120, 0, 0.1);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
   animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
@@ -1055,4 +985,3 @@
     opacity: 1;
   }
 }
-

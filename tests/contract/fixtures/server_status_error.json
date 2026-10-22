@@ -1,0 +1,14 @@
+{
+  "http_status": 200,
+  "body": {
+    "status": "error",
+    "error": "Görsel bulanık, MRZ okunamadı."
+  },
+  "expect": {
+    "green": false,
+    "flags": [
+      "unreadable"
+    ],
+    "error_contains": "bulanık"
+  }
+}

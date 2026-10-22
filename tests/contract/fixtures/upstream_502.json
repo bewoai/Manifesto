@@ -1,0 +1,13 @@
+{
+  "http_status": 502,
+  "body": {
+    "detail": "upstream_error"
+  },
+  "expect": {
+    "green": false,
+    "flags": [
+      "unreadable"
+    ],
+    "error_contains": "geçici"
+  }
+}

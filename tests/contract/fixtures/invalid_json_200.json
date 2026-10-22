@@ -1,0 +1,11 @@
+{
+  "http_status": 200,
+  "body": null,
+  "expect": {
+    "green": false,
+    "flags": [
+      "unreadable"
+    ],
+    "error_contains": "geçersiz yanıt"
+  }
+}

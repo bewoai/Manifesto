@@ -24,23 +24,29 @@ def _config_dir() -> Path:
 SETTINGS_PATH = Path(os.getenv("MANIFESTO_SETTINGS", _config_dir() / "settings.json"))
 LEGACY_SETTINGS_PATH = Path(os.getenv("APPDATA") or os.path.expanduser("~/.config")) / "BalonManifesto" / "settings.json"
 
-VISION_MODE_GOOGLE_VISION = "google_vision"
-VISION_MODE_CLAUDE = "claude"
-VISION_MODE_MANUAL = "manual"
-VISION_MODE_IRTIFA_SERVER = "irtifa_server"
+VISION_MODE_CLAUDE_DIRECT = "claude_direct"   # doğrudan Claude, anahtar cihazda (DPAPI)
+VISION_MODE_IRTIFA_SERVER = "irtifa_server"   # merkezi OCR sunucusu, lisans anahtarı
+VISION_MODE_MANUAL = "manual"                 # OCR kapalı, elle giriş
 VISION_MODES = (
-    VISION_MODE_GOOGLE_VISION,
-    VISION_MODE_CLAUDE,
-    VISION_MODE_MANUAL,
     VISION_MODE_IRTIFA_SERVER,
+    VISION_MODE_CLAUDE_DIRECT,
+    VISION_MODE_MANUAL,
 )
+# Eski değerler (ayar dosyalarında kalmış olabilir) → normalized() ile eşlenir
+VISION_MODE_CLAUDE = "claude"                 # → claude_direct
+VISION_MODE_GOOGLE_VISION = "google_vision"   # → irtifa_server (bu sürümde yerel Vision yok)
+_LEGACY_VISION_MODES = {
+    VISION_MODE_CLAUDE: VISION_MODE_CLAUDE_DIRECT,
+    VISION_MODE_GOOGLE_VISION: VISION_MODE_IRTIFA_SERVER,
+}
 
 DATA_SOURCE_EXCEL = "excel"
 DATA_SOURCE_GOOGLE_SHEETS = "google_sheets"
 DATA_SOURCES = (DATA_SOURCE_EXCEL, DATA_SOURCE_GOOGLE_SHEETS)
 
-DEFAULT_MODEL = "claude-sonnet-4-6"  # Ana MRZ/Liste okuma modeli (Settings'ten değiştirilebilir)
-FALLBACK_MODEL = "claude-opus-4-8"   # Premium fallback modeli
+DEFAULT_MODEL = "claude-sonnet-5-5"  # Ana MRZ okuma modeli (Settings'ten değiştirilebilir)
+FALLBACK_MODEL = "claude-opus-5-5"   # Sarı kayıtta "tekrar oku" için üst model
+_LEGACY_MODELS = {"claude-sonnet-4-6": DEFAULT_MODEL, "claude-opus-4-8": FALLBACK_MODEL}
 
 
 def _stable_device_id(settings_path: Path, preferred: str = "") -> str:
@@ -116,10 +122,10 @@ class Settings:
         return bool(self.anthropic_api_key.strip() or os.getenv("ANTHROPIC_API_KEY"))
 
     def uses_claude(self) -> bool:
-        return self.vision_mode == VISION_MODE_CLAUDE
+        return self.vision_mode == VISION_MODE_CLAUDE_DIRECT
 
     def uses_google_vision(self) -> bool:
-        return self.vision_mode == VISION_MODE_GOOGLE_VISION
+        return False  # yerel Google Vision yolu bu sürümde yok (mimari v2)
 
     def uses_automatic_vision(self) -> bool:
         return self.vision_mode != VISION_MODE_MANUAL
@@ -131,8 +137,13 @@ class Settings:
         return bool(self.google_spreadsheet_id.strip() and self.google_credentials_json.strip())
 
     def normalized(self) -> "Settings":
+        self.vision_mode = _LEGACY_VISION_MODES.get(self.vision_mode, self.vision_mode)
         if self.vision_mode not in VISION_MODES:
-            self.vision_mode = VISION_MODE_GOOGLE_VISION
+            self.vision_mode = VISION_MODE_IRTIFA_SERVER
+        self.model = _LEGACY_MODELS.get(self.model, self.model) or DEFAULT_MODEL
+        self.anthropic_fallback_model = (
+            _LEGACY_MODELS.get(self.anthropic_fallback_model, self.anthropic_fallback_model) or FALLBACK_MODEL
+        )
         if self.data_source not in DATA_SOURCES:
             self.data_source = DATA_SOURCE_EXCEL
         # Balon kapasitesi 1..MAX_PAX aralığında

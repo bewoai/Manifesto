@@ -275,3 +275,17 @@ Hatalı-eksik), acente bazlı eksik görünümü, kapasite (Sayfa2) entegrasyonu
   yazma bitti). `reorder_reservation` hedefi `_is_block_boundary` ile doğrular (blok ortası → 422)
   ve `insert_rows`/`delete_rows` çevresinde birleşik hücreleri `_detach_merges`/`_reattach_merges`
   ile kaydırır (openpyxl birleşmeleri taşımaz; diğer blokların PAX/otel birleşmeleri kayıyordu).
+
+### Uygulama (2026-10-23) — OcrProvider arayüzü + claude_direct (mimari v2, PR 1+2)
+- `app/vision/providers/`: `OcrResult` + `OcrProvider` protokolü (`base.py`), sunucu sarıcı
+  (`irtifa_server.py`), doğrudan Claude (`claude_direct.py`, yalnız-MRZ prompt, `output_config.format`
+  yapılandırılmış çıktı; zorunlu `tool_choice` güncel modellerde 400 olduğu için kullanılmıyor).
+- `to_mrz()` sağlayıcıdan bağımsız doğrulama: boş checks asla yeşil; belge no ≠ MRZ → CHECKSUM_FAIL;
+  expired/duplicate yerel. `extractor.process_image` sağlayıcıyı `vision_mode`dan seçer
+  (`make_provider`), `ocr_provider=` ile enjekte edilebilir; `client=` eski çok-yolcu yol (test/dev).
+- `vision_mode`: `irtifa_server` (varsayılan, değişmedi) | `claude_direct` | `manual`; eski `claude`→
+  `claude_direct`, `google_vision`→`irtifa_server`. Modeller `claude-sonnet-5-5` / `claude-opus-5-5`.
+- Ayarlar > OCR: sağlayıcı seçimi, Claude API anahtarı (DPAPI) + model, "Anahtarı Doğrula".
+  `/api/app/status` claude_direct modunda lisans = API anahtarı var mı.
+- Sözleşme testleri: `tests/contract/fixtures/*.json` tek doğruluk kaynağı; ileride `server/` aynı
+  fixture'larla test edilir. Varsayılanı `claude_direct`e çevirmek PR 4 (benchmark sonrası).

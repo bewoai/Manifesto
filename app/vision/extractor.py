@@ -20,7 +20,9 @@ from typing import Optional
 from app import settings as settings_mod
 from app.mrz.parser import MRZResult, parse_td1, parse_td3
 from app.validation.flags import Flag, ValidationOutcome, validate_mrz
-from app.vision.ocr import extract_with_google_vision
+from app.vision.providers.base import OcrProvider, to_mrz
+from app.vision.providers.claude_direct import ClaudeDirectProvider
+from app.vision.providers.irtifa_server import IrtifaServerProvider
 
 # Claude'a hem MRZ hem de serbest metinden tüm yolcuları çıkarttırıyoruz.
 SYSTEM_PROMPT = (
@@ -286,6 +288,46 @@ def _process_with_injected_client(
             record.outcome.add(Flag.LOW_CONFIDENCE)
     return records
 
+def make_provider(
+    settings: settings_mod.Settings,
+    *,
+    mode: Optional[str] = None,
+    client=None,
+    model: Optional[str] = None,
+) -> Optional[OcrProvider]:
+    """`vision_mode`'a göre sağlayıcı seçer. Manuel modda None döner.
+
+    - irtifa_server : merkezi OCR sunucusu (lisans anahtarı)
+    - claude_direct : doğrudan Claude, anahtar cihazda (DPAPI); `client` testler için enjekte edilebilir
+    - manual        : OCR kapalı
+    """
+    mode = settings_mod._LEGACY_VISION_MODES.get(mode or settings.vision_mode, mode or settings.vision_mode)
+    if mode == settings_mod.VISION_MODE_IRTIFA_SERVER:
+        return IrtifaServerProvider(
+            settings.irtifa_server_url, settings.irtifa_license_key, settings.irtifa_device_id
+        )
+    if mode == settings_mod.VISION_MODE_CLAUDE_DIRECT:
+        return ClaudeDirectProvider(
+            client or _make_client(settings.anthropic_api_key.strip() or None),
+            model or settings.model or settings_mod.DEFAULT_MODEL,
+        )
+    if mode == settings_mod.VISION_MODE_MANUAL:
+        return None
+    raise ValueError(f"Desteklenmeyen OCR modu: {mode!r}. Ayarlar'dan Claude veya İrtifa sunucusu seçin.")
+
+
+def _error_record(source: str, message: str, *, route: str) -> PassportRecord:
+    return PassportRecord(
+        source=source,
+        mrz=None,
+        outcome=ValidationOutcome(flags=[Flag.UNREADABLE]),
+        error=message,
+        confidence_score=0.0,
+        processing_route=route,
+        requires_manual_review=True,
+    )
+
+
 def process_image(
     image_bytes: bytes,
     *,
@@ -293,20 +335,24 @@ def process_image(
     media_type: str = "image/jpeg",
     client=None,
     model: Optional[str] = None,
-    provider: str = settings_mod.VISION_MODE_IRTIFA_SERVER,
+    provider: Optional[str] = None,
     settings: Optional[settings_mod.Settings] = None,
     seen_document_numbers: Optional[set[str]] = None,
     today: Optional[_dt.date] = None,
+    ocr_provider: Optional[OcrProvider] = None,
 ) -> list[PassportRecord]:
-    """Uçtan uca: görsel -> Irtifa OCR Sunucusu -> list[PassportRecord].
-    Müşteri sürümünde (Customer Build) yerel Google Vision veya Claude fallback devre dışıdır.
-    SADECE Irtifa sunucusu kullanılır.
+    """Uçtan uca: görsel -> OcrProvider -> yerel MRZ checksum -> list[PassportRecord].
+
+    Sağlayıcı `provider` (vision_mode adı) ya da `settings.vision_mode`'dan seçilir;
+    `ocr_provider` ile hazır bir sağlayıcı enjekte edilebilir (testler). Hangi sağlayıcı
+    olursa olsun yeşil karar yalnız `app/mrz` checksum'ı geçince verilir (brief §6).
+
+    `client` verilmesi eski çok-yolcu Claude yolunu (serbest metin/liste okuma) çalıştırır;
+    yalnız test ve geliştirici araçları içindir.
     """
     settings = settings or settings_mod.Settings()
 
-    # Üretim sürümü merkezi OCR sunucusunu kullanır. Açıkça istemci verilmesi
-    # yalnız test/geliştirici doğrulaması içindir ve dağıtılan anahtarları etkilemez.
-    if client is not None:
+    if client is not None and ocr_provider is None:
         return _process_with_injected_client(
             image_bytes,
             source=source,
@@ -317,17 +363,21 @@ def process_image(
             seen_document_numbers=seen_document_numbers,
             today=today,
         )
-    
-    # Müşteri derlemesinde provider ne olursa olsun her zaman Irtifa Server kullanılır.
-    from app.vision.irtifa_client import call_irtifa_ocr_server
-    mrz, outcome, error_msg, conf, route, ai_model = call_irtifa_ocr_server(
-        image_bytes=image_bytes,
-        server_url=settings.irtifa_server_url,
-        license_key=settings.irtifa_license_key,
-        device_id=settings.irtifa_device_id,
-        media_type=media_type,
-    )
-    
+
+    if ocr_provider is None:
+        try:
+            ocr_provider = make_provider(settings, mode=provider, model=model)
+        except ValueError as exc:
+            return [_error_record(source, str(exc), route=str(provider or settings.vision_mode))]
+        if ocr_provider is None:
+            return [_error_record(
+                source, "Manuel mod: otomatik OCR kapalı. Bilgileri elle girin.",
+                route=settings_mod.VISION_MODE_MANUAL,
+            )]
+
+    result = ocr_provider.read(image_bytes, media_type)
+    mrz, outcome, error_msg, conf, route, ai_model = to_mrz(result, provider_name=ocr_provider.name)
+
     if mrz is not None:
         local_outcome = validate_mrz(
             mrz,

@@ -783,39 +783,26 @@ def api_planning_load(sheet: str = Query(..., description="Gün sayfa adı")) ->
     s = _load_settings()
     xlsx_path = _resolve_planning_path(s)
     
-    from app.manifest.importer import sheet_name_to_iso, load_blocks_from_sqlite
+    from app.manifest.importer import sheet_name_to_iso
     iso_date = sheet_name_to_iso(sheet)
-    blocks = None
-    loaded_from_db = False
-    
+
+    # Kaynak her zaman Excel (hibrit karar, CLAUDE.md §15). SQLite yalnızca aynadır;
+    # dışarıdan düzenlenen Excel'in eski DB kopyasıyla gölgelenmemesi için DB'den okunmaz.
+    try:
+        blocks = read_blocks(xlsx_path, sheet)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Sayfa yüklenemedi: {e}")
+
     if iso_date:
-        try:
-            conn = connect()
-            flight = conn.execute("SELECT id FROM flights WHERE flight_date = ?", (iso_date,)).fetchone()
-            if flight:
-                res_count = conn.execute("SELECT COUNT(*) FROM reservations WHERE flight_id = ?", (flight["id"],)).fetchone()[0]
-                if res_count > 0:
-                    blocks = load_blocks_from_sqlite(flight["id"], conn)
-                    loaded_from_db = True
-            conn.close()
-        except Exception as e:
-            print(f"Warning: Failed to load from SQLite: {e}")
-            
-    if not loaded_from_db:
-        try:
-            blocks = read_blocks(xlsx_path, sheet)
-            if iso_date:
-                def run_bg():
-                    try:
-                        from app.manifest.importer import import_excel_to_sqlite
-                        import_excel_to_sqlite(sheet_name=sheet)
-                    except Exception as e:
-                        print(f"Background import failed for {sheet}: {e}")
-                threading.Thread(target=run_bg, daemon=True).start()
-        except KeyError as e:
-            raise HTTPException(status_code=404, detail=str(e))
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Sayfa yüklenemedi: {e}")
+        def run_bg():
+            try:
+                from app.manifest.importer import import_excel_to_sqlite
+                import_excel_to_sqlite(sheet_name=sheet)
+            except Exception as e:
+                print(f"Background import failed for {sheet}: {e}")
+        threading.Thread(target=run_bg, daemon=True).start()
 
     try:
         revision = workbook_revision(xlsx_path)

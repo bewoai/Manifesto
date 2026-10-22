@@ -108,33 +108,13 @@ def build_planning_rows_from_sqlite(flight_id: int, balloon: str, conn: sqlite3.
 
 
 def build_rows(planning_xlsx: Path, sheet: str, balloon: str) -> list[ManifestRow]:
-    """Planlamadan tek balonun manifesto satırlarını üretir (yazmadan)."""
+    """Planlamadan tek balonun manifesto satırlarını üretir (yazmadan).
+
+    Kaynak her zaman planlama Excel'idir (hibrit karar, CLAUDE.md §15). SQLite aynası
+    okunmaz: dışarıdan düzenlenmiş Excel'in eski DB kopyasıyla manifestoya girmesi engellenir.
+    """
     balloon = balloon.upper().strip()
-    
-    from app.db import connect
-    from app.manifest.importer import sheet_name_to_iso
-    import sqlite3
-    
-    iso_date = sheet_name_to_iso(sheet)
-    rows = None
-    loaded_from_db = False
-    
-    if iso_date:
-        try:
-            conn = connect()
-            flight = conn.execute("SELECT id FROM flights WHERE flight_date = ?", (iso_date,)).fetchone()
-            if flight:
-                res_count = conn.execute("SELECT COUNT(*) FROM reservations WHERE flight_id = ?", (flight["id"],)).fetchone()[0]
-                if res_count > 0:
-                    rows = build_planning_rows_from_sqlite(flight["id"], balloon, conn)
-                    loaded_from_db = True
-            conn.close()
-        except Exception as e:
-            print(f"Warning: Failed to load manifest rows from SQLite: {e}")
-            
-    if not loaded_from_db:
-        rows = [r for r in read_rows(planning_xlsx, sheet) if r.balloon == balloon]
-        
+    rows = [r for r in read_rows(planning_xlsx, sheet) if r.balloon == balloon]
     return [_transform(r) for r in rows]
 
 

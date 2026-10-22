@@ -9,6 +9,55 @@ from app.validation.flags import ValidationOutcome, Flag
 
 logger = logging.getLogger("irtifa_ocr")
 
+
+def _normalize_doc_no(value: Optional[str]) -> str:
+    return "".join(ch for ch in (value or "").upper() if ch.isalnum())
+
+
+def _verify_against_local_mrz(mrz: MRZResult, raw_text: str, *, server_document_no: str) -> None:
+    """Sunucu alanlarını ham OCR metnindeki MRZ ile KODDA doğrular (brief §6).
+
+    - MRZ satırları bulunup parse edilirse `mrz.checks` yerel check digit sonuçlarıyla
+      dolar; ek olarak `server_document_match` (sunucunun belge no'su == MRZ belge no).
+    - MRZ bulunamazsa `checks` boş kalır → `validate_mrz` FREE_TEXT_UNVERIFIED verir (sarı).
+    Sonuç: sunucu "green" dese bile kayıt ancak yerel doğrulama geçerse yeşil olur.
+    """
+    if not raw_text:
+        return
+    from app.vision.ocr import mrz_lines_from_text
+    from app.mrz.parser import parse
+    try:
+        fmt, lines = mrz_lines_from_text(raw_text)
+        if fmt == "NONE" or not lines:
+            return
+        local = parse(lines)
+    except Exception:
+        return
+    if not local.document_number:
+        return
+
+    checks = dict(local.checks)
+    server_doc = _normalize_doc_no(server_document_no)
+    checks["server_document_match"] = (
+        server_doc == _normalize_doc_no(local.document_number) if server_doc else True
+    )
+    mrz.checks = checks
+    mrz.raw_lines = list(local.raw_lines)
+
+    # Sunucunun boş bıraktığı alanları doğrulanmış MRZ'den tamamla
+    if not mrz.document_number:
+        mrz.document_number = local.document_number
+    if not mrz.nationality:
+        mrz.nationality = local.nationality
+        mrz.issuing_country = local.issuing_country
+    if mrz.sex not in ("M", "F") and local.sex in ("M", "F"):
+        mrz.sex = local.sex
+    if mrz.expiry_date is None:
+        mrz.expiry_date = local.expiry_date
+    if mrz.birth_date is None:
+        mrz.birth_date = local.birth_date
+
+
 def call_irtifa_ocr_server(
     image_bytes: bytes,
     server_url: str,
@@ -146,6 +195,8 @@ def call_irtifa_ocr_server(
         raw_lines=[raw_text]
     )
 
+    # Brief §6: sunucu yalnızca OCR eder, check digit doğrulaması burada yapılır.
+    _verify_against_local_mrz(mrz, raw_text, server_document_no=p_data.get("document_no", ""))
 
     flags = []
     if confidence_color != "green":

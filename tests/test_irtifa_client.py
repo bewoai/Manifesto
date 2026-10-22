@@ -131,3 +131,79 @@ def test_passport_content_type_falls_back_to_supported_extension_only():
     assert _passport_content_type("scan.jpg", "") == "image/jpeg"
     assert _passport_content_type("scan.webp", "application/octet-stream") == "image/webp"
     assert _passport_content_type("scan.pdf", "application/octet-stream") == "application/octet-stream"
+
+
+# ─── Brief §6: sunucu sonucu yerel MRZ check digit ile doğrulanmalı ───────────
+
+TD3_L1 = "P<UTOERIKSSON<<ANNA<MARIA<<<<<<<<<<<<<<<<<<<"
+TD3_L2 = "L898902C36UTO7408122F1204159ZE184226B<<<<<10"
+
+
+def _server_payload(document_no: str, raw_text: str) -> dict:
+    return {
+        "status": "success",
+        "source": "google_vision",
+        "confidence": "green",
+        "passenger": {
+            "first_name": "ANNA MARIA",
+            "last_name": "ERIKSSON",
+            "nationality": "UTO",
+            "gender": "F",
+            "document_no": document_no,
+            "birth_date": "1974-08-12",
+            "expiry_date": "2012-04-15",
+        },
+        "raw_text": raw_text,
+        "warnings": [],
+    }
+
+
+def _call(monkeypatch, payload):
+    monkeypatch.setattr(
+        "app.vision.irtifa_client.requests.post",
+        lambda url, *, headers, files, timeout: FakeResponse(200, payload),
+    )
+    mrz, outcome, error, _, _, _ = call_irtifa_ocr_server(b"img", "https://example.test", "LICENSE", "DEVICE")
+    assert error is None
+    return mrz, outcome
+
+
+def test_server_green_without_mrz_is_not_green(monkeypatch):
+    from app.validation.flags import validate_mrz
+
+    mrz, _ = _call(monkeypatch, _server_payload("L898902C3", raw_text="Name: ANNA ERIKSSON"))
+    assert mrz.checks == {}
+    assert not mrz.checks_ok
+    outcome = validate_mrz(mrz, today=dt.date(2010, 1, 1))
+    assert Flag.FREE_TEXT_UNVERIFIED in outcome.flags
+    assert not outcome.is_green
+
+
+def test_server_result_verified_by_local_mrz(monkeypatch):
+    from app.validation.flags import validate_mrz
+
+    mrz, _ = _call(monkeypatch, _server_payload("L898902C3", raw_text="junk\n" + TD3_L1 + "\n" + TD3_L2 + "\n"))
+    assert mrz.checks["document_number"] is True
+    assert mrz.checks["server_document_match"] is True
+    assert mrz.checks_ok, mrz.checks
+    assert validate_mrz(mrz, today=dt.date(2010, 1, 1)).is_green
+
+
+def test_server_document_no_mismatching_mrz_fails_checksum(monkeypatch):
+    from app.validation.flags import validate_mrz
+
+    mrz, _ = _call(monkeypatch, _server_payload("X9999999", raw_text=TD3_L1 + "\n" + TD3_L2))
+    assert mrz.checks["server_document_match"] is False
+    assert not mrz.checks_ok
+    assert Flag.CHECKSUM_FAIL in validate_mrz(mrz, today=dt.date(2010, 1, 1)).flags
+
+
+def test_server_fills_missing_fields_from_verified_mrz(monkeypatch):
+    payload = _server_payload("", raw_text=TD3_L1 + "\n" + TD3_L2)
+    payload["passenger"]["nationality"] = ""
+    payload["passenger"]["gender"] = ""
+    mrz, _ = _call(monkeypatch, payload)
+    assert mrz.document_number == "L898902C3"
+    assert mrz.nationality == "UTO"
+    assert mrz.sex == "F"
+    assert mrz.checks_ok

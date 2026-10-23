@@ -345,3 +345,19 @@ Hatalı-eksik), acente bazlı eksik görünümü, kapasite (Sayfa2) entegrasyonu
 - Takvim (`pages/planning.js`): plan günlerinin altında `.seat-bar.day-load` (lapis; aşımda tuğla;
   zarf mürekkebi değil — Envelope Rule). İstemci, ay verisini `state.revision` değişene dek yeniden istemez.
   Bugün lapis çerçeveli.
+
+### Kapasite kuralları (2026-10-24, backend)
+- **Balon başına kapasite:** planlama fonksiyonları `capacity: int | Callable[[kod], int]` alır
+  (`planning.capacity_fn`); main `Settings.capacity_for` geçirir. Koltuk modunda da balon yükü + PAX
+  kapasiteyi aşamaz. Bant tespiti (`_is_seat_layout_rows`) varsayılan kapasiteyle kalır.
+- **Günlük balon sınırı:** `daily_max_balloons > 0` ve yolcu taşıyan balon sayısı sınıra ulaştıysa
+  `choose_balloon(allowed=uçan balonlar)`; sığmazsa 409 `capacity_confirmation_required` + "Günlük balon
+  sınırı (N) dolu…" mesajı. `allow_overflow`+`requested_balloon` yeni balona izin verir; readiness
+  `daily_balloon_limit` ile işaretler.
+- **Acente kotası:** create-block / create-with-identities, kapasiteden ÖNCE; aşımda 409
+  `agency_quota_exceeded` (`allow_quota_override` ile geçilir). Acente adları `settings.fold_agency`
+  ile katlanır (İ/ı→I, Ş→S, Ğ→G, Ü→U, Ö→O, Ç→C, büyük harf, tek boşluk); `agency_quotas` anahtarları
+  katlanmış saklanır.
+- Readiness: `lead_row` taşıyan her uyarıda `lead_name`; mesajlar "Satır 83 · AD SOYAD: …".
+  `/api/planning/load` → `capacities`, `daily_max_balloons`, `balloons_in_use`, `agency_usage`.
+  Test: `tests/test_capacity_rules.py`.

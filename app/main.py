@@ -2167,6 +2167,7 @@ def api_manifest_export(
         path,
         filename=path.name,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=_output_dir_header(out_dir),
     )
 
 
@@ -2220,7 +2221,8 @@ def api_driver_report_export(request: Request, body: dict) -> FileResponse:
         sheet=sheet,
         detail={"driver": driver or "all"},
     )
-    return FileResponse(zip_path, filename=zip_path.name, media_type="application/zip")
+    return FileResponse(zip_path, filename=zip_path.name, media_type="application/zip",
+                        headers=_output_dir_header(out_dir.parent))
 
 
 def _safe_output_name(value: str) -> str:
@@ -2270,7 +2272,31 @@ def api_all_outputs(request: Request, body: dict) -> FileResponse:
         sheet=sheet,
         detail={"override_reason": reason or None, "files": len(outputs)},
     )
-    return FileResponse(zip_path, filename=zip_path.name, media_type="application/zip")
+    return FileResponse(zip_path, filename=zip_path.name, media_type="application/zip",
+                        headers=_output_dir_header(out_dir))
+
+
+def _output_dir_header(out_dir: Path) -> dict[str, str]:
+    """Çıktıların diskte kaydedildiği klasör (yüzde-kodlu; başlıklar ASCII olmalı)."""
+    from urllib.parse import quote
+    return {"X-Output-Dir": quote(str(out_dir)), "Access-Control-Expose-Headers": "X-Output-Dir"}
+
+
+@app.post("/api/outputs/open-folder")
+def api_open_output_folder(body: dict) -> dict[str, Any]:
+    """Seçili günün çıktı klasörünü Gezgin'de açar. Yalnız çıktı klasörünün altı açılabilir."""
+    sheet = str(body.get("sheet", "")).strip()
+    base = _load_settings().output_path().resolve()
+    target = (base / _safe_output_name(sheet)).resolve() if sheet else base
+    if target != base and base not in target.parents:
+        raise HTTPException(status_code=422, detail="Geçersiz klasör.")
+    if not target.exists():
+        target = base
+    if not target.exists():
+        raise HTTPException(status_code=404, detail="Çıktı klasörü henüz oluşturulmadı.")
+    if os.name == "nt":
+        os.startfile(str(target))  # noqa: S606 — yerel masaüstü uygulaması
+    return {"path": str(target)}
 
 
 @app.get("/api/admin/backups")

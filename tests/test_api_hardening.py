@@ -96,3 +96,21 @@ def test_cors_blocks_foreign_origin(client):
 def test_cors_allows_local_origins(client, origin):
     r = client.get("/health", headers={"Origin": origin})
     assert r.headers.get("access-control-allow-origin") == origin
+
+
+# ─── Çıktı klasörünü aç ─────────────────────────────────────────────────
+
+def test_open_output_folder_rejects_escape(client):
+    r = client.post("/api/outputs/open-folder", json={"sheet": ".."})
+    assert r.status_code == 422
+
+
+def test_output_dir_header_is_ascii_and_round_trips(tmp_path):
+    from urllib.parse import unquote
+    import app.main as main_mod
+
+    target = tmp_path / "Çıktılar" / "24.10.2026"
+    h = main_mod._output_dir_header(target)
+    assert h["X-Output-Dir"].isascii()
+    assert unquote(h["X-Output-Dir"]) == str(target)
+    assert "X-Output-Dir" in h["Access-Control-Expose-Headers"]

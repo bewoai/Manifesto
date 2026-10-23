@@ -69,7 +69,7 @@ from app.passport_store import (
     delete_image as delete_passport_image,
     save_image,
 )
-from app.readiness import agency_seats, agency_usage, check_blocks, check_workbook
+from app.readiness import check_blocks, check_workbook
 from app.reports import (
     driver_rows,
     driver_summary,
@@ -902,7 +902,6 @@ def api_planning_load(sheet: str = Query(..., description="Gün sayfa adı")) ->
         "capacities": _capacities(s, balloon_codes),  # balon → kapasite
         "daily_max_balloons": s.daily_max_balloons,   # 0 = sınır yok
         "balloons_in_use": sum(1 for v in load.values() if v > 0),
-        "agency_usage": agency_usage(blocks, s.quota_for),
         "total_blocks": len(blocks),
         "workbook_revision": revision,
         "readiness": readiness,
@@ -1293,9 +1292,6 @@ def api_planning_create_block(body: dict, request: Request) -> dict:
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Sayfa okunamadı: {e}")
 
-    # Acente kotası, balon kapasitesinden ÖNCE kontrol edilir
-    quota_override = _check_agency_quota(s, blocks, lead_fields.get("agency", ""), pax, body)
-
     load = planning_balloon_load(blocks)
     requested_balloon = str(body.get("requested_balloon", "")).strip().upper()
     allowed = _daily_allowed_balloons(s, load)
@@ -1341,8 +1337,7 @@ def api_planning_create_block(body: dict, request: Request) -> dict:
         actor=_actor(request),
         sheet=sheet,
         reservation_row=result["lead_row"],
-        detail={"pax": pax, "balloon": balloon, "overflow": overflow,
-                "quota_override": quota_override, "hotel_match": hotel_match},
+        detail={"pax": pax, "balloon": balloon, "overflow": overflow, "hotel_match": hotel_match},
     )
     _sync_sqlite(sheet)
     return {
@@ -1836,11 +1831,10 @@ def _mark_extractions_approved(identities: list[dict], sheet: str, rows: list[in
 
 def _readiness_rules(s: settings_mod.Settings) -> dict:
     """check_blocks/check_workbook için kapasite kuralları (balon başına kapasite, günlük
-    balon sınırı, acente kotası)."""
+    balon sınırı). Acente kotası yok: satış acente bazında, sorumluluk alan acentede."""
     return {
         "balloon_capacity": s.capacity_for,
         "daily_max_balloons": s.daily_max_balloons,
-        "agency_quota": s.quota_for,
     }
 
 
@@ -1874,31 +1868,6 @@ def _daily_allowed_balloons(s: settings_mod.Settings, load: dict) -> Optional[se
     in_use = {b for b, used in load.items() if used > 0}
     return in_use if len(in_use) >= limit else None
 
-
-def _check_agency_quota(s: settings_mod.Settings, blocks, agency: str, pax: int, body: dict) -> bool:
-    """Acente günlük kotası aşılacaksa 409 `agency_quota_exceeded` (override yoksa).
-
-    Dönüş: kota aşıldı ama `allow_quota_override` ile geçildiyse True.
-    """
-    agency = str(agency or "").strip()
-    if not agency:
-        return False
-    quota = s.quota_for(agency)
-    if quota <= 0:
-        return False
-    used = agency_seats(blocks, agency)
-    if used + pax <= quota:
-        return False
-    if body.get("allow_quota_override"):
-        return True
-    raise HTTPException(status_code=409, detail={
-        "code": "agency_quota_exceeded",
-        "message": f"{agency} kotası aşılıyor: {used}+{pax}/{quota}.",
-        "agency": agency,
-        "used": used,
-        "pax": pax,
-        "quota": quota,
-    })
 
 
 def _capacity_detail(choice: dict, rows, blocks, load: dict, s, pax: int,
@@ -1962,8 +1931,6 @@ def api_create_with_identities(body: dict, request: Request) -> dict:
 
     current_rows = read_rows(path, sheet)
     current_blocks = read_blocks(path, sheet)
-    # Acente kotası, balon kapasitesinden ÖNCE kontrol edilir
-    quota_override = _check_agency_quota(s, current_blocks, fields.get("agency", ""), pax, body)
     current_load = planning_balloon_load(current_blocks)
     allowed = _daily_allowed_balloons(s, current_load)
     lead_hotel = fields.get("hotel", "")
@@ -2014,7 +1981,7 @@ def api_create_with_identities(body: dict, request: Request) -> dict:
         sheet=sheet,
         reservation_row=result["lead_row"],
         detail={"pax": pax, "identity_count": len(identities), "balloon": balloon,
-                "quota_override": quota_override, "hotel_match": hotel_match},
+                "hotel_match": hotel_match},
     )
     if not s.uses_google_sheets():
         _sync_sqlite(sheet)

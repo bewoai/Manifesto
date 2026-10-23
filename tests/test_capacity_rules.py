@@ -18,7 +18,7 @@ from app.manifest.excel_cache import clear_excel_cache
 from app.manifest.planning import (
     ReservationBlock, assign_balloon, choose_balloon, create_reservation, read_blocks, read_rows,
 )
-from app.readiness import agency_seats, agency_usage, check_blocks, check_workbook
+from app.readiness import check_blocks, check_workbook
 from app.settings import Settings, fold_agency
 
 FIXTURE = Path(__file__).parent / "fixtures" / "seat_template_ekim.xlsx"
@@ -83,24 +83,6 @@ def test_fold_agency_ignores_turkish_letters_case_and_spaces():
     assert fold_agency("ÇAĞ IŞIK ÖZGÜR ŞÜHEDA") == "CAG ISIK OZGUR SUHEDA"
 
 
-def test_quota_for_is_turkish_insensitive():
-    s = Settings(agency_quotas={"Bedel Turizm": 5, "Göreme  Tur": 9}, default_agency_quota=0).normalized()
-    assert s.agency_quotas == {"BEDEL TURIZM": 5, "GOREME TUR": 9}
-    for name in ("Bedel Turizm", "BEDEL TURİZM", "bedel  turizm", "BEDEL TURIZM"):
-        assert s.quota_for(name) == 5, name
-    assert s.quota_for("GÖREME TUR") == 9
-    assert s.quota_for("BAŞKA") == 0
-    # normalized() çağrılmamış ayarda da eşleşir
-    assert Settings(agency_quotas={"Bedel Turizm": 5}).quota_for("BEDEL TURİZM") == 5
-
-
-def test_agency_usage_merges_spellings_and_keeps_display_name():
-    blocks = [_block(4, agency="Bedel Turizm", pax=3), _block(7, agency="BEDEL TURİZM", pax=2),
-              _block(9, agency="ACENTE 1", pax=4), _block(13, agency="", pax=1)]
-    usage = agency_usage(blocks, lambda a: 4 if fold_agency(a) == "BEDEL TURIZM" else 0)
-    assert usage == [{"agency": "Bedel Turizm", "used": 5, "quota": 4},
-                     {"agency": "ACENTE 1", "used": 4, "quota": 0}]
-    assert agency_seats(blocks, "bedel turizm") == 5
 
 
 # ─── Balon başına kapasite ───────────────────────────────────────────────
@@ -157,24 +139,22 @@ def test_daily_limit_in_seat_mode(wb_path):
 
 # ─── Readiness ───────────────────────────────────────────────────────────
 
-def test_readiness_per_balloon_capacity_daily_limit_and_quota(wb_path):
+def test_readiness_per_balloon_capacity_and_daily_limit(wb_path):
     clear_excel_cache()
     base = check_workbook(wb_path, PARTIAL, balloon_capacity=28)
-    assert not any(i["code"] in ("capacity_overflow", "daily_balloon_limit", "agency_quota_exceeded")
+    assert not any(i["code"] in ("capacity_overflow", "daily_balloon_limit")
                    for i in base["issues"])
     assert base["balloons_in_use"] == 3
 
     r = check_workbook(wb_path, PARTIAL, balloon_capacity=_caps({"BZV": 20}),
-                       daily_max_balloons=2, agency_quota=lambda a: 20 if fold_agency(a) == "ACENTE 8" else 0)
+                       daily_max_balloons=2)
     by_code = {}
     for issue in r["issues"]:
         by_code.setdefault(issue["code"], []).append(issue)
     over = by_code["capacity_overflow"]
     assert [(i["balloon"], i["message"]) for i in over] == [("BZV", "BZV kapasitesi aşıldı: 24/20.")]
     assert by_code["daily_balloon_limit"][0]["message"] == "Günlük balon sınırı aşıldı: 3/2 balon."
-    quota = by_code["agency_quota_exceeded"]
-    assert quota == [{"code": "agency_quota_exceeded", "agency": "ACENTE 8", "used": 26, "quota": 20,
-                      "message": "ACENTE 8 kotası aşıldı: 26/20."}]
+    assert "agency_quota_exceeded" not in by_code   # acente kotası yok
     # sınır tam doluyken uyarı yok (yalnız aşınca)
     assert "daily_balloon_limit" not in check_workbook(wb_path, PARTIAL, daily_max_balloons=3)["counts"]
 
@@ -228,16 +208,13 @@ def _create(client, sheet, endpoint="/api/planning/create-block", **body):
 
 def test_api_load_exposes_capacity_rules(tmp_path, monkeypatch, wb_path):
     c = _make_client(tmp_path, monkeypatch, wb_path, balloon_capacities={"bzr": 24},
-                     daily_max_balloons=4, agency_quotas={"Acente 8": 30})
+                     daily_max_balloons=4)
     body = c.get("/api/planning/load", params={"sheet": PARTIAL}).json()
     assert body["capacity"] == 28
     assert body["capacities"] == {"BYF": 28, "BTK": 28, "BYJ": 28, "BZR": 24, "BZV": 28}
     assert body["daily_max_balloons"] == 4
     assert body["balloons_in_use"] == 3
-    usage = body["agency_usage"]
-    assert usage[0] == {"agency": "ACENTE 8", "used": 26, "quota": 30}
-    assert [u["used"] for u in usage] == sorted((u["used"] for u in usage), reverse=True)
-    assert all(u["quota"] == 0 for u in usage[1:])
+    assert "agency_usage" not in body
     # sayfada görülen ama Ayarlar'da olmayan balon da kapasite listesinde
     sparse = c.get("/api/planning/load", params={"sheet": SPARSE}).json()
     assert sparse["capacities"]["BZK"] == 28
@@ -292,36 +269,3 @@ def test_api_capacity_409_without_daily_limit_has_new_fields(tmp_path, monkeypat
     assert not d["message"].startswith("Günlük")
 
 
-@pytest.mark.parametrize("endpoint", ["/api/planning/create-block", "/api/planning/create-with-identities"])
-def test_api_agency_quota_409_and_override(tmp_path, monkeypatch, wb_path, endpoint):
-    # Kota, balon kapasitesinden önce: günlük sınır da dolu olsa önce kota hatası döner
-    c = _make_client(tmp_path, monkeypatch, wb_path, agency_quotas={"ACENTE 8": 28}, daily_max_balloons=3)
-    r = _create(c, PARTIAL, endpoint=endpoint, pax=7, agency="acente 8")
-    assert r.status_code == 409, r.text
-    d = r.json()["detail"]
-    assert d == {"code": "agency_quota_exceeded", "message": "acente 8 kotası aşılıyor: 26+7/28.",
-                 "agency": "acente 8", "used": 26, "pax": 7, "quota": 28}
-
-    # kotaya sığan grup geçer
-    ok = _create(c, PARTIAL, endpoint=endpoint, pax=2, agency="ACENTE 8")
-    assert ok.status_code == 200, ok.text
-
-    # 28/28 doldu; override ile geçer, readiness kota aşımını işaretler
-    r = _create(c, PARTIAL, endpoint=endpoint, pax=1, agency="Acente 8")
-    assert r.status_code == 409 and r.json()["detail"]["used"] == 28
-    r = _create(c, PARTIAL, endpoint=endpoint, pax=1, agency="Acente 8", allow_quota_override=True)
-    assert r.status_code == 200, r.text
-    load = c.get("/api/planning/load", params={"sheet": PARTIAL}).json()
-    assert load["agency_usage"][0] == {"agency": "ACENTE 8", "used": 29, "quota": 28}
-    issue = next(i for i in load["readiness"]["issues"] if i["code"] == "agency_quota_exceeded")
-    assert issue["message"] == "ACENTE 8 kotası aşıldı: 29/28."
-
-
-def test_api_agency_quota_turkish_insensitive(tmp_path, monkeypatch, append_wb):
-    # BTK bloğu "Bedel Turizm" (20 kişi); kota "BEDEL TURİZM" anahtarıyla girilmiş
-    c = _make_client(tmp_path, monkeypatch, append_wb, agency_quotas={"BEDEL TURİZM": 22})
-    r = _create(c, APPEND_DAY, pax=3, agency="bedel  turizm")
-    assert r.status_code == 409, r.text
-    d = r.json()["detail"]
-    assert (d["used"], d["pax"], d["quota"]) == (20, 3, 22)
-    assert _create(c, APPEND_DAY, pax=2, agency="BEDEL TURIZM").status_code == 200

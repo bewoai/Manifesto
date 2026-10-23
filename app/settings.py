@@ -135,8 +135,6 @@ class Settings:
     balloon_capacity: int = config.DEFAULT_BALLOON_CAPACITY   # balon başına max yolcu (varsayılan)
     balloon_capacities: dict[str, int] = field(default_factory=dict)  # {kod: kapasite}; yoksa balloon_capacity
     daily_max_balloons: int = 0      # bir günde uçabilecek en fazla balon; 0 = sınır yok
-    agency_quotas: dict[str, int] = field(default_factory=dict)       # {acente: günlük kişi kotası}
-    default_agency_quota: int = 0    # listede olmayan acenteler için günlük kota; 0 = sınır yok
     balloon_codes: list[str] = field(default_factory=lambda: list(config.DEFAULT_BALLOON_CODES))
     weather_enabled: bool = True
     weather_provider: str = "open_meteo"
@@ -155,16 +153,6 @@ class Settings:
         """Balonun kapasitesi: Ayarlar'da balona özel girildiyse o, yoksa varsayılan."""
         return self.balloon_capacities.get(str(code or '').strip().upper(), self.balloon_capacity)
 
-    def quota_for(self, agency: str) -> int:
-        """Acentenin günlük kişi kotası; 0 = sınır yok."""
-        key = fold_agency(agency)
-        if key in self.agency_quotas:
-            return self.agency_quotas[key]
-        # normalized() çağrılmamış ayarlar için anahtarları da katla
-        for name, quota in self.agency_quotas.items():
-            if fold_agency(name) == key:
-                return quota
-        return self.default_agency_quota
 
     # --- türetilmiş yollar ---
     def planning_path(self) -> Path:
@@ -229,9 +217,7 @@ class Settings:
         if not (1 <= self.balloon_capacity <= config.MAX_BALLOON_CAPACITY):
             self.balloon_capacity = config.DEFAULT_BALLOON_CAPACITY
         self.balloon_capacities = _int_map(self.balloon_capacities, upper=True, lo=1, hi=config.MAX_BALLOON_CAPACITY)
-        self.agency_quotas = _int_map(self.agency_quotas, upper=True, lo=1, hi=10000, key_fn=fold_agency)
         self.daily_max_balloons = _clamp_int(self.daily_max_balloons, 0, 50)
-        self.default_agency_quota = _clamp_int(self.default_agency_quota, 0, 10000)
         # Balon kodları: upper, trim, uniq, boşları at
         codes: list[str] = []
         seen_codes: set[str] = set()

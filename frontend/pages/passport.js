@@ -66,7 +66,7 @@ export async function render(container) {
     </div>
 
     <!-- Rezervasyon: pasaport girerken o an açılır -->
-    <div class="glass-panel rounded-[40px] p-6 md:p-8 mb-6 animate-fade-in">
+    <div class="glass-panel rounded-xl p-6 md:p-8 mb-6 animate-fade-in">
       <div class="flex justify-between items-center mb-6">
         <h2 class="text-headline-sm font-headline text-on-surface flex items-center gap-3">
           <span class="material-symbols-outlined text-primary text-3xl">assignment</span>
@@ -122,12 +122,12 @@ export async function render(container) {
     </div>
 
     <!-- Drop Zone -->
-    <div class="glass-panel rounded-[40px] border-2 border-dashed border-tertiary/15 p-12 text-center cursor-pointer transition-all duration-300 hover:border-primary/50 hover:bg-primary/5 mb-6 animate-fade-in" id="dropzone"
+    <div class="glass-panel rounded-xl border-2 border-dashed border-tertiary/15 p-12 text-center cursor-pointer transition-all duration-300 hover:border-primary/50 hover:bg-primary/5 mb-6 animate-fade-in" id="dropzone"
          ondragover="event.preventDefault(); this.classList.add('border-primary', 'bg-primary/10')"
          ondragleave="this.classList.remove('border-primary', 'bg-primary/10')"
          ondrop="window.__handleDrop(event)"
          onclick="document.getElementById('file-input').click()">
-      <div class="bg-surface-light w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4 border border-white/5">
+      <div class="bg-surface-light w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4 border border-line">
         <span class="material-symbols-outlined text-4xl text-primary">add_a_photo</span>
       </div>
       <div class="text-lg text-on-surface mb-2"><strong>Pasaport fotoğraflarını sürükle</strong> veya tıkla</div>
@@ -137,7 +137,7 @@ export async function render(container) {
     </div>
 
     <!-- File list + action -->
-    <div class="glass-panel rounded-[40px] p-6 md:p-8 mb-6 animate-fade-in" id="file-section" style="display:none">
+    <div class="glass-panel rounded-xl p-6 md:p-8 mb-6 animate-fade-in" id="file-section" style="display:none">
       <div class="flex flex-wrap justify-between items-center mb-6 gap-4">
         <h2 class="text-headline-sm font-headline text-on-surface flex items-center gap-3">
           <span class="material-symbols-outlined text-primary text-3xl">folder_open</span>
@@ -156,7 +156,7 @@ export async function render(container) {
         </div>
       </div>
       <div id="file-list" class="flex flex-col gap-2"></div>
-      <div id="progress-area" class="mt-6 p-5 rounded-3xl bg-surface-light border border-white/5" style="display:none">
+      <div id="progress-area" class="mt-6 p-5 rounded-3xl bg-surface-light border border-line" style="display:none">
         <div class="w-full bg-surface rounded-full h-2 overflow-hidden mb-3">
           <div class="bg-primary h-full transition-all duration-300" id="progress-fill" style="width:0%"></div>
         </div>
@@ -172,11 +172,11 @@ export async function render(container) {
           Kontrol Kartları
         </h2>
         <div class="flex flex-wrap items-center gap-4">
-          <div class="flex items-center gap-2 bg-surface-light px-4 py-2 rounded-full border border-white/5">
+          <div class="flex items-center gap-2 bg-surface-light px-4 py-2 rounded-full border border-line">
             <span class="material-symbols-outlined text-[20px] text-on-surface-variant">analytics</span>
             <span class="text-sm font-medium text-on-surface-variant" id="cards-summary"></span>
           </div>
-          <button class="btn-success flex items-center gap-2" id="btn-write" onclick="window.__writePlanning()">
+          <button class="btn-primary flex items-center gap-2" id="btn-write" onclick="window.__writePlanning()">
             <span class="material-symbols-outlined text-[20px]">save</span> Rezervasyon Oluştur & Yaz
           </button>
         </div>
@@ -460,12 +460,12 @@ function renderFileList() {
   if (!section || !list) return;
   section.style.display = state.files.length ? '' : 'none';
   list.innerHTML = state.files.map((f, i) => `
-    <div class="flex items-center gap-4 p-3 rounded-2xl bg-surface-light/30 hover:bg-surface-light transition-colors border border-white/5 group">
-      <div class="bg-surface w-10 h-10 rounded-xl flex items-center justify-center border border-white/5">
+    <div class="flex items-center gap-4 p-3 rounded-2xl bg-surface-light/30 hover:bg-surface-light transition-colors border border-line group">
+      <div class="bg-surface w-10 h-10 rounded-xl flex items-center justify-center border border-line">
         <span class="material-symbols-outlined text-primary">image</span>
       </div>
       <span class="truncate flex-1 text-on-surface font-medium">${esc(f.name)}</span>
-      <span class="text-sm text-on-surface-variant/70 whitespace-nowrap bg-surface px-3 py-1 rounded-lg border border-white/5">${(f.size / 1024).toFixed(0)} KB</span>
+      <span class="text-sm text-on-surface-variant/70 whitespace-nowrap bg-surface px-3 py-1 rounded-lg border border-line">${(f.size / 1024).toFixed(0)} KB</span>
       <button class="text-on-surface-variant group-hover:text-danger hover:bg-danger/10 w-10 h-10 rounded-xl transition-colors flex items-center justify-center" onclick="window.__removeFile(${i})" title="Sil">
         <span class="material-symbols-outlined text-[20px]">close</span>
       </button>
@@ -587,7 +587,7 @@ window.__processFiles = async function() {
         modal.open(
             'Lisans Uyarısı',
             `<div class="py-4 text-on-surface">${msg}</div>`,
-            `<button class="btn-ghost px-4 py-2 rounded-xl hover:bg-white/5 transition-colors text-on-surface-variant font-medium" onclick="window.__closeModal()">Kapat</button>
+            `<button class="btn-ghost px-4 py-2 rounded-xl hover:bg-tertiary/[.05] transition-colors text-on-surface-variant font-medium" onclick="window.__closeModal()">Kapat</button>
              <button class="btn-primary px-4 py-2 rounded-xl transition-colors font-medium" onclick="window.__closeModal(); window.__createManualCards()">Manuel Devam Et</button>`
         );
         return; // Early return, don't create OCR cards
@@ -634,7 +634,7 @@ window.__processFiles = async function() {
         modal.open(
             'Lisans Uyarısı',
             `<div class="py-4 text-on-surface">${msg}</div>`,
-            `<button class="btn-ghost px-4 py-2 rounded-xl hover:bg-white/5 transition-colors text-on-surface-variant font-medium" onclick="window.__closeModal()">Kapat</button>
+            `<button class="btn-ghost px-4 py-2 rounded-xl hover:bg-tertiary/[.05] transition-colors text-on-surface-variant font-medium" onclick="window.__closeModal()">Kapat</button>
              <button class="btn-primary px-4 py-2 rounded-xl transition-colors font-medium" onclick="window.__closeModal(); window.__createManualCards()">Manuel Devam Et</button>`
         );
         return;
@@ -780,12 +780,12 @@ function renderFullCard(rec, i) {
   const flags = (rec.flags || []).join(', ');
   const dis = pendingManual ? 'disabled' : '';
   const status = pendingManual
-    ? { edge: 'bg-on-surface-variant/40', pill: 'bg-tertiary/[.06] text-on-surface-variant border-tertiary/15', icon: 'pending_actions', label: 'MANUEL KONTROL BEKLİYOR' }
+    ? { edge: 'bg-on-surface-variant/40', border: '', pill: 'bg-tertiary/[.06] text-on-surface-variant border-tertiary/15', icon: 'pending_actions', label: 'MANUEL KONTROL BEKLİYOR' }
     : rec.is_manual
-      ? { edge: 'bg-info', pill: 'bg-info/10 text-info border-info/20', icon: 'edit_document', label: 'MANUEL GİRİŞ' }
+      ? { edge: 'bg-info', border: 'border-info/50', pill: 'bg-info/10 text-info border-info/20', icon: 'edit_document', label: 'MANUEL GİRİŞ' }
       : isGreen
-        ? { edge: 'bg-success', pill: 'bg-success/10 text-success border-success/20', icon: 'check_circle', label: 'YEŞİL — DOĞRULANDI' }
-        : { edge: 'bg-warning', pill: 'bg-warning/10 text-warning border-warning/20', icon: 'warning', label: 'SARI — KONTROL ET' };
+        ? { edge: 'bg-success', border: 'border-success/55', pill: 'bg-success/10 text-success border-success/20', icon: 'check_circle', label: 'YEŞİL — DOĞRULANDI' }
+        : { edge: 'bg-warning', border: 'border-warning/60', pill: 'bg-warning/10 text-warning border-warning/20', icon: 'warning', label: 'SARI — KONTROL ET' };
 
   // Try to create object URL for thumbnail
   let thumbHtml;
@@ -795,20 +795,18 @@ function renderFullCard(rec, i) {
   if (sourceFile) {
     const url = URL.createObjectURL(sourceFile);
     state.objectUrls.push(url);
-    thumbHtml = `<img src="${url}" class="w-full md:w-32 h-32 object-cover rounded-2xl border border-white/5" alt="Passport ${i+1}" />`;
+    thumbHtml = `<img src="${url}" class="w-full md:w-32 h-32 object-cover rounded-2xl border border-line" alt="Passport ${i+1}" />`;
   } else {
-    thumbHtml = `<div class="w-full md:w-32 h-32 bg-surface-light rounded-2xl border border-white/5 flex flex-col items-center justify-center text-on-surface-variant"><span class="material-symbols-outlined text-3xl mb-1 opacity-50">image</span><span class="text-[10px] text-center px-2 w-full truncate opacity-70">${esc(rec._source_file_name || rec.source || '')}</span></div>`;
+    thumbHtml = `<div class="w-full md:w-32 h-32 bg-surface-light rounded-2xl border border-line flex flex-col items-center justify-center text-on-surface-variant"><span class="material-symbols-outlined text-3xl mb-1 opacity-50">image</span><span class="text-[10px] text-center px-2 w-full truncate opacity-70">${esc(rec._source_file_name || rec.source || '')}</span></div>`;
   }
   const chips = sourceChipsHtml(rec);
 
   return `
-    <div class="glass-panel p-5 flex flex-col md:flex-row gap-5 relative animate-fade-in overflow-hidden ${pendingManual ? 'opacity-75' : ''}" id="pcard-${i}">
-      <!-- Status Indicator Edge -->
-      <div class="absolute left-0 top-0 bottom-0 w-1.5 ${status.edge}"></div>
+    <div class="glass-panel rounded-xl p-5 flex flex-col md:flex-row gap-5 relative animate-fade-in overflow-hidden ${status.border} ${pendingManual ? 'opacity-75' : ''}" id="pcard-${i}">
 
       <!-- Bu taramayı sil -->
       <button onclick="window.__removeCard(${i})" title="Bu taramayı sil" aria-label="Bu taramayı sil"
-              class="absolute top-3 left-4 z-20 w-8 h-8 rounded-full flex items-center justify-center bg-surface/80 backdrop-blur border border-white/10 text-on-surface-variant hover:text-danger hover:bg-danger/20 hover:border-danger/30 transition-colors">
+              class="absolute top-3 left-4 z-20 w-8 h-8 rounded-full flex items-center justify-center bg-panel border border-line text-on-surface-variant hover:text-danger hover:bg-danger/20 hover:border-danger/30 transition-colors">
         <span class="material-symbols-outlined text-[18px]">close</span>
       </button>
 
@@ -838,14 +836,14 @@ function renderFullCard(rec, i) {
           </div>
         </div>
 
-        <div class="md:w-56 flex flex-col border-t md:border-t-0 md:border-l border-white/5 pt-5 md:pt-0 md:pl-5 justify-between">
+        <div class="md:w-56 flex flex-col border-t md:border-t-0 md:border-l border-line pt-5 md:pt-0 md:pl-5 justify-between">
           <div class="w-full">
             <div class="font-medium text-sm flex items-center justify-end gap-1.5 mb-3 px-3 py-1.5 rounded-lg border ${status.pill}">
               <span class="material-symbols-outlined text-[18px]">${status.icon}</span>
               ${status.label}
             </div>
             ${chips ? `<div class="flex flex-wrap justify-end gap-1.5 mb-2">${chips}</div>` : ''}
-            ${flags ? `<div class="flex flex-wrap justify-end gap-1.5 mb-2">${flags.split(', ').map(f => `<span class="bg-surface-light border border-white/5 text-on-surface-variant text-[11px] font-medium px-2 py-1 rounded-md tracking-wide">${esc(flagLabel(f))}</span>`).join('')}</div>` : ''}
+            ${flags ? `<div class="flex flex-wrap justify-end gap-1.5 mb-2">${flags.split(', ').map(f => `<span class="bg-surface-light border border-line text-on-surface-variant text-[11px] font-medium px-2 py-1 rounded-md tracking-wide">${esc(flagLabel(f))}</span>`).join('')}</div>` : ''}
             ${rec.error ? `<div class="text-[11px] text-danger font-medium mt-1 text-right bg-danger/10 px-2 py-1.5 rounded-md border border-danger/20">${esc(rec.error)}</div>` : ''}
           </div>
 
@@ -856,8 +854,8 @@ function renderFullCard(rec, i) {
               Manuel Kontrol'e git <span class="material-symbols-outlined text-[16px]">arrow_forward</span>
             </a>
           </div>` : `
-          <label class="flex items-center justify-center gap-2 mt-4 text-sm font-medium text-on-surface cursor-pointer hover:bg-primary/10 hover:text-primary transition-colors bg-surface-light/50 px-4 py-2.5 rounded-xl border border-white/5 w-full group select-none">
-            <input type="checkbox" class="w-4 h-4 rounded border-white/10 bg-surface text-primary focus:ring-primary focus:ring-offset-surface group-hover:border-primary/50" id="pc-approve-${i}" ${(rec._approved !== undefined ? rec._approved : isGreen) ? 'checked' : ''} />
+          <label class="flex items-center justify-center gap-2 mt-4 text-sm font-medium text-on-surface cursor-pointer hover:bg-primary/10 hover:text-primary transition-colors bg-surface-light/50 px-4 py-2.5 rounded-xl border border-line w-full group select-none">
+            <input type="checkbox" class="w-4 h-4 rounded border-line bg-surface text-primary focus:ring-primary focus:ring-offset-surface group-hover:border-primary/50" id="pc-approve-${i}" ${(rec._approved !== undefined ? rec._approved : isGreen) ? 'checked' : ''} />
             Onayla ve Ekle
           </label>`}
           ${(!isGreen && !rec.is_manual && !pendingManual) ? `<button class="btn-secondary w-full mt-2 flex items-center justify-center gap-2" onclick="window.__retryOcr(${i})"><span class="material-symbols-outlined text-sm">refresh</span> OCR ile Tekrar Tara</button>` : ''}
@@ -1096,7 +1094,7 @@ function renderListPanel(seg, s) {
   return `
     <div class="glass-panel rounded-3xl p-5 border-l-4 border-l-info animate-fade-in" id="lpanel-${s}">
       <div class="flex flex-wrap gap-4 items-start">
-        <button type="button" class="shrink-0 rounded-2xl overflow-hidden border border-white/10 w-20 h-20 cursor-zoom-in" onclick="window.__listOpenImage(${s})" title="Görseli büyüt" aria-label="Görseli büyüt">
+        <button type="button" class="shrink-0 rounded-2xl overflow-hidden border border-line w-20 h-20 cursor-zoom-in" onclick="window.__listOpenImage(${s})" title="Görseli büyüt" aria-label="Görseli büyüt">
           <img src="${url}" class="w-full h-full object-cover" alt="" />
         </button>
         <div class="flex-1 min-w-[220px]">
@@ -1112,7 +1110,7 @@ function renderListPanel(seg, s) {
         <div class="min-w-[160px] text-right" id="lp-count-${s}">${counterHtml(seg)}</div>
       </div>
 
-      <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4 pt-4 border-t border-white/5">
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4 pt-4 border-t border-line">
         <div class="flex flex-col gap-1.5">
           <label class="text-xs font-medium text-on-surface-variant ml-1" for="lp-rule-${s}">İşaret kuralı${helpIcon('Acentenin listede uçanları nasıl işaretlediği. Seçince yalnız eşleşen satırların kutusu işaretlenir; sonra tek tek değiştirebilirsiniz.')}</label>
           <select class="form-select form-input-sm" id="lp-rule-${s}" onchange="window.__listRuleChanged(${s}, this.value)">${options}</select>

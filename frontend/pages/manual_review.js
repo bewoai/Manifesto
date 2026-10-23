@@ -76,7 +76,7 @@ function renderContent(container) {
   // Veri çekilemediyse "bekleyen yok" demek yanıltıcı olur → ayrı hata durumu
   if (state.error) {
     container.innerHTML = `
-      <div class="empty-state glass-panel rounded-[40px] p-12">
+      <div class="empty-state glass-panel rounded-xl p-12">
         <div class="empty-icon material-symbols-outlined text-danger">cloud_off</div>
         <div class="empty-title">Manuel kontrol listesi alınamadı</div>
         <div class="empty-desc">${esc(state.error)}</div>
@@ -91,7 +91,7 @@ function renderContent(container) {
 
   if (state.items.length === 0) {
     container.innerHTML = `
-      <div class="empty-state glass-panel rounded-[40px] p-12">
+      <div class="empty-state glass-panel rounded-xl p-12">
         <div class="empty-icon material-symbols-outlined text-success">task_alt</div>
         <div class="empty-title">Bekleyen Kontrol Yok</div>
         <div class="empty-desc">Harika! Şu anda manuel kontrole düşen hiçbir kimlik bulunmuyor.</div>
@@ -102,11 +102,11 @@ function renderContent(container) {
 
   const itemsHtml = state.items.map((item, index) => {
     return `
-      <div class="glass-panel rounded-[30px] p-6 mb-6 animate-fade-in" style="animation-delay: ${index * 50}ms" id="review-item-${item.id}">
+      <div class="glass-panel rounded-xl p-6 mb-6 animate-fade-in" style="animation-delay: ${index * 50}ms" id="review-item-${item.id}">
         <div class="flex flex-col xl:flex-row gap-6">
           <!-- Sol Görsel -->
           <div class="xl:w-[400px] flex-shrink-0">
-            <div class="bg-black/20 rounded-2xl overflow-hidden border border-white/10 relative group h-full min-h-[250px] flex items-center justify-center cursor-zoom-in"
+            <div class="bg-well rounded-2xl overflow-hidden border border-line relative group h-full min-h-[250px] flex items-center justify-center cursor-zoom-in"
                  onclick="window.__openImageModal('/api/passport/image/${item.id}')">
               <img src="/api/passport/image/${item.id}" class="w-full h-full object-contain max-h-[400px]" alt="Belge Görseli" onerror="this.outerHTML='<div class=\\'text-on-surface-variant\\'>Görsel Yüklenemedi</div>'" />
               <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
@@ -121,7 +121,7 @@ function renderContent(container) {
               <div class="flex flex-wrap items-center gap-3 mb-4">
                 <span class="material-symbols-outlined text-warning">warning</span>
                 <h3 class="text-lg font-semibold text-on-surface">Kontrol Gerekli</h3>
-                <span class="text-sm px-2 py-1 bg-surface-light rounded-md border border-white/5 font-mono text-on-surface-variant">
+                <span class="text-sm px-2 py-1 bg-surface-light rounded-md border border-line font-mono text-on-surface-variant">
                   ${esc(item.fallback_reason || 'Düşük Güven Skoru')}
                 </span>
                 ${sourceChipsHtml(item)}
@@ -158,7 +158,7 @@ function renderContent(container) {
               </div>
             </div>
             
-            <div class="flex items-center gap-3 pt-4 border-t border-white/5">
+            <div class="flex items-center gap-3 pt-4 border-t border-line">
               <button class="btn-primary flex-1 py-3" onclick="window.__resolveManualReview(${item.id}, 'approve')">
                 <span class="material-symbols-outlined">check</span>
                 Onayla & Kaydet

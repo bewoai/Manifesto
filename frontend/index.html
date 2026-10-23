@@ -1,36 +1,46 @@
 <!DOCTYPE html>
-<html class="dark" lang="tr">
+<html lang="tr">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>İrtifa — Uçuş Planlama Sistemi</title>
   <meta name="description" content="İrtifa balon uçuş planlama ve manifesto yönetim sistemi" />
   <link rel="icon" href="/favicon.ico" />
+  <!-- Tema ilk boyamadan önce: localStorage → html[data-theme]. Ayarlar'dan değişir (app.js applyTheme). -->
+  <script>
+    try {
+      var t = localStorage.getItem('irtifa-theme');
+      if (t === 'graphite') document.documentElement.setAttribute('data-theme', 'graphite');
+    } catch (e) {}
+  </script>
   <!-- Yazı tipleri ve ikon fontu yerel: frontend/public/fonts (@font-face style.css'te). Ağ gerekmez. -->
   <link rel="preload" href="/fonts/material-symbols-outlined-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="/fonts/source-sans-3-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin />
   <link rel="stylesheet" href="/style.css" />
 </head>
-<body class="bg-surface text-on-surface font-body selection:bg-primary-container/30">
+<body class="bg-surface text-on-surface font-body">
+  <!--
+    THESIS: Operasyon panosu, havalimanı kapı panosu ve biniş kartı dilinde; renk yalnız anlam taşır (uçuş bayrağı, balon zarfı). Kategori varsayılanı olan beyaz kart ızgarasını reddeder.
+    OWN-WORLD: Kısık Tüf — #d9d4cc taş zemin, #e4e0d9 panel, #2e2b28 kömür metin, tek vurgu soluk lapis #3d5a8a; sabit kolonlu pano tabloları, segmentli biniş kartı, düz bez bayrak şeridi, 3 dilimli zarf şeridi; Source Serif 4 başlık, Source Sans 3 metin. İkinci tema Yumuşak Grafit.
+    STORY: Operatör sabah açar, bayrağa bakar, yapılacaklara tıklar, panodan balonların doluluğunu görür, uyarıdan düzeltir, gün sonu çıktısını alır.
+    FIRST VIEWPORT: Üstte tam genişlik uçuş bayrağı; altında serif tarih başlığı; solda bugün yapılacaklar, sağda dört metrik; altta balon kapı panosu.
+    FORM: Seçilen sakin set (Kısık Tüf + Yumuşak Grafit) ile Balon Zarfı, Kapı Panosu/Biniş Kartı ve Sabah Uçuş Bayrağı birleşimi; seed cb56260a.
+    FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
+  -->
   <div class="flex h-screen overflow-hidden" id="app-root">
-    <!-- Sidebar -->
-    <aside class="hidden md:flex fixed left-0 top-0 h-full w-72 z-40 bg-surface-container-lowest/85 backdrop-blur-2xl border-r border-tertiary/[.08] flex-col py-8 gap-8" id="sidebar"></aside>
+    <!-- Menü rayı -->
+    <aside class="hidden md:flex fixed left-0 top-0 h-full w-64 z-40 bg-rail border-r border-line flex-col py-6 gap-6" id="sidebar"></aside>
 
-    <!-- Main Content -->
-    <main class="flex-1 md:ml-72 overflow-y-auto custom-scrollbar relative">
-      <!-- Top Bar -->
-      <header class="fixed top-0 left-0 md:left-72 right-0 z-50 bg-surface/80 backdrop-blur-xl border-b border-tertiary/10 overflow-hidden flex justify-between items-center px-gutter py-4" id="page-header"></header>
-
-      <!-- Page Body -->
-      <div class="pt-24 pb-12 px-gutter" id="page-body"></div>
+    <!-- İçerik -->
+    <main class="flex-1 md:ml-64 overflow-y-auto custom-scrollbar relative">
+      <header class="fixed top-0 left-0 md:left-64 right-0 z-50 bg-surface border-b border-line flex justify-between items-center gap-4 px-4 md:px-8 h-16" id="page-header"></header>
+      <div class="pt-24 pb-12 px-4 md:px-8" id="page-body"></div>
     </main>
   </div>
 
-  <!-- Toast Container -->
   <div class="fixed top-20 right-6 z-[300] flex flex-col gap-3 pointer-events-none" id="toast-container"></div>
-
-  <!-- Modal Root -->
   <div id="modal-root"></div>
 
-  <script type="module" src="/app.js?v=2"></script>
+  <script type="module" src="/app.js"></script>
 </body>
 </html>

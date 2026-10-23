@@ -1,7 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════════
    Manifesto — Önizleme tablosu ve Excel export
    ═══════════════════════════════════════════════════════════════════ */
-import { api, toast, renderHeader } from '/app.js';
+import { api, toast, renderHeader, balloonBadge } from '/app.js';
 import { openIdentityEditor } from '/identity_edit.js';
 
 let state = {
@@ -21,12 +21,8 @@ export async function render(container) {
 
   container.innerHTML = `
     <!-- Filtre -->
-    <div class="glass-panel rounded-[40px] p-6 mb-6 animate-in">
-      <div class="flex items-center gap-3 mb-6">
-        <span class="material-symbols-outlined text-primary text-3xl">search</span>
-        <h2 class="font-headline text-headline-sm text-on-surface">Filtrele</h2>
-      </div>
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+    <div class="glass-panel rounded-xl px-5 py-4 mb-6" role="search" aria-label="Manifesto seçimi">
+      <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-[1fr_1fr_auto] gap-4">
         <div class="form-group">
           <label class="form-label">Uçuş Günü</label>
           <select class="form-select" id="mf-sheet"></select>
@@ -37,11 +33,11 @@ export async function render(container) {
             <option value="">Önce gün yükleyin</option>
           </select>
         </div>
-        <div class="flex items-end gap-3">
-          <button class="btn-primary flex-1 flex items-center justify-center gap-2" onclick="window.__mfPreview()">
+        <div class="flex flex-wrap items-end gap-3 md:col-span-2 xl:col-span-1">
+          <button class="btn-secondary flex-1 flex items-center justify-center gap-2" onclick="window.__mfPreview()">
             <span class="material-symbols-outlined">visibility</span> Önizle
           </button>
-          <button class="btn-success flex-1 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed" id="btn-export" onclick="window.__mfExport()" disabled>
+          <button class="btn-primary flex-1 flex items-center justify-center gap-2" id="btn-export" onclick="window.__mfExport()" disabled>
             <span class="material-symbols-outlined">download</span> İndir
           </button>
         </div>
@@ -50,7 +46,7 @@ export async function render(container) {
 
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
       <div class="card">
-        <div class="card-header"><div class="card-title"><span class="material-symbols-outlined">fact_check</span> Uçuşa Hazır Kontrolü</div></div>
+        <div class="card-header"><h2 class="card-title">Uçuşa hazır kontrolü</h2></div>
         <div id="mf-readiness"></div>
         <!-- Gerekçe alanı her zaman görünür: kontrol yüklenemese de 409'da kullanıcı çıkmaza girmesin -->
         <div class="form-group mt-3">
@@ -61,7 +57,7 @@ export async function render(container) {
       </div>
       <div class="card">
         <div class="card-header">
-          <div class="card-title"><span class="material-symbols-outlined">airport_shuttle</span> Balon - Şoför Özeti</div>
+          <h2 class="card-title">Balon ve şoför özeti</h2>
           <button class="btn-secondary" onclick="window.__driverReports()">Şoför Listeleri</button>
         </div>
         <div id="driver-summary" class="space-y-2"></div>
@@ -69,8 +65,8 @@ export async function render(container) {
     </div>
 
     <div class="card mb-6">
-      <div class="card-header"><div class="card-title"><span class="material-symbols-outlined">inventory_2</span> Gün Sonu İşlemleri</div></div>
-      <div class="text-sm text-on-surface-variant bg-surface/50 p-3 rounded-xl mb-4 border border-white/5">
+      <div class="card-header"><h2 class="card-title">Gün sonu</h2></div>
+      <div class="text-sm text-on-surface-variant bg-surface/50 p-3 rounded-xl mb-4 border border-line">
         <strong>Bilgi:</strong> "Tüm Çıktıları Hazırla" işlemi seçili gün için; balon manifestolarını, şoför/araç listelerini, kapasite özetlerini ve tüm bunların bulunduğu toplu ZIP arşivini üretir.
       </div>
       <div class="flex flex-wrap gap-3">
@@ -82,26 +78,18 @@ export async function render(container) {
     </div>
 
     <!-- Preview Table -->
-    <div class="glass-panel rounded-[40px] p-6 animate-in" id="preview-section" style="display:none">
+    <div class="glass-panel rounded-xl p-6 animate-in" id="preview-section" style="display:none">
       <div class="flex items-center justify-between mb-6">
-        <div class="flex items-center gap-3">
-          <span class="material-symbols-outlined text-primary text-3xl">description</span>
-          <h2 class="font-headline text-headline-sm text-on-surface">Manifesto Önizleme</h2>
-        </div>
+        <h2 class="font-headline text-headline-sm text-on-surface">Manifesto önizleme</h2>
         <span class="badge badge-blue" id="mf-count"></span>
       </div>
-      <div class="overflow-x-auto" id="mf-table-container"></div>
+      <div id="mf-table-container"></div>
     </div>
 
     <!-- Empty state -->
-    <div class="glass-panel rounded-[40px] p-12 text-center animate-in flex flex-col items-center justify-center" id="empty-section">
-      <span class="material-symbols-outlined text-6xl text-on-surface-variant/50 mb-4">description</span>
-      <h3 class="font-headline text-headline-sm text-on-surface mb-4">Manifesto Önizlemesi Hazır Değil</h3>
-      <div class="text-on-surface-variant max-w-lg space-y-4 text-sm text-left bg-surface/30 p-6 rounded-2xl border border-white/5">
-        <p><strong class="text-on-surface">Ne yok?</strong> Ekranda henüz görüntülenen bir manifesto listesi yok.</p>
-        <p><strong class="text-on-surface">Neden olabilir?</strong> Yukarıdaki filtrelerden henüz bir uçuş günü ve balon kodu seçilmediği için tablo oluşturulamadı veya Excel dosyanız eksik olabilir.</p>
-        <p><strong class="text-on-surface">Şimdi ne yapmalıyım?</strong> Yukarıdan "Uçuş Günü" ve "Balon Kodu" seçimi yapıp "Önizle" butonuna basarak manifestoyu yükleyebilirsiniz.</p>
-      </div>
+    <div class="glass-panel rounded-xl px-6 py-8" id="empty-section">
+      <h3 class="font-headline text-headline-sm text-on-surface mb-1.5">Önizleme henüz açılmadı</h3>
+      <p class="text-on-surface-variant">Yukarıdan gün ve balon seçip <strong class="text-on-surface">Önizle</strong>'ye basın; yolcu listesi burada açılır.</p>
     </div>
   `;
 
@@ -210,7 +198,7 @@ function renderReadiness() {
   }
   root.innerHTML = `
     <div class="rounded-lg bg-warning/10 border border-warning/20 p-3 text-warning mb-3">${Number(data.issue_count || 0)} uyarı bulundu. Çıktı alınabilir ancak gerekçe istenir.</div>
-    <div class="max-h-52 overflow-auto space-y-2">${(data.issues || []).slice(0, 20).map(issue => `<div class="text-sm text-on-surface-variant border-b border-white/5 pb-2">${esc(issue.message)}</div>`).join('')}</div>`;
+    <div class="max-h-52 overflow-auto space-y-2">${(data.issues || []).slice(0, 20).map(issue => `<div class="text-sm text-on-surface-variant border-b border-line pb-2">${esc(issue.message)}</div>`).join('')}</div>`;
 }
 
 function focusOverrideReason() {
@@ -225,7 +213,7 @@ function renderDriverSummary() {
   if (!root) return;
   root.innerHTML = state.driverSummary.length ? state.driverSummary.map(row => `
     <div class="grid grid-cols-[80px_1fr] gap-3 items-center">
-      <strong class="text-primary">${esc(row.balloon)}</strong>
+      <span>${balloonBadge(row.balloon)}</span>
       <input class="form-input py-2" data-balloon="${escAttr(row.balloon)}" value="${escAttr(row.driver)}" />
     </div>`).join('') : '<div class="empty-desc">Balon/şoför ataması bulunamadı.</div>';
 }
@@ -288,31 +276,29 @@ function renderTable() {
 
   if (!tbl) return;
   tbl.innerHTML = `
-    <table class="w-full text-left border-collapse">
+    <table class="board sticky-head">
       <thead>
-        <tr class="border-b border-white/10">
-          <th class="p-4 text-sm font-medium text-on-surface-variant">#</th>
-          <th class="p-4 text-sm font-medium text-on-surface-variant">AD SOYAD</th>
-          <th class="p-4 text-sm font-medium text-on-surface-variant">CİNSİYET</th>
-          <th class="p-4 text-sm font-medium text-on-surface-variant">UYRUK</th>
-          <th class="p-4 text-sm font-medium text-on-surface-variant">PASAPORT / KİMLİK NO</th>
-          <th class="p-4 text-sm font-medium text-on-surface-variant">UYARILAR</th>
-          <th class="p-4 w-12"></th>
+        <tr>
+          <th class="hidden lg:table-cell">#</th>
+          <th>Ad soyad</th>
+          <th>Cinsiyet</th>
+          <th>Uyruk</th>
+          <th>Pasaport / kimlik no</th>
+          <th>Durum</th>
         </tr>
       </thead>
-      <tbody class="divide-y divide-white/5">
+      <tbody>
         ${state.rows.map((r, i) => `
-          <tr class="hover:bg-white/5 transition-colors">
-            <td class="p-4 text-on-surface-variant">${i + 1}</td>
-            <td class="p-4 text-on-surface font-medium">${esc(r.name)}</td>
-            <td class="p-4 text-on-surface-variant">${esc(r.sex)}</td>
-            <td class="p-4 text-on-surface-variant">${esc(r.nationality)}</td>
-            <td class="p-4 text-on-surface-variant font-mono">${esc(r.passport_no)}</td>
-            <td class="p-4">${(r.warnings || []).length
+          <tr>
+            <td class="hidden lg:table-cell text-on-surface-variant">${i + 1}</td>
+            <td class="text-on-surface font-medium whitespace-nowrap">${esc(r.name)}</td>
+            <td class="text-on-surface-variant">${esc(r.sex)}</td>
+            <td class="text-on-surface-variant whitespace-nowrap">${esc(r.nationality)}</td>
+            <td class="text-on-surface-variant font-mono">${esc(r.passport_no)}</td>
+            <td><div class="flex items-center gap-1">${(r.warnings || []).length
               ? `<button type="button" class="badge badge-yellow cursor-pointer hover:brightness-110 flex items-center gap-1 w-max" title="Tıklayın ve düzeltin" onclick="window.__mfFix(${i})"><span class="material-symbols-outlined text-[16px]">edit</span>${esc(r.warnings.join(', '))}</button>`
               : '<span class="badge badge-green flex items-center gap-1 w-max"><span class="material-symbols-outlined text-[16px]">check</span> Geçerli</span>'
-            }</td>
-            <td class="p-4 text-right">${r.row ? `<button class="btn-ghost btn-icon" title="Kimliği düzelt" onclick="window.__mfFix(${i})"><span class="material-symbols-outlined">edit</span></button>` : ''}</td>
+            }${r.row ? `<button class="btn-ghost btn-icon !w-8 !h-8 shrink-0" title="Kimliği düzelt" aria-label="Kimliği düzelt" onclick="window.__mfFix(${i})"><span class="material-symbols-outlined text-[19px]">edit</span></button>` : ''}</div></td>
           </tr>
         `).join('')}
       </tbody>

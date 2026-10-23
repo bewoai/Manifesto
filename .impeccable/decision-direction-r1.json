@@ -1,0 +1,107 @@
+{
+  "title": "İrtifa için görsel dünya · cesur set",
+  "question": "Daha cesur formlar: hepsi açık zeminli, turuncu ve cam yok, Kapadokya'ya uyarlanmış. Hangisiyle ilerleyelim?",
+  "options": [
+    {
+      "id": "assigned",
+      "label": "Uçuş Sözlüğü ve Renk Levhaları",
+      "kicker": "THE ROLL",
+      "lineage": "19. yüzyıl sözlük sayfası: siyah metin, omuz payı, renk yalnız çerçeveli levhada",
+      "thesis": "Arayüz siyah mürekkepli bir sözlük sayfası; renk yalnız balonların çerçeveli koltuk levhalarında yaşar.",
+      "palette": ["#f2ecdf", "#1a1a1a", "#5a5650", "#2a4fa8", "#2f7d57", "#a8436b", "#6b4f2e", "#5b3f8c"],
+      "materials": ["mürekkepsiz kâğıt", "gravür siyahı", "çerçeveli renk levhaları"],
+      "viewport": "Üstte kılavuz kelimeler (görünen ilk ve son rezervasyon); dar omuz payında balon başparmak dizini; ortada sıkı dizilmiş bugün listesi; sağda beş çerçeveli balon levhası.",
+      "risk": "Serifli, yoğun metin yavaş okunabilir; kâğıt tonu krem şablona kayarsa sıradanlaşır.",
+      "raised": [
+        {"from": "challenger-emission", "raise": "Durum yalnız renkle değil çizgi biçimiyle de okunur: dolu çizgi onaylı, kesikli bekliyor, üstü çizili iptal."},
+        {"from": "challenger-streaming", "raise": "Odaklanan rezervasyon yerinde genişler, diğerleri bir ton geri çekilir."},
+        {"from": "challenger-monochrome", "raise": "Vurgu rengi bir ekranda en fazla dört kez kullanılır."}
+      ],
+      "comp": ".impeccable/mocks/decision/r1-assigned.png",
+      "hero": "https://impeccable.style/worlds/cards/rw-lexicon-shoulder-and-plate-hero.webp",
+      "board": "https://impeccable.style/worlds/cards/rw-lexicon-shoulder-and-plate.webp"
+    },
+    {
+      "id": "challenger-valleymap",
+      "label": "Vadi Rehber Haritası",
+      "verdict": "competitive",
+      "lineage": "turistik bahçe ve park rehber haritaları, Kapadokya vadilerine uyarlanmış",
+      "thesis": "Her ekran bir vadi haritası: düz renkli loblar alanları ayırır, kıyı çizgisi bölücüdür.",
+      "palette": ["#f5f1e4", "#2c2e2a", "#8ed462", "#f5e211", "#e58fa3", "#2ba0ff", "#ebc1ff"],
+      "materials": ["düz baskı rengi", "lob biçimli alanlar", "kapsül düğmeler"],
+      "viewport": "Ana sayfada bugünün uçuşu büyük yeşil bir vadi lobu; balonlar lobun kıyısına iliştirilmiş kapsüller; yapılacaklar sarı kapsüllerle.",
+      "case": "Kapadokya kimliğini en güçlü taşıyan form; tablolarda lob dili zorlanabildiği için netlikte bir adım geride.",
+      "risk": "Oyuncaklı görünebilir; lob biçimleri tabloya taşınırsa veri okunmaz.",
+      "comp": ".impeccable/mocks/decision/r1-valleymap.png",
+      "hero": "https://impeccable.style/worlds/cards/aww2-zoo-gardens-guide-map-hero.webp",
+      "board": "https://impeccable.style/worlds/cards/aww2-zoo-gardens-guide-map.webp"
+    },
+    {
+      "id": "challenger-timetable",
+      "label": "Cep Tarifesi",
+      "verdict": "competitive",
+      "lineage": "1970'lerin cep havayolu tarifesi, ışıklı masada",
+      "thesis": "Her şey tek yazı boyutunda; sıralamayı kalınlık, büyük harf, ters baskı ve çizgi taşır, bloklar hafif eğik durur.",
+      "palette": ["#f3e7b8", "#1f2328", "#f6f1e3", "#2c6e49", "#b3261e"],
+      "materials": ["ışıklı soluk sarı zemin", "eğik cam slaytlar", "fildişi metin panelleri"],
+      "viewport": "Balonlar eğik bir slayt dizisi gibi yan yana; her slayt kendi başlığını taşır; seçili olan ters baskılı plaka.",
+      "case": "Uçuş tarifesi diline yakın ve tanıdık; tek yazı boyutu ve eğik bloklar yoğun formlarda netliği zorlar.",
+      "risk": "Eğiklik ve tek boyut günlük kullanımda yorabilir; sarı zemin turuncuya kaçmamalı.",
+      "comp": ".impeccable/mocks/decision/r1-timetable.png",
+      "hero": "https://impeccable.style/worlds/cards/rw-timetable-slide-rack-hero.webp",
+      "board": "https://impeccable.style/worlds/cards/rw-timetable-slide-rack.webp"
+    },
+    {
+      "id": "challenger-monochrome",
+      "label": "Tek Ton Ürün Sayfası",
+      "verdict": "declined",
+      "lineage": "nötr skala yazılım tanıtım sayfaları",
+      "thesis": "Neredeyse renksiz nötr skala, tek vurgu.",
+      "palette": ["#fafafa", "#171717", "#737373", "#2563eb"],
+      "materials": ["nötr skala", "ince çerçeveli düğmeler"],
+      "viewport": "Beyaz zeminde yoğun ekran görüntüleri.",
+      "case": "Pazarlama formu; operasyon ekranında kategori standardından ayrışmıyor, Kapadokya yok.",
+      "kept": "Vurgu rengi ekranda en fazla dört kez.",
+      "risk": "Sıradan."
+    },
+    {
+      "id": "challenger-streaming",
+      "label": "Yayın Kataloğu Duvarı",
+      "verdict": "declined",
+      "lineage": "dizi/film platformu afiş duvarları",
+      "thesis": "Satırlar yatay kayar, odaklanan büyür.",
+      "palette": ["#141414", "#ffffff", "#e50914"],
+      "materials": ["koyu zemin", "afiş görselleri"],
+      "viewport": "Koyu zeminde balon satırları.",
+      "case": "Koyu zemin gündüz ofisle çelişiyor; yolcu verisi afiş değil.",
+      "kept": "Odaklanan öğe yerinde genişler, diğerleri geri çekilir.",
+      "risk": "Eğlence dili, iş ekranına uymaz."
+    },
+    {
+      "id": "challenger-emission",
+      "label": "Spektrum Rayı",
+      "verdict": "declined",
+      "lineage": "cam spektrogram levhası",
+      "thesis": "Her şey tek bir raya hizalanır, durum çizgi biçimiyle okunur.",
+      "palette": ["#2b2b2b", "#e8e4da", "#ffd400"],
+      "materials": ["kömür zemin", "kıl çizgiler"],
+      "viewport": "Koyu zeminde tek ray.",
+      "case": "Gece laboratuvarı dili; operatöre uzak ve koyu.",
+      "kept": "Durum çizgi biçimiyle de okunur: dolu, kesikli, üstü çizili.",
+      "risk": "Okunabilirlik düşük."
+    }
+  ],
+  "reroll": {"registers": ["safer", "bolder"]},
+  "buildPath": {"value": "comp", "toggle": true},
+  "canon": true,
+  "canonCard": {
+    "label": "Kategori standardı",
+    "thesis": "Operasyon panellerinin beklenen hâli, kusursuz işçilikle.",
+    "palette": ["#ffffff", "#f8fafc", "#0f172a", "#2563eb"],
+    "materials": ["temiz ızgara", "beyaz kartlar"],
+    "viewport": "Soldaki menü, üstte metrikler, altta tablolar.",
+    "risk": "Tasarım gereği rakip ürünlerden ayırt edilemez.",
+    "comp": ".impeccable/mocks/decision/canon.png"
+  },
+  "steer": true
+}

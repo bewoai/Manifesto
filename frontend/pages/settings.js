@@ -1,7 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════════
    Ayarlar — Vision modu, API key, dosya yolları, KVKK
    ═══════════════════════════════════════════════════════════════════ */
-import { api, toast, renderHeader } from '/app.js';
+import { api, toast, renderHeader, applyTheme, currentTheme } from '/app.js';
 
 let currentSettings = {};
 let renderToken = 0;
@@ -13,12 +13,23 @@ export async function render(container) {
   container.innerHTML = `
     <div class="max-w-3xl pb-12">
       <!-- Sekmeler (Tabs) -->
-      <div class="flex gap-6 border-b border-white/10 mb-6 overflow-x-auto whitespace-nowrap custom-scrollbar pb-2">
+      <div class="flex flex-wrap gap-x-6 gap-y-1 border-b border-line mb-6" role="tablist">
         <button class="settings-tab px-1 py-2 font-semibold text-primary border-b-2 border-primary transition-colors" data-tab="panel-ocr" onclick="window.__switchSettingsTab('panel-ocr')">OCR / Lisans</button>
         <button class="settings-tab px-1 py-2 font-semibold text-on-surface-variant border-b-2 border-transparent hover:text-on-surface transition-colors" data-tab="panel-operasyon" onclick="window.__switchSettingsTab('panel-operasyon')">Operasyon / Firma</button>
         <button class="settings-tab px-1 py-2 font-semibold text-on-surface-variant border-b-2 border-transparent hover:text-on-surface transition-colors" data-tab="panel-excel" onclick="window.__switchSettingsTab('panel-excel')">Excel / Çıktılar</button>
         <button class="settings-tab px-1 py-2 font-semibold text-on-surface-variant border-b-2 border-transparent hover:text-on-surface transition-colors" data-tab="panel-hava" onclick="window.__switchSettingsTab('panel-hava')">Hava Durumu</button>
         <button class="settings-tab px-1 py-2 font-semibold text-on-surface-variant border-b-2 border-transparent hover:text-on-surface transition-colors" data-tab="panel-gelismis" onclick="window.__switchSettingsTab('panel-gelismis')">Gelişmiş / KVKK</button>
+        <button class="settings-tab px-1 py-2 font-semibold text-on-surface-variant border-b-2 border-transparent hover:text-on-surface transition-colors" data-tab="panel-gorunum" onclick="window.__switchSettingsTab('panel-gorunum')">Görünüm</button>
+      </div>
+
+      <!-- Görünüm (bilgisayar başına; kaydetmeye gerek yok) -->
+      <div id="panel-gorunum" class="glass-panel rounded-xl p-6 mb-6" style="display:none">
+        <h2 class="font-headline text-headline-sm text-on-surface mb-1">Tema</h2>
+        <p class="text-sm text-on-surface-variant mb-5">Seçim hemen uygulanır ve bu bilgisayarda hatırlanır. Menüdeki yarım daire düğmesiyle de geçiş yapabilirsiniz.</p>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4" role="radiogroup" aria-label="Tema">
+          ${themeCard('tuff', 'Kısık Tüf', 'Gündüz ofis için. Taş grisi zemin, düşük kontrast, saf beyaz yok.', ['#d9d4cc', '#e4e0d9', '#2e2b28', '#3d5a8a'])}
+          ${themeCard('graphite', 'Yumuşak Grafit', 'Loş ortam ve uzun oturumlar için. Sıcak gri koyu zemin.', ['#1f1e1c', '#282725', '#e4e0d9', '#7d9bd1'])}
+        </div>
       </div>
 
       <!-- Irtifa OCR Servisi -->
@@ -248,7 +259,7 @@ export async function render(container) {
   `;
 
   window.__switchSettingsTab = function(tabId) {
-    const tabs = ['panel-ocr', 'panel-operasyon', 'panel-excel', 'panel-hava', 'panel-gelismis'];
+    const tabs = ['panel-ocr', 'panel-operasyon', 'panel-excel', 'panel-hava', 'panel-gelismis', 'panel-gorunum'];
     tabs.forEach(t => {
       const el = document.getElementById(t);
       if (el) el.style.display = (t === tabId) ? 'block' : 'none';
@@ -264,7 +275,35 @@ export async function render(container) {
     });
   };
 
+  window.__pickTheme = function(theme) {
+    applyTheme(theme);
+    document.querySelectorAll('[data-theme-card]').forEach((el) => {
+      const on = el.dataset.themeCard === theme;
+      el.setAttribute('aria-checked', String(on));
+      el.classList.toggle('border-primary', on);
+      el.classList.toggle('ring-2', on);
+      el.classList.toggle('border-line', !on);
+    });
+  };
+
   loadSettings(currentToken);
+}
+
+function themeCard(id, name, desc, swatches) {
+  const on = currentTheme() === id;
+  return `
+    <button type="button" role="radio" aria-checked="${on}" data-theme-card="${id}" onclick="window.__pickTheme('${id}')"
+      class="text-left rounded-xl border ${on ? 'border-primary ring-2' : 'border-line'} ring-primary/30 bg-raised p-4 hover:border-outline transition-colors">
+      <div class="flex h-16 rounded-lg overflow-hidden border border-line mb-3" aria-hidden="true">
+        <div class="w-1/4" style="background:${swatches[0]}"></div>
+        <div class="flex-1 flex flex-col justify-center gap-1.5 px-3" style="background:${swatches[1]}">
+          <div class="h-2 w-3/4 rounded" style="background:${swatches[2]}"></div>
+          <div class="h-2 w-1/3 rounded" style="background:${swatches[3]}"></div>
+        </div>
+      </div>
+      <div class="font-semibold text-on-surface">${name}</div>
+      <div class="text-sm text-on-surface-variant mt-0.5">${desc}</div>
+    </button>`;
 }
 
 async function loadSettings(token) {

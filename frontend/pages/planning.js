@@ -1,7 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════════
    Planlama — Gün seçimi, rezervasyon blokları, operasyon formu
    ═══════════════════════════════════════════════════════════════════ */
-import { api, toast, modal, renderHeader, helpIcon, registerUnsavedCheck } from '/app.js';
+import { api, toast, modal, renderHeader, helpIcon, registerUnsavedCheck, balloonInk, envStripe, setBalloonCodes } from '/app.js';
 import { attachCombobox } from '/combobox.js';
 import { openIdentityEditor } from '/identity_edit.js';
 
@@ -56,6 +56,7 @@ function restoreSelection(ref, { byKey = false } = {}) {
 function applyDayData(data) {
   state.blocks = data.blocks || [];
   state.balloons = data.balloon_codes || [];
+  setBalloonCodes(state.balloons);
   state.balloonLoad = data.balloon_load || {};
   state.capacity = data.capacity || 28;
   state.revision = data.workbook_revision || '';
@@ -128,7 +129,7 @@ export async function render(container) {
         <!-- Balon Dolulukları Kartı -->
         <div class="card p-6 w-full animate-in" id="sidebar-balloon-load-card" style="display:none">
           <div class="card-title text-base mb-4 flex items-center gap-2">
-            <span class="material-symbols-outlined text-[20px]">monitoring</span> Balon Dolulukları
+            <span class="material-symbols-outlined text-[20px]">airline_seat_recline_normal</span> Balon doluluğu
           </div>
           <div class="flex flex-col" id="sidebar-balloon-load-list">
             <!-- Dinamik olarak dolacak -->
@@ -139,16 +140,9 @@ export async function render(container) {
       <!-- SAĞ KOLON: Boş Durum veya Rezervasyon Listesi -->
       <div class="w-full">
         <!-- Boş Durum (Gün seçilmediğinde) -->
-        <div class="card text-center p-12 flex flex-col items-center justify-center min-h-[350px] animate-in" id="empty-planning-state">
-          <div class="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center text-primary mb-4">
-            <span class="material-symbols-outlined text-3xl">calendar_month</span>
-          </div>
-          <h3 class="font-headline text-headline-sm text-on-surface mb-4">Uçuş Planı Seçilmedi</h3>
-          <div class="text-on-surface-variant max-w-lg space-y-4 text-sm text-left bg-surface/30 p-6 rounded-2xl border border-white/5">
-            <p><strong class="text-on-surface">Ne yok?</strong> Ekranda henüz görüntülenen bir uçuş planı veya rezervasyon listesi yok.</p>
-            <p><strong class="text-on-surface">Neden olabilir?</strong> İşlem yapmak istediğiniz tarih henüz sol taraftaki takvimden seçilmemiş olabilir.</p>
-            <p><strong class="text-on-surface">Şimdi ne yapmalıyım?</strong> Sol taraftaki takvimden uçuş tarihinizi seçebilirsiniz. İşlem yapacağınız gün henüz yoksa takvimde bugün veya ileri bir boş güne tıklayıp onaylayarak yeni gün oluşturabilirsiniz.</p>
-          </div>
+        <div class="card min-h-[220px] flex flex-col justify-center animate-in" id="empty-planning-state">
+          <h3 class="font-headline text-headline-sm text-on-surface mb-1.5">Bir gün seçin</h3>
+          <p class="text-on-surface-variant">Takvimde planı olan günler mavi görünür. Planı olmayan bir güne tıklarsanız o gün koltuk düzeniyle boş açılır.</p>
         </div>
 
         <!-- Rezervasyon Blokları Kartı (Gün seçildiğinde) -->
@@ -587,7 +581,7 @@ function renderBlocks() {
         <span class="badge badge-blue flex items-center gap-1">
           <span class="material-symbols-outlined text-[16px]">person</span> ${count} kişi
         </span>
-        ${b.balloon ? `<div class="block-balloon">${escHtml(b.balloon)}</div>` : ''}
+        ${b.balloon ? `<div class="block-balloon" style="${balloonInk(b.balloon)}">${escHtml(b.balloon)}</div>` : ''}
         <button class="btn-ghost btn-icon" title="Rezervasyonu sil"
                 onclick="event.stopPropagation(); window.__deleteBlock(${i})">
           <span class="material-symbols-outlined">delete</span>
@@ -637,15 +631,17 @@ function renderBalloonLoad() {
   const codes = state.balloons || [];
   el.innerHTML = codes.map(code => {
     const used = (state.balloonLoad || {})[code] || 0;
-    const full = used >= cap;
-    const cls = full ? 'badge-red' : (used > 0 ? 'badge-green' : 'badge-blue');
+    const over = used > cap;
+    const pct = Math.min(100, Math.round((used / Math.max(1, cap)) * 100));
     return `
-      <div class="flex items-center justify-between py-2.5 border-b border-white/5 last:border-0 text-sm">
-        <span class="font-semibold text-on-surface">${escHtml(code)} Balonu</span>
-        <span class="badge ${cls}">${used} / ${cap}</span>
+      <div class="flex items-center gap-3 py-2.5 border-b border-line last:border-0 text-sm" style="${balloonInk(code)}">
+        ${envStripe(code)}
+        <span class="font-bold w-11 shrink-0" style="color: rgb(var(--env))">${escHtml(code)}</span>
+        <div class="seat-bar flex-1" style="${balloonInk(code)}"><span style="width:${pct}%"></span></div>
+        <span class="tnum font-semibold w-14 text-right ${over ? 'text-danger' : 'text-on-surface'}">${used}/${cap}</span>
       </div>
     `;
-  }).join('') || '<div class="text-xs text-on-surface-variant italic p-2">Kayıtlı balon yok</div>';
+  }).join('') || '<div class="text-sm text-on-surface-variant p-2">Kayıtlı balon yok. Listeler\'den balon kodu ekleyin.</div>';
 }
 
 window.__selectBlock = function(index) {
@@ -882,7 +878,7 @@ function renderBlockDetails(block, index) {
           <div class="card-title">
             <span class="material-symbols-outlined">edit</span> Operasyon Bilgileri
           </div>
-          <button class="btn-success flex items-center gap-2" onclick="window.__saveOperation()">
+          <button class="btn-primary flex items-center gap-2" onclick="window.__saveOperation()">
             <span class="material-symbols-outlined text-sm">save</span> Kaydet
           </button>
         </div>
@@ -1119,7 +1115,7 @@ function showCapacityChoice(body, detail) {
   modal.open('Balon Kapasitesi Doldu', `
     <p class="text-on-surface-variant mb-4">Grup hiçbir balona kapasite içinde sığmıyor. Hedef balonu seçip kapasite aşımını açıkça onaylayın veya iptal edin.</p>
     <div class="space-y-2">${(detail.balloon_codes || []).map(code => `
-      <label class="flex items-center justify-between rounded-lg border border-white/10 p-3 cursor-pointer">
+      <label class="flex items-center justify-between rounded-lg border border-line p-3 cursor-pointer">
         <span><input type="radio" name="overflow-balloon" value="${escHtml(code)}" class="mr-3" />${escHtml(code)}</span>
         <strong>${detail.balloon_load?.[code] || 0}/${detail.capacity}</strong>
       </label>`).join('')}</div>

@@ -312,3 +312,24 @@ Hatalı-eksik), acente bazlı eksik görünümü, kapasite (Sayfa2) entegrasyonu
   serbest koltuğu olarak kalır (başka balonun grubu oraya yazılmaz).
 - Test: `tests/fixtures/seat_template_ekim.xlsx` gerçek dosyanın PII'siz kopyası (21/22/23 Ekim; isim,
   pasaport, otel, acente, pilot, oda, not maskeli). Gerçek planlama dosyaları repoya konmaz.
+
+### Arayüz yeniden tasarımı (2026-10-24) — "Kısık Tüf"
+- Kullanıcı: gündüz ofiste bilgisayarda; turuncu ve cam/parlama istemiyor; bembeyaz zemin göz yoruyor;
+  Kapadokya "belirgin ama sakin". Ürün bilgisi `PRODUCT.md`te.
+- **İki tema, aynı bileşenler:** `:root` = Kısık Tüf (taş grisi #d9d4cc zemin, #e4e0d9 panel, kömür #2e2b28
+  metin, tek vurgu soluk lapis #3d5a8a; saf beyaz yok), `[data-theme="graphite"]` = Yumuşak Grafit.
+  Seçim bilgisayar başına `localStorage('irtifa-theme')` (pywebview kalıcı depolama); Ayarlar > Görünüm ve
+  menüdeki yarım daire düğmesi. `index.html` ilk boyamadan önce uygular.
+- **Token sistemi:** `tailwind.config.js` renkleri `rgb(var(--x) / <alpha-value>)`; değerler `style.css`
+  başında. Eski token adları (surface, on-surface, primary, tertiary…) korunur → sayfalar otomatik uyar.
+- **Biçim dili (kullanıcının beğendiği üç yönün birleşimi):** balon başına sabit zarf mürekkebi
+  (`env-1…env-8`; `app.js` `balloonInk/balloonBadge/envStripe`, sıra Ayarlar'daki balon kodlarından),
+  kapı panosu tablosu (`.board`, dar ekranda kolonlar önceliğe göre düşer), segmentli biniş kartı (`.pass`),
+  sabah uçuş bayrağı (`.flag-strip`; hava tavsiyesidir, resmî izin değildir).
+- Ana sayfa (`pages/dashboard.js`) baştan yazıldı: bayrak · gün başlığı · bugün yapılacaklar + 4 metrik ·
+  balon panosu (değişen satır `localStorage` anlık görüntüsüyle işaretli) · seçili balonun kartı.
+- Yazı tipleri yerel: Source Serif 4 (başlık), Source Sans 3 (metin), JetBrains Mono (kod/belge no).
+  Plus Jakarta / Bricolage ve 3D ikon seti (`icons.js`) kaldırıldı; menü Material Symbols çizgi ikonları.
+- Hata düzeltmesi: `index.html` `app.js?v=N` yüklüyordu, sayfalar `/app.js` → derlemede iki modül kopyası
+  (kullanıcı/sürüm bilgisi kayboluyordu). Artık sorgu eki yok.
+- Dar ekranda menü üstten açılır (`__toggleNav`). Tasarım kararları ve tasarım sistemi: `DESIGN.md`.

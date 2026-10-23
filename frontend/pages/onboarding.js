@@ -3,7 +3,8 @@ import { api, toast, renderHeader } from '/app.js';
 export async function render(container) {
   document.getElementById('sidebar').style.display = 'none';
   document.getElementById('page-header').style.display = 'none';
-  
+  document.querySelector('main')?.classList.remove('md:ml-64');
+
   container.innerHTML = `
     <div class="min-h-[85vh] flex items-center justify-center py-10">
       <div class="glass-panel rounded-3xl p-10 w-full max-w-3xl">
@@ -221,6 +222,7 @@ async function saveSettingsAndFinish(isComplete) {
     await api.put('/api/settings', payload);
     document.getElementById('sidebar').style.display = '';
     document.getElementById('page-header').style.display = '';
+    document.querySelector('main')?.classList.add('md:ml-64');
     window.location.hash = '#/dashboard';
   } catch (err) {
     toast.error('Ayarlar kaydedilemedi', err.message);

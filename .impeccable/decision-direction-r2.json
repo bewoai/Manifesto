@@ -1,0 +1,52 @@
+{
+  "title": "İrtifa için görsel dünya · tanıdık set",
+  "question": "Tanıdık, sakin seçenekler: açık zemin, turuncu ve cam yok, Kapadokya ince ama hissedilir. Hangisiyle ilerleyelim?",
+  "options": [
+    {
+      "id": "safe-envelope",
+      "label": "Balon Zarfı",
+      "lineage": "balon zarflarının dikey renk dilimleri",
+      "thesis": "Temiz beyaz bir operasyon paneli; her balon kendi zarf rengini taşır ve onu her ekranda aynı renkle tanırsın.",
+      "palette": ["#ffffff", "#f4f5f7", "#1b2230", "#1e5fb4", "#2e8b57", "#b8336a", "#6a4c9c", "#1c8a8a"],
+      "materials": ["düz beyaz yüzeyler", "ince ayırıcılar", "zarf dilimi renk şeritleri"],
+      "viewport": "Sol menü düz satırlar; üstte tarih ve dört metrik; bugün listesi; altta her balonun zarf rengi şeridiyle doluluk satırları.",
+      "risk": "Tanıdık ve güvenli; balon renkleri çoğalırsa ekran rengârenk görünebilir.",
+      "comp": ".impeccable/mocks/decision/r2-envelope.png"
+    },
+    {
+      "id": "safe-stone",
+      "label": "Tüf Taşı ve Bağ",
+      "lineage": "Kapadokya tüf taşının açık grileri ve Ürgüp bağlarının şarap rengi",
+      "thesis": "Sıcak açık gri taş zemin, tek vurgu olarak koyu şarap rengi; sakin, yerel ve olgun.",
+      "palette": ["#f1efec", "#e3dfd9", "#26221f", "#6e6760", "#6b2140", "#2f7d57", "#c9a227", "#b23a3a"],
+      "materials": ["mat taş grisi", "düz kartlar", "ince çizgiler"],
+      "viewport": "Taş grisi zemin; beyaz kartlarda bugün listesi ve metrikler; şarap rengi yalnız aktif menü ve ana düğmelerde.",
+      "risk": "Şarap rengi hata kırmızısına yakın düşebilir; ikisi bilinçli ayrılmalı.",
+      "comp": ".impeccable/mocks/decision/r2-stone.png"
+    },
+    {
+      "id": "safe-chart",
+      "label": "Havacılık Haritası",
+      "lineage": "VFR havacılık haritaları: mavi ve mor notasyon, eş yükselti çizgileri",
+      "thesis": "Havacılık haritasının sakin mavisi ana dil; eş yükselti çizgileri yalnız boş ekranlarda ve girişte görünür.",
+      "palette": ["#fbfcfd", "#eef2f6", "#14202e", "#1f4e8c", "#8a2f7a", "#2f7d57", "#c9a227", "#b23a3a"],
+      "materials": ["harita kâğıdı beyazı", "eş yükselti çizgileri", "havacılık notasyonu"],
+      "viewport": "Beyaz zemin, lacivert-mavi aktif öğeler; başlıkta ince eş yükselti çizgileri; tablolar harita lejantı gibi düzenli.",
+      "risk": "Mavi ana renk sektörde çok yaygın; Kapadokya hissi yalnız çizgilerde kalır.",
+      "comp": ".impeccable/mocks/decision/r2-chart.png"
+    }
+  ],
+  "reroll": {"registers": ["safer", "bolder"]},
+  "buildPath": {"value": "comp", "toggle": true},
+  "canon": true,
+  "canonCard": {
+    "label": "Kategori standardı",
+    "thesis": "FareHarbor, Bókun ve Rezdy gibi tur rezervasyon yazılımlarının işçilik seviyesinde klasik panel.",
+    "palette": ["#ffffff", "#f8fafc", "#0f172a", "#2563eb"],
+    "materials": ["temiz ızgara", "beyaz kartlar"],
+    "viewport": "Soldaki menü, üstte metrikler, altta tablolar.",
+    "risk": "Tasarım gereği rakip ürünlerden ayırt edilemez.",
+    "comp": ".impeccable/mocks/decision/canon.png"
+  },
+  "steer": true
+}

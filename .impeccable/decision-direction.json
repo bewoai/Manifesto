@@ -1,0 +1,131 @@
+{
+  "title": "İrtifa için görsel dünya",
+  "question": "Gündüz ofis kullanımı, açık zemin, turuncu ve cam efekti yok, Kapadokya belirgin ama sakin. Hangi dünya ile ilerleyelim?",
+  "options": [
+    {
+      "id": "assigned",
+      "label": "Göreme Freskosu",
+      "kicker": "THE ROLL",
+      "lineage": "Göreme Açık Hava Müzesi kaya kiliseleri: kireç sıva üstüne lapis mavisi",
+      "thesis": "Kaya kiliselerinin lapis mavisi, kireç sıva zeminde operatörün tek dikkat rengi olur.",
+      "palette": ["#f3f2ee", "#e4e0d8", "#8b8477", "#1d2433", "#24489b", "#2f7d57", "#c9a227", "#b23a3a"],
+      "materials": ["mat kireç sıva", "lapis pigmenti", "tüf taşı nişleri"],
+      "viewport": "Solda çerçevesiz düz menü; üstte günün tarihi ve bugün yapılacaklar; yanında 4 metrik; altta beş balonun 28 noktalı koltuk plakaları.",
+      "risk": "Disiplin gevşerse sıradan kurumsal mavi ya da krem bir şablon gibi okunur.",
+      "raised": [
+        {"from": "challenger-splitflap", "raise": "Planlama tablosu sabit kolon ızgarası ve tablo rakamlarıyla çizilir; satır durumu değişir, ızgara bozulmaz."},
+        {"from": "challenger-transit", "raise": "Her balon kodu tek sabit bir mürekkep alır; rozet, koltuk bandı ve manifesto sekmesinde aynı renk."},
+        {"from": "challenger-staratlas", "raise": "Doluluk yüzde yerine 28 noktalı koltuk plakasıyla okunur: dolu nokta yolcu, boş halka serbest koltuk."},
+        {"from": "challenger-catalog", "raise": "Hiçbir şey iki kez etiketlenmez: tekrar eden açıklama kutuları kalkar, yardım yalnız istenince görünür."},
+        {"from": "challenger-folio", "raise": "Yolcunun yolu sabit ölçekli bir aşama şeridiyle izlenir: geldi, okundu, kontrol, yazıldı, manifestoda."}
+      ],
+      "comp": ".impeccable/mocks/decision/assigned.png"
+    },
+    {
+      "id": "model-pick",
+      "label": "Sabah Uçuş Bayrağı",
+      "kicker": "IMPECCABLE’S PICK",
+      "lineage": "Kapadokya sabah uçuş izni bayrakları ve THK uçuş formları",
+      "thesis": "Her sabahın yeşil-sarı-kırmızı uçuş bayrağı, arayüzün durum dilinin kendisi olur.",
+      "palette": ["#ffffff", "#eef1f4", "#15202b", "#2f5d8a", "#1f8a4c", "#d9a400", "#c62f2f"],
+      "materials": ["beyaz form kâğıdı", "cetvelli form alanları", "bayrak bezi renk blokları"],
+      "viewport": "Üstte günün bayrak şeridi ve tarih; altında form gibi cetvelli bugün listesi; sağda balon başına durum blokları.",
+      "risk": "En tanıdık seçenek: operasyon panellerinin çoğu buna varır, Kapadokya'ya özgü his zayıf kalabilir.",
+      "comp": ".impeccable/mocks/decision/model-pick.png"
+    },
+    {
+      "id": "challenger-boarding",
+      "label": "Biniş Kartı ve Kapı Panosu",
+      "verdict": "competitive",
+      "lineage": "segmentli biniş kartı ve havalimanı kapı panosu",
+      "thesis": "Manifesto bir biniş kartı, planlama bir kapı panosu: değişen satır yerinde kalır ve görülene dek işaretli durur.",
+      "palette": ["#f7f7f5", "#111418", "#5b6270", "#c2185b", "#1f8a4c"],
+      "materials": ["yüksek kontrastlı nötr paneller", "eş aralıklı kod bloğu", "tek uyarı rengi"],
+      "viewport": "Ana sayfa bir kapı panosu: balonlar kalkış sırasına göre satır; seçili rezervasyon sağda segmentli kart olarak açılır.",
+      "case": "Ürünle temiz birleşir, yolcu kartı ve balon panosu birebir eşleşir; Kapadokya kimliği taşımadığı için tanınırlıkta kaybeder.",
+      "risk": "Havalimanı dili balon işletmesine yabancı gelebilir; tek uyarı rengi dikkatli seçilmezse alarm gibi bağırır.",
+      "comp": ".impeccable/mocks/decision/challenger-boarding.png",
+      "hero": "https://impeccable.style/worlds/cards/vernacular-ephemera-boarding-pass-and-gate-board-hero.webp",
+      "board": "https://impeccable.style/worlds/cards/vernacular-ephemera-boarding-pass-and-gate-board.webp"
+    },
+    {
+      "id": "challenger-splitflap",
+      "label": "Kalkış Panosu",
+      "verdict": "declined",
+      "lineage": "gar kalkış panosu (split-flap)",
+      "thesis": "Balonlar panodaki satırlar, koltuklar dönen paletler.",
+      "palette": ["#111111", "#f5f5f5", "#9aa0a6"],
+      "materials": ["mat siyah paletler", "fırçalanmış çelik çerçeve"],
+      "viewport": "Siyah pano üzerinde balon başına satır, koltuk sayısı paletlerde.",
+      "case": "Zemin siyah, gündüz ofis kullanımıyla çelişiyor; balon işletmesi kendini garda görmüyor.",
+      "kept": "Sabit kolon ızgarası: satır değişir, ızgara bozulmaz.",
+      "risk": "Koyu ve nostaljik; günlük iş için yorucu.",
+      "hero": "https://impeccable.style/worlds/cards/signals-instruments-split-flap-concourse-hero.webp"
+    },
+    {
+      "id": "challenger-transit",
+      "label": "Metro Hat Diyagramı",
+      "verdict": "declined",
+      "lineage": "metro hat haritaları",
+      "thesis": "Her balon bir hat, rezervasyonlar duraklar.",
+      "palette": ["#14213d", "#ffffff", "#d62828", "#1d4ed8", "#2a9d8f"],
+      "materials": ["emaye zemin", "renkli hat mürekkepleri"],
+      "viewport": "Balon hatları yan yana, rezervasyonlar durak noktaları.",
+      "case": "Gece mavisi zemin ve hat metaforu işi gölgeliyor.",
+      "kept": "Her balona tek sabit mürekkep.",
+      "risk": "Metafor ağır basar, tablo işi zorlaşır."
+    },
+    {
+      "id": "challenger-staratlas",
+      "label": "Yıldız Atlası",
+      "verdict": "declined",
+      "lineage": "gök atlası levhaları",
+      "thesis": "Önem, nokta büyüklüğüyle okunur.",
+      "palette": ["#0f1a33", "#f2f2f2", "#c1121f"],
+      "materials": ["lacivert levha", "tebeşir noktalar"],
+      "viewport": "Koyu levhada yolcular nokta olarak.",
+      "case": "Koyu zemin ve astronomi dili operatöre uzak.",
+      "kept": "Doluluk 28 noktalı koltuk plakasıyla gösterilir.",
+      "risk": "Okunabilirlik düşer."
+    },
+    {
+      "id": "challenger-catalog",
+      "label": "Katalog Kodu",
+      "verdict": "declined",
+      "lineage": "plak şirketi katalog kimliği",
+      "thesis": "Her öğe bir katalog numarası, etiketler renk kodu.",
+      "palette": ["#0b0b0b", "#ffffff", "#e63946", "#457b9d"],
+      "materials": ["mat siyah kılıf", "ince beyaz çizgiler"],
+      "viewport": "Siyah zeminde numaralı dizin.",
+      "case": "Kodlanmış etiketler hızlı iş akışını yavaşlatır.",
+      "kept": "Hiçbir şey iki kez etiketlenmez.",
+      "risk": "Gizemli, öğrenmesi zor."
+    },
+    {
+      "id": "challenger-folio",
+      "label": "Botanik Levha",
+      "verdict": "declined",
+      "lineage": "bir bitkiyi mevsim mevsim izleyen botanik folyo",
+      "thesis": "Yolcu, aynı ölçekte aşama aşama izlenir.",
+      "palette": ["#f4ecd8", "#5c4a32", "#3a7d44", "#a4161a"],
+      "materials": ["krem levha", "sepya çizgiler"],
+      "viewport": "Beş sabit ölçekli aşama levhası yan yana.",
+      "case": "Krem levha ve botanik dil balon işletmesine yabancı.",
+      "kept": "Sabit ölçekli aşama şeridi: geldi, okundu, kontrol, yazıldı, manifestoda.",
+      "risk": "Fazla edebi."
+    }
+  ],
+  "reroll": {"registers": ["safer", "bolder"]},
+  "buildPath": {"value": "comp", "toggle": true},
+  "canon": true,
+  "canonCard": {
+    "label": "Kategori standardı",
+    "thesis": "Operasyon panellerinin beklenen hâli, kusursuz işçilikle.",
+    "palette": ["#ffffff", "#f8fafc", "#0f172a", "#2563eb"],
+    "materials": ["temiz ızgara", "beyaz kartlar"],
+    "viewport": "Soldaki menü, üstte metrikler, altta tablolar.",
+    "risk": "Tasarım gereği rakip ürünlerden ayırt edilemez.",
+    "comp": ".impeccable/mocks/decision/canon.png"
+  },
+  "steer": true
+}

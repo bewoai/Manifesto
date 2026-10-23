@@ -62,6 +62,7 @@ function restoreSelection(ref, { byKey = false } = {}) {
 
 function applyDayData(data) {
   state.blocks = data.blocks || [];
+  state.hotelSplit = data.hotel_split || [];
   state.balloons = data.balloon_codes || [];
   setBalloonCodes(state.balloons);
   state.balloonLoad = data.balloon_load || {};
@@ -739,39 +740,34 @@ window.__filterBalloon = function(value) {
 function renderHotelSplit() {
   const root = document.getElementById('hotel-split');
   if (!root) return;
-  const byHotel = new Map();
-  for (const b of state.blocks) {
-    if (!b.hotel || !b.balloon) continue;
-    const key = foldName(b.hotel);
-    const e = byHotel.get(key) || { hotel: b.hotel, balloons: new Map(), seats: 0 };
-    e.balloons.set(b.balloon, (e.balloons.get(b.balloon) || 0) + blockSeats(b));
-    e.seats += blockSeats(b);
-    byHotel.set(key, e);
-  }
-  const split = [...byHotel.values()].filter(e => e.balloons.size > 1).sort((a, b) => b.seats - a.seats);
+  // Sunucu hesaplar: aynı otel + aynı pickup saati 2+ balonda (farklı saatler ayrı kalkış sayılır)
+  const split = state.hotelSplit || [];
   if (!split.length) { root.innerHTML = ''; return; }
   root.innerHTML = `
     <div class="rounded-lg border border-line bg-well px-4 py-3">
       <div class="flex items-center gap-2 text-sm font-semibold text-on-surface mb-1.5">
         <span class="material-symbols-outlined text-[18px] text-info">airport_shuttle</span>
-        Aynı otelden farklı balonlara dağılmış yolcular
+        Aynı otel ve saatte farklı balonlara dağılmış yolcular
       </div>
-      <p class="text-xs text-on-surface-variant mb-2">Lojistik için aynı oteli tek balonda toplamak daha kolay. Otele tıklayınca o otelin rezervasyonları listelenir; balonu rezervasyonun düzenleme formundan değiştirebilirsiniz.</p>
+      <p class="text-xs text-on-surface-variant mb-2">Aynı saatte aynı otelden alınan yolcuları tek balonda toplamak lojistiği kolaylaştırır. Farklı saatte alınanlar ayrı kalkış sayılır, burada görünmez. Tıklayınca o rezervasyonlar listelenir.</p>
       <div class="flex flex-wrap gap-2">
-        ${split.slice(0, 8).map(e => `
-          <button type="button" class="btn-secondary btn-sm" onclick="window.__searchHotel(${JSON.stringify(e.hotel).replace(/"/g, '&quot;')})">
+        ${split.slice(0, 8).map(e => {
+          const q = `otel ${e.hotel}${e.pickup ? ` saat ${e.pickup}` : ''}`;
+          return `
+          <button type="button" class="btn-secondary btn-sm" onclick="window.__searchHotel(${JSON.stringify(q).replace(/"/g, '&quot;')})">
             <span class="font-semibold">${escHtml(e.hotel)}</span>
-            <span class="text-on-surface-variant">· ${e.seats} kişi ·</span>
-            ${[...e.balloons].map(([code, n]) => `<span class="balloon-code" style="${balloonInk(code)}">${escHtml(code)} ${n}</span>`).join(' ')}
-          </button>`).join('')}
+            <span class="text-on-surface-variant">${e.pickup ? `· ${escHtml(e.pickup)} ` : '· saat yok '}· ${e.seats} kişi ·</span>
+            ${(e.balloons || []).map(code => `<span class="balloon-code" style="${balloonInk(code)}">${escHtml(code)}</span>`).join(' ')}
+          </button>`;
+        }).join('')}
       </div>
     </div>`;
 }
 
-window.__searchHotel = function(hotel) {
+window.__searchHotel = function(query) {
   const inp = document.getElementById('block-search');
   if (!inp) return;
-  inp.value = `otel ${hotel}`;
+  inp.value = query;
   renderBlocks();
   inp.focus();
 };

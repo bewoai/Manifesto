@@ -57,11 +57,11 @@ def seat_wb(tmp_path):
     return p
 
 
-def _block(lead_row, balloon, pax, hotel) -> ReservationBlock:
+def _block(lead_row, balloon, pax, hotel, pickup="") -> ReservationBlock:
     return ReservationBlock(
         lead_row=lead_row, rows=[lead_row + i for i in range(pax)], pax=pax, room="", agency="A",
         reserved_by="", company="THK", balloon=balloon, pilot="", note="", driver="", coming_place="",
-        hotel=hotel, pickup="", lead_name="",
+        hotel=hotel, pickup=pickup, lead_name="",
         passengers=[PassengerIdentity(row=lead_row + i, nationality="", sex="", name="", passport_no="")
                     for i in range(pax)],
     )
@@ -176,8 +176,8 @@ def test_hotel_split_lists_spread_hotels():
               _block(21, "BYF", 3, "Kapadokya Otel"), _block(24, "BYJ", 4, "KAPADOKYA OTEL"),
               _block(28, "BYJ", 1, "Kapadokya  otel"), _block(29, "BYF", 2, ""), _block(31, "BZV", 2, "")]
     assert hotel_split(blocks) == [
-        {"hotel": "Argos", "balloons": ["BZR", "BTK"], "seats": 8},
-        {"hotel": "Kapadokya Otel", "balloons": ["BYJ", "BYF"], "seats": 8},
+        {"hotel": "Argos", "pickup": "", "balloons": ["BZR", "BTK"], "seats": 8},
+        {"hotel": "Kapadokya Otel", "pickup": "", "balloons": ["BYJ", "BYF"], "seats": 8},
     ]
 
 
@@ -236,10 +236,25 @@ def test_api_load_hotel_split(tmp_path, monkeypatch, seat_wb):
     c = _make_client(tmp_path, monkeypatch, seat_wb)
     assert c.get("/api/planning/load", params={"sheet": PARTIAL}).json()["hotel_split"] == []
     # OTEL 24 BZV'de (5 kişi, 4 boş koltuk): 6 kişi sığmaz → BYF → otel iki balona dağılır
-    r = _create(c, PARTIAL, "/api/planning/create-block", pax=6, hotel="Otel 24", agency="ACENTE Y")
+    r = _create(c, PARTIAL, "/api/planning/create-block", pax=6, hotel="Otel 24", agency="ACENTE Y", pickup="04:30")
     assert r.status_code == 200, r.text
     assert (r.json()["balloon"], r.json()["hotel_match"]) == ("BYF", False)
     load = c.get("/api/planning/load", params={"sheet": PARTIAL}).json()
-    assert load["hotel_split"] == [{"hotel": "OTEL 24", "balloons": ["BYF", "BZV"], "seats": 11}]
+    assert load["hotel_split"] == [{"hotel": "OTEL 24", "pickup": "04:30", "balloons": ["BYF", "BZV"], "seats": 11}]
     # öneri readiness uyarısı değildir
     assert not any("hotel" in i["code"] for i in load["readiness"]["issues"])
+
+
+# ─── Pickup saati: aynı otel farklı saatte alınıyorsa ayrı kalkış, gruplanmaz ──
+
+def test_same_hotel_different_pickup_is_not_split():
+    from app.manifest.planning import hotel_seats_by_balloon, pickup_key
+    blocks = [_block(4, "BYF", 3, "MARRIOT", "05:00"), _block(7, "BZR", 4, "Marriot", "05:30:00"),
+              _block(11, "BYJ", 2, "MARRIOT", "5:00")]
+    split = hotel_split(blocks)
+    assert split == [{"hotel": "MARRIOT", "pickup": "05:00", "balloons": ["BYF", "BYJ"], "seats": 5}]
+    assert pickup_key("1900-01-01 05:20:00") == "05:20" and pickup_key("") == ""
+    # 05:30 rezervasyonu için yalnız 05:30 balonu (ve saatsizler) tercih edilir
+    assert list(hotel_seats_by_balloon(blocks, "marriot", "05:30")) == ["BZR"]
+    # saati bilinmeyen yeni rezervasyon otelin tüm balonlarıyla eşleşir
+    assert set(hotel_seats_by_balloon(blocks, "marriot", "")) == {"BYF", "BZR", "BYJ"}

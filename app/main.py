@@ -1296,8 +1296,9 @@ def api_planning_create_block(body: dict, request: Request) -> dict:
     requested_balloon = str(body.get("requested_balloon", "")).strip().upper()
     allowed = _daily_allowed_balloons(s, load)
     lead_hotel = lead_fields.get("hotel", "")
+    lead_pickup = lead_fields.get("pickup", "")
     choice = planning_choose_balloon(rows, blocks, pax, s.balloon_codes, s.capacity_for, allowed=allowed,
-                                     hotel=lead_hotel)
+                                     hotel=lead_hotel, pickup=lead_pickup)
     balloon, overflow = choice["balloon"], choice["overflow"]
     if not balloon:
         raise HTTPException(status_code=409, detail="Tanımlı balon kodu yok (Settings).")
@@ -1309,7 +1310,7 @@ def api_planning_create_block(body: dict, request: Request) -> dict:
         )
     if overflow:
         balloon = requested_balloon
-    hotel_match = _hotel_match(blocks, lead_hotel, balloon)
+    hotel_match = _hotel_match(blocks, lead_hotel, balloon, lead_pickup)
     pilot = planning_pilot_for_balloon(rows, balloon)
 
     try:
@@ -1848,9 +1849,9 @@ def _capacities(s: settings_mod.Settings, codes) -> dict[str, int]:
     return out
 
 
-def _hotel_match(blocks, hotel: str, balloon: str) -> bool:
-    """Seçilen balon bu otelin yolcularını zaten taşıyor mu (Türkçe harf/büyük-küçük duyarsız)."""
-    return bool(balloon) and balloon in planning_hotel_seats_by_balloon(blocks, hotel)
+def _hotel_match(blocks, hotel: str, balloon: str, pickup: str = "") -> bool:
+    """Seçilen balon bu otelin (aynı pickup saatindeki) yolcularını zaten taşıyor mu."""
+    return bool(balloon) and balloon in planning_hotel_seats_by_balloon(blocks, hotel, pickup)
 
 
 def _hotel_note(hotel: str, balloon: str, matched: bool) -> str:
@@ -1934,8 +1935,9 @@ def api_create_with_identities(body: dict, request: Request) -> dict:
     current_load = planning_balloon_load(current_blocks)
     allowed = _daily_allowed_balloons(s, current_load)
     lead_hotel = fields.get("hotel", "")
+    lead_pickup = fields.get("pickup", "")
     choice = planning_choose_balloon(current_rows, current_blocks, pax, s.balloon_codes, s.capacity_for,
-                                     allowed=allowed, hotel=lead_hotel)
+                                     allowed=allowed, hotel=lead_hotel, pickup=lead_pickup)
     suggested, overflow = choice["balloon"], choice["overflow"]
     requested = str(body.get("requested_balloon", "")).strip().upper()
     if overflow and not (body.get("allow_overflow") and requested in s.balloon_codes):
@@ -1945,7 +1947,7 @@ def api_create_with_identities(body: dict, request: Request) -> dict:
                                     allowed=allowed),
         )
     balloon = requested if overflow else suggested
-    hotel_match = _hotel_match(current_blocks, lead_hotel, balloon)
+    hotel_match = _hotel_match(current_blocks, lead_hotel, balloon, lead_pickup)
 
     def mutate(temp: Path) -> dict:
         rows = read_rows(temp, sheet)

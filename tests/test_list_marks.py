@@ -146,3 +146,22 @@ def test_strike_in_turkish_is_excluded_from_any_mark():
     assert annotation_matches("any_mark", "üstü çizili") is False
     assert annotation_matches("any_mark", "ÜSTÜ ÇİZİLİ") is False
     assert annotation_matches("check", "✓ üstü çizili") is False
+
+
+from app.list_marks import infer_rule
+
+
+def test_infer_rule_from_annotation_distribution():
+    assert infer_rule([]) == {"rule": "all", "matched": 0, "total": 0}
+    assert infer_rule(["", "", ""]) == {"rule": "all", "matched": 3, "total": 3}
+    assert infer_rule(["✓", "", "✓", "✓", ""]) == {"rule": "check", "matched": 3, "total": 5}
+    assert infer_rule(["highlight", "highlight", "", ""]) == {"rule": "highlight", "matched": 2, "total": 4}
+    assert infer_rule(["21", "22", "", "23"]) == {"rule": "number", "matched": 3, "total": 4}
+    assert infer_rule(["SI", "", "SÍ", "si"]) == {"rule": "yes", "matched": 3, "total": 4}
+    assert infer_rule(["B", "", "B"]) == {"rule": "letter_b", "matched": 2, "total": 3}
+    # işaret var ama tanımsız (ör. "?" veya "rehber") → any_mark
+    assert infer_rule(["?", "", "rehber"])["rule"] == "any_mark"
+    # eşitlikte öncelik: check > number
+    assert infer_rule(["✓", "21"])["rule"] == "check"
+    # karışık: çoğunluk kazanır
+    assert infer_rule(["✓", "✓", "✓", "SI"])["rule"] == "check"

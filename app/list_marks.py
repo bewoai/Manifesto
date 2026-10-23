@@ -68,3 +68,29 @@ def normalize_rules(rules) -> dict[str, str]:
         if key and rule in MARK_RULES:
             out[key] = rule
     return out
+
+
+_SPECIFIC_RULES = ("check", "highlight", "number", "yes", "letter_b")   # eşitlikte öncelik sırası
+
+
+def infer_rule(annotations) -> dict:
+    """İşaret dağılımından listenin kuralını tahmin eder (operatör elle seçmek zorunda kalmasın).
+
+    Dönüş: {"rule": kural, "matched": eşleşen satır, "total": toplam satır}.
+    - Hiç işaret yoksa → "all" (herkes uçuyor varsayımı).
+    - İşaret var ama hiçbir özel kurala uymuyorsa → "any_mark".
+    - En çok satır eşleyen özel kural kazanır; eşitlikte _SPECIFIC_RULES sırası.
+    """
+    rows = [str(a or "") for a in (annotations or [])]
+    total = len(rows)
+    marked = sum(1 for a in rows if annotation_matches("any_mark", a))
+    if total == 0 or marked == 0:
+        return {"rule": "all", "matched": total, "total": total}
+    best_rule, best_count = None, 0
+    for rule in _SPECIFIC_RULES:
+        count = sum(1 for a in rows if annotation_matches(rule, a))
+        if count > best_count:
+            best_rule, best_count = rule, count
+    if best_rule is None:
+        return {"rule": "any_mark", "matched": marked, "total": total}
+    return {"rule": best_rule, "matched": best_count, "total": total}

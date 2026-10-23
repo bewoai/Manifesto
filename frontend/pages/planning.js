@@ -1,10 +1,11 @@
 /* ═══════════════════════════════════════════════════════════════════
    Planlama — Gün seçimi, rezervasyon blokları, operasyon formu
    ═══════════════════════════════════════════════════════════════════ */
-import { api, toast, modal, renderHeader, helpIcon, registerUnsavedCheck, balloonInk, envStripe, setBalloonCodes } from '/app.js';
+import { api, toast, modal, renderHeader, helpIcon, registerUnsavedCheck, balloonInk, envStripe, setBalloonCodes, routeParams } from '/app.js';
 import { parseQuery, matchesBlock, describeTerms } from '/planning_search.js';
 import { attachCombobox } from '/combobox.js';
 import { openIdentityEditor } from '/identity_edit.js';
+import { issueLabel, issueLeadRows, findBlockIndexForRow } from '/issue_links.js';
 
 let state = {
   sheets: [],
@@ -15,6 +16,7 @@ let state = {
   source: 'excel',
   revision: '',
   readiness: null,
+  issueFilter: null, // { sheet, code } — uyarıdan gelen blok filtresi
 };
 
 let calState = {
@@ -89,6 +91,8 @@ function todayStart() {
 export async function render(container) {
   loadToken++; // önceki sayfa ziyaretinden kalan yanıtlar uygulanmasın
   renderHeader('Planlama', 'Uçuş günü yönetimi ve rezervasyon blokları');
+  const deepLink = readDeepLink();
+  state.issueFilter = null;
 
   container.innerHTML = `
     <div class="grid grid-cols-1 lg:grid-cols-[360px_1fr] gap-6 items-start">
@@ -180,13 +184,14 @@ export async function render(container) {
               <option value="name">İsme göre</option>
             </select>
           </div>
+          <div id="issue-filter-chip"></div>
           <div class="flex flex-col gap-3" id="blocks-list"></div>
         </div>
       </div>
     </div>
   `;
 
-  loadSheets();
+  loadSheets().then(() => applyDeepLink(deepLink));
 }
 
 function parseSheetDate(sheetName) {
@@ -654,6 +659,7 @@ function filteredBlocks() {
       return filter === 'missing' ? missing : !missing;
     });
   }
+  rows = applyIssueFilter(rows);
   const hint = document.getElementById('block-search-hint');
   if (hint) {
     if (!hint.dataset.default) hint.dataset.default = hint.innerHTML;
@@ -899,7 +905,7 @@ function renderBlockDetails(block, index) {
     const display = p.name || p.passport_no || 'Kimlik boş';
     const meta = [p.nationality, p.sex, p.passport_no, `Satır ${p.row}`].filter(Boolean).join(' · ');
     return `
-      <div class="passenger-row ${p.name || p.passport_no ? '' : 'empty'}">
+      <div class="passenger-row ${p.name || p.passport_no ? '' : 'empty'}" data-row="${Number(p.row)}">
         <div class="min-w-0">
           <strong>${idx + 1}. ${escHtml(display)}</strong>
           <span>${escHtml(meta)}</span>
@@ -1185,6 +1191,108 @@ window.__confirmOverflow = async function() {
     toast.warning('Kapasite aşımı onaylandı', `${res.balloon} balonuna atandı`);
     window.__loadDay();
   } catch (err) { toast.error('Oluşturma hatası', err.message); }
+};
+
+// ─── Uyarılardan derin bağlantı ───
+// #/planning?sheet=22.10.2026&row=83         → günü aç, satırın rezervasyonunu seç, vurgula
+// #/planning?sheet=22.10.2026&issue=missing_pickup → yalnız o uyarının rezervasyonları
+function readDeepLink() {
+  const p = routeParams();
+  const sheet = (p.get('sheet') || '').trim();
+  const row = parseInt(p.get('row') || '', 10);
+  const issue = (p.get('issue') || '').trim();
+  if (!sheet && !issue && !Number.isFinite(row)) return null;
+  return { sheet, row: Number.isFinite(row) ? row : null, issue, token: loadToken };
+}
+
+async function applyDeepLink(link) {
+  if (!link || link.token !== loadToken) return; // sayfadan çıkıldı ya da başka gün açıldı
+  const sheet = link.sheet || state.currentSheet;
+  if (!sheet) return;
+  if (!state.sheets.includes(sheet)) {
+    toast.warning('Gün bulunamadı', `${sheet} planlama dosyasında yok.`);
+    return;
+  }
+  const parsed = parseSheetDate(sheet);
+  if (parsed) {
+    calState.currentYear = parsed.year;
+    calState.currentMonth = parsed.month;
+  }
+  if (link.issue) state.issueFilter = { sheet, code: link.issue };
+  await window.__loadDayDate(sheet);
+  if (state.currentSheet !== sheet || !document.getElementById('blocks-list')) return;
+  if (link.row != null && !link.issue) focusRow(link.row);
+}
+
+function focusRow(row) {
+  const idx = findBlockIndexForRow(state.blocks, row);
+  if (idx < 0) {
+    toast.warning('Satır bulunamadı', `Satır ${row} bu günde bir rezervasyona ait değil; liste değişmiş olabilir.`);
+    return;
+  }
+  state.selectedBlock = idx;
+  renderBlocks();
+  const block = state.blocks[idx];
+  const shell = document.getElementById(`block-${idx}`);
+  if (!shell) return;
+  // Yolcu satırı (ya da kimliği eksik lider) ise o yolcu da vurgulanır
+  const passenger = (block.passengers || []).find(p => Number(p.row) === Number(row));
+  const incomplete = passenger && (!passenger.name || !passenger.passport_no || !passenger.nationality || !passenger.sex);
+  const person = passenger && (Number(row) !== Number(block.lead_row) || incomplete)
+    ? shell.querySelector(`.passenger-row[data-row="${Number(row)}"]`)
+    : null;
+  const reduce = !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  (person || shell).scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: person ? 'center' : 'start' });
+  flashFocus(shell.querySelector('.block-item'));
+  flashFocus(person);
+}
+
+function flashFocus(el) {
+  if (!el) return;
+  el.classList.remove('deep-link-flash');
+  void el.offsetWidth; // animasyonu yeniden başlat
+  el.classList.add('deep-link-flash');
+  setTimeout(() => el.classList.remove('deep-link-flash'), 2100);
+}
+
+// filteredBlocks() içinden çağrılır: uyarı filtresi + üstteki kaldırılabilir çip.
+// Seçili blok, uyarısı giderilse de listede kalır (kaydedince kaybolmasın).
+function applyIssueFilter(rows) {
+  const chip = document.getElementById('issue-filter-chip');
+  if (state.issueFilter && state.issueFilter.sheet !== state.currentSheet) {
+    state.issueFilter = null; // başka güne geçildi
+    clearDeepLinkHash();
+  }
+  const f = state.issueFilter;
+  if (!f) {
+    if (chip) chip.innerHTML = '';
+    return rows;
+  }
+  const leads = issueLeadRows(state.readiness?.issues, state.blocks, f.code);
+  const out = rows.filter(({ block, index }) => leads.has(Number(block.lead_row)) || index === state.selectedBlock);
+  if (chip) {
+    const label = issueLabel(f.code) || f.code;
+    const countText = leads.size ? `${leads.size} rezervasyon` : 'uyarı kalmadı';
+    chip.innerHTML = `
+      <div class="issue-filter-chip" role="status">
+        <span class="material-symbols-outlined text-[16px]" aria-hidden="true">filter_alt</span>
+        <span>Filtre: <strong class="font-semibold">${escHtml(label)}</strong> · ${escHtml(countText)}</span>
+        <button type="button" class="issue-filter-clear" onclick="window.__clearIssueFilter()" aria-label="Filtreyi kaldır" title="Filtreyi kaldır">
+          <span class="material-symbols-outlined text-[16px]">close</span>
+        </button>
+      </div>`;
+  }
+  return out;
+}
+
+function clearDeepLinkHash() {
+  try { history.replaceState(null, '', '#/planning'); } catch (e) { /* yoksay */ }
+}
+
+window.__clearIssueFilter = function() {
+  state.issueFilter = null;
+  clearDeepLinkHash();
+  renderBlocks();
 };
 
 function escHtml(s) {

@@ -473,6 +473,32 @@
   .passenger-row span { @apply block text-xs text-on-surface-variant truncate mt-0.5; }
   .btn-icon.danger { @apply text-danger hover:bg-danger/10; }
 
+  /* ─── Uyarıdan derin bağlantı: hedef rezervasyon/yolcu kısa lapis halka, ~2 sn söner ─── */
+  .block-shell, .passenger-row { scroll-margin-top: 88px; scroll-margin-bottom: 24px; }
+  .deep-link-flash { animation: deep-link-ring 2s ease-out forwards; }
+  @keyframes deep-link-ring {
+    0%, 30% { box-shadow: 0 0 0 3px rgb(var(--primary) / 0.55); }
+    100%    { box-shadow: 0 0 0 3px rgb(var(--primary) / 0); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    /* hareket yok: halka sabit durur, JS ~2 sn sonra kaldırır */
+    .deep-link-flash { animation-name: none; box-shadow: 0 0 0 3px rgb(var(--primary) / 0.55); }
+  }
+  .issue-filter-chip {
+    @apply inline-flex items-center gap-2 mb-3 rounded-md border border-primary/30 bg-primary/[.10]
+           text-primary text-sm pl-2.5 pr-1 py-1;
+  }
+  .issue-filter-clear {
+    @apply inline-flex items-center justify-center w-6 h-6 rounded hover:bg-primary/[.14] transition-colors;
+  }
+
+  /* ─── Uyarı listesi (manifesto): tıklanınca planlamadaki kişiye gider ─── */
+  .issue-link {
+    @apply flex items-baseline gap-2 py-2 px-2 text-sm text-on-surface rounded-md
+           hover:bg-tertiary/[.06] transition-colors;
+  }
+  .issue-link .issue-row { @apply ml-auto shrink-0 text-xs text-on-surface-variant tnum; }
+
   /* ─── Balon kodu ve zarf dili ───
      Her balonun sabit mürekkebi inline --env değişkeniyle verilir (app.js balloonInk). */
   .block-balloon, .balloon-code {

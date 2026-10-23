@@ -3,6 +3,7 @@
    ═══════════════════════════════════════════════════════════════════ */
 import { api, toast, renderHeader, modal, balloonBadge } from '/app.js';
 import { openIdentityEditor } from '/identity_edit.js';
+import { describeIssue, planningHref } from '/issue_links.js';
 
 let state = {
   sheets: [],
@@ -179,6 +180,7 @@ async function loadOperations(sheet) {
       api.get(`/api/reports/drivers/preview?sheet=${encodeURIComponent(sheet)}`),
     ]);
     state.readiness = readiness;
+    state.readinessSheet = sheet;
     state.driverSummary = reports.summary || [];
     renderReadiness();
     renderDriverSummary();
@@ -205,9 +207,33 @@ function renderReadiness() {
     root.innerHTML = `<div class="rounded-lg bg-success/10 border border-success/20 p-4 text-success flex gap-3"><span class="material-symbols-outlined">task_alt</span><div><strong>Uçuşa hazır</strong><div class="text-sm opacity-80">${Number(data.total_passengers || 0)} yolcu kontrol edildi.</div></div></div>`;
     return;
   }
+  const issues = data.issues || [];
+  const shown = issues.slice(0, READINESS_LIMIT);
   root.innerHTML = `
-    <div class="rounded-lg bg-warning/10 border border-warning/20 p-3 text-warning mb-3">${Number(data.issue_count || 0)} uyarı bulundu. Çıktı alınabilir ancak gerekçe istenir.</div>
-    <div class="max-h-52 overflow-auto space-y-2">${(data.issues || []).slice(0, 20).map(issue => `<div class="text-sm text-on-surface-variant border-b border-line pb-2">${esc(issue.message)}</div>`).join('')}</div>`;
+    <div class="rounded-lg bg-warning/10 border border-warning/20 p-3 text-warning mb-3">${Number(data.issue_count || 0)} uyarı bulundu. Çıktı alınabilir ancak gerekçe istenir. Uyarıya tıklayınca planlamada o kişi açılır.</div>
+    <div class="max-h-52 overflow-auto divide-y divide-line">${shown.map(readinessIssueHtml).join('')}</div>
+    ${issues.length > shown.length ? `<div class="text-xs text-on-surface-variant pt-2">+${issues.length - shown.length} uyarı daha</div>` : ''}`;
+}
+
+const READINESS_LIMIT = 100;
+
+// Uyarı satırı: kişinin adı · sorun, satır numarası küçük ve ikincil; tıklayınca planlama.
+function readinessIssueHtml(issue) {
+  const sheet = document.getElementById('mf-sheet')?.value || '';
+  const blocks = state.blocksSheet === sheet ? state.blocks : [];
+  const d = describeIssue(issue, blocks, sheet);
+  if (d.href) {
+    return `
+      <a class="issue-link" href="${escAttr(d.href)}" title="${escAttr(issue.message || '')}">
+        <span class="min-w-0"><strong class="font-semibold">${esc(d.who || 'İsimsiz rezervasyon')}</strong><span class="text-on-surface-variant"> · ${esc(d.label)}</span></span>
+        <span class="issue-row">Satır ${Number(d.row)}</span>
+      </a>`;
+  }
+  const href = issue.code === 'pending_ocr_review' ? '#/manual_review'
+    : issue.code === 'capacity_overflow' && sheet ? planningHref({ sheet }) : '';
+  return href
+    ? `<a class="issue-link" href="${escAttr(href)}">${esc(issue.message)}</a>`
+    : `<div class="text-sm text-on-surface-variant py-2 px-2">${esc(issue.message)}</div>`;
 }
 
 function focusOverrideReason() {
@@ -239,6 +265,10 @@ async function loadBalloons(sheet) {
   try {
     const data = await api.get(`/api/planning/load?sheet=${encodeURIComponent(sheet)}`);
     state.balloons = data.balloon_codes || [];
+    // Uyarı listesindeki isimler için (issue.lead_name yoksa lider satırdan bulunur)
+    state.blocks = data.blocks || [];
+    state.blocksSheet = sheet;
+    if (state.readinessSheet === sheet && state.readiness && !state.readiness.ready) renderReadiness();
     const sel = document.getElementById('mf-balloon');
     if (!sel) return;
     sel.innerHTML = state.balloons.length

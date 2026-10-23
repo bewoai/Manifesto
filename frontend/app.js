@@ -479,9 +479,17 @@ async function navigateTo(route) {
   }
 }
 
+// Hash rotası "#/planning?sheet=22.10.2026&row=83" biçiminde sorgu taşıyabilir;
+// rota adı "?" öncesidir, parametreler routeParams() ile okunur.
 function getRoute() {
-  const hash = window.location.hash.replace('#/', '').replace('#', '');
-  return hash || 'dashboard';
+  const hash = window.location.hash.replace(/^#\/?/, '');
+  return hash.split('?')[0] || 'dashboard';
+}
+
+function routeParams() {
+  const hash = window.location.hash;
+  const q = hash.indexOf('?');
+  return new URLSearchParams(q >= 0 ? hash.slice(q + 1) : '');
 }
 
 // ─── Init ───
@@ -644,5 +652,5 @@ function escapeHtml(value) {
 }
 
 // Export for pages
-export { api, toast, modal, renderHeader, helpIcon, appStatus, currentUser, registerUnsavedCheck,
+export { api, toast, modal, renderHeader, helpIcon, appStatus, currentUser, registerUnsavedCheck, routeParams,
   applyTheme, currentTheme, THEMES, balloonInk, balloonInkIndex, balloonBadge, envStripe, setBalloonCodes, escapeHtml };

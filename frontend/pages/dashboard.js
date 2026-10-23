@@ -5,6 +5,7 @@
    biniş kartı. Veri: /api/planning/sheets, /api/planning/load, /api/weather/status.
    ═══════════════════════════════════════════════════════════════════ */
 import { api, toast, renderHeader, modal, balloonInk, envStripe, setBalloonCodes } from '/app.js';
+import { planningRoute } from '/issue_links.js';
 
 let renderId = 0;
 let state = { data: null, selected: null, changed: new Set() };
@@ -241,20 +242,24 @@ function renderTodo(data, balloons) {
   const c = r.counts || {};
   const items = [];
   const push = (tone, text, route, action) => items.push({ tone, text, route, action });
+  // Uyarı satırları planlamada o günün ilgili rezervasyonlarına süzülmüş açılır
+  const sheet = data.sheet || document.getElementById('dash-sheet')?.value || '';
+  const dayRoute = planningRoute({ sheet });
+  const issueRoute = (code) => planningRoute({ sheet, issue: code });
 
   if (c.pending_ocr_review) {
     const msg = (r.issues || []).find((i) => i.code === 'pending_ocr_review')?.message || 'Sarı OCR sonuçları onay bekliyor.';
     push('warn', msg, 'manual_review', 'İncele');
   }
-  if (c.missing_identity) push('warn', `${c.missing_identity} yolcunun kimlik bilgisi eksik`, 'planning', 'Tamamla');
-  if (c.duplicate_document) push('danger', `${c.duplicate_document} belge numarası birden fazla satırda`, 'planning', 'Düzelt');
-  balloons.filter((b) => b.overflow).forEach((b) => push('danger', `${b.code} kapasitesi aşıldı: ${b.used}/${b.cap}`, 'planning', 'Dağıt'));
-  if (c.pax_mismatch) push('warn', `${c.pax_mismatch} rezervasyonda PAX ile yolcu sayısı tutmuyor`, 'planning', 'Düzenle');
+  if (c.missing_identity) push('warn', `${c.missing_identity} yolcunun kimlik bilgisi eksik`, issueRoute('missing_identity'), 'Tamamla');
+  if (c.duplicate_document) push('danger', `${c.duplicate_document} belge numarası birden fazla satırda`, issueRoute('duplicate_document'), 'Düzelt');
+  balloons.filter((b) => b.overflow).forEach((b) => push('danger', `${b.code} kapasitesi aşıldı: ${b.used}/${b.cap}`, dayRoute, 'Dağıt'));
+  if (c.pax_mismatch) push('warn', `${c.pax_mismatch} rezervasyonda PAX ile yolcu sayısı tutmuyor`, issueRoute('pax_mismatch'), 'Düzenle');
   const opsMissing = [
     ['missing_pickup', 'pickup saati'], ['missing_driver', 'şoför'], ['missing_hotel', 'otel'],
     ['missing_coming_place', 'geleceği yer'], ['missing_pilot', 'pilot'], ['missing_balloon', 'balon'],
   ].filter(([k]) => c[k]);
-  opsMissing.forEach(([k, label]) => push('warn', `${c[k]} rezervasyonda ${label} eksik`, 'planning', 'Düzenle'));
+  opsMissing.forEach(([k, label]) => push('warn', `${c[k]} rezervasyonda ${label} eksik`, issueRoute(k), 'Düzenle'));
   const freeTotal = balloons.reduce((n, b) => n + b.free, 0);
   if (freeTotal > 0 && balloons.length) {
     const detail = balloons.filter((b) => b.free).map((b) => `${b.code} ${b.free}`).join(', ');
@@ -267,7 +272,7 @@ function renderTodo(data, balloons) {
   const dot = { warn: 'bg-warning', danger: 'bg-danger', ok: 'bg-success', info: 'bg-primary', neutral: 'bg-outline' };
   root.innerHTML = `<ul class="divide-y divide-line">${items.slice(0, 7).map((it) => `
     <li>
-      <a href="#/${it.route}" class="flex items-center gap-3.5 px-5 py-3 hover:bg-tertiary/[.035] transition-colors group">
+      <a href="#/${esc(it.route)}" class="flex items-center gap-3.5 px-5 py-3 hover:bg-tertiary/[.035] transition-colors group">
         <span class="w-2.5 h-2.5 rounded-full shrink-0 ${dot[it.tone]}" aria-hidden="true"></span>
         <span class="flex-1 text-on-surface">${esc(it.text)}</span>
         <span class="text-sm font-semibold text-primary whitespace-nowrap group-hover:underline underline-offset-4">${esc(it.action)}</span>

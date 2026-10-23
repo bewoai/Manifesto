@@ -117,6 +117,7 @@ export async function render(container) {
             <button class="calendar-nav-btn" onclick="window.__prevMonth()">
               <span class="material-symbols-outlined text-[18px]">chevron_left</span>
             </button>
+            <button class="btn-ghost text-xs px-3 py-1" id="btn-create-remaining" style="display:none" onclick="window.__createRemainingDays()"></button>
             <button class="calendar-nav-btn" onclick="window.__nextMonth()">
               <span class="material-symbols-outlined text-[18px]">chevron_right</span>
             </button>
@@ -282,6 +283,13 @@ function renderCalendar() {
   }
 
   daysGridEl.innerHTML = html;
+
+  const remainBtn = document.getElementById('btn-create-remaining');
+  if (remainBtn) {
+    const n = state.sheets.length ? remainingMissingDays(calState.currentYear, calState.currentMonth).length : 0;
+    remainBtn.style.display = n ? '' : 'none';
+    remainBtn.textContent = `Kalan ${n} günü boş aç`;
+  }
 }
 
 async function loadSheets() {
@@ -399,11 +407,57 @@ window.__askCreateDay = async function(date) {
   }
   const ok = await modal.confirm({
     title: 'Uçuş günü yok',
-    bodyHtml: `<p class="text-on-surface"><strong>${escHtml(date)}</strong> için planlama sayfası yok. Bu tarihe yeni uçuş günü oluşturulsun mu?</p>`,
-    confirmLabel: 'Yeni gün oluştur',
+    bodyHtml: `<p class="text-on-surface"><strong>${escHtml(date)}</strong> için sayfa yok. En yakın önceki günün düzeniyle (balonlar, firma, pilot) boş bir gün açılsın mı?</p>`,
+    confirmLabel: 'Boş gün aç',
   });
-  if (ok) window.__createDayDate(date);
+  if (!ok || creatingDay) return;
+  creatingDay = true;
+  try {
+    await api.post('/api/planning/create-day', { new_sheet: date });
+    toast.success('Gün açıldı', `${date} boş şablonla oluşturuldu`);
+    await loadSheets();
+    window.__loadDayDate(date);
+  } catch (err) {
+    toast.error('Gün açılamadı', err.message);
+  } finally {
+    creatingDay = false;
+  }
 };
+
+window.__createRemainingDays = async function() {
+  if (creatingDay) return;
+  const y = calState.currentYear, m = calState.currentMonth;
+  const missing = remainingMissingDays(y, m);
+  if (!missing.length) { toast.info('Eksik gün yok', 'Bu ayın kalan günlerinin hepsi var.'); return; }
+  const ok = await modal.confirm({
+    title: 'Kalan günleri aç',
+    bodyHtml: `<p class="text-on-surface">${escHtml(monthsTR[m - 1])} ${y} için <strong>${missing.length}</strong> gün boş şablonla açılacak (${escHtml(missing[0])} – ${escHtml(missing[missing.length - 1])}). Her gün, kendinden önceki günün balon/pilot düzenini alır.</p>`,
+    confirmLabel: `${missing.length} günü aç`,
+  });
+  if (!ok) return;
+  creatingDay = true;
+  try {
+    const res = await api.post('/api/planning/create-missing-days', { year: y, month: m });
+    toast.success('Günler açıldı', `${(res.created || []).length} gün oluşturuldu`);
+    await loadSheets();
+    renderCalendar();
+  } catch (err) {
+    toast.error('Günler açılamadı', err.message);
+  } finally {
+    creatingDay = false;
+  }
+};
+
+function remainingMissingDays(year, month) {
+  const today = todayStart();
+  const out = [];
+  for (let d = 1; d <= getDaysInMonth(year, month); d++) {
+    const date = new Date(year, month - 1, d);
+    const name = formatCalendarDate(d, month, year);
+    if (date >= today && !state.sheets.includes(name)) out.push(name);
+  }
+  return out;
+}
 
 window.__createDayDate = function(date) {
   modal.open('Yeni Gün Oluştur', `
@@ -805,10 +859,16 @@ function renderBlockDetails(block, index) {
           <strong>${idx + 1}. ${escHtml(display)}</strong>
           <span>${escHtml(meta)}</span>
         </div>
-        <button class="btn-ghost btn-icon danger" title="Yolcuyu sil"
-                onclick="event.stopPropagation(); window.__deletePassenger(${index}, ${p.row})">
-          <span class="material-symbols-outlined">person_remove</span>
-        </button>
+        <div class="flex items-center gap-1 shrink-0">
+          <button class="btn-ghost btn-icon" title="Kimliği düzelt"
+                  onclick="event.stopPropagation(); window.__editPassenger(${index}, ${p.row})">
+            <span class="material-symbols-outlined">edit</span>
+          </button>
+          <button class="btn-ghost btn-icon danger" title="Yolcuyu sil"
+                  onclick="event.stopPropagation(); window.__deletePassenger(${index}, ${p.row})">
+            <span class="material-symbols-outlined">person_remove</span>
+          </button>
+        </div>
       </div>
     `;
   }).join('');
@@ -934,6 +994,85 @@ window.__deleteBlock = async function(index) {
     window.__loadDay();
   } catch (err) {
     toast.error('Silme hatası', err.message);
+  }
+};
+
+let countryOptions = null;
+async function loadCountryOptions() {
+  if (countryOptions) return countryOptions;
+  try {
+    const res = await api.get('/api/countries');
+    countryOptions = (res.countries || []).map(c => ({ value: c.code, label: `${c.code} — ${c.name}` }));
+  } catch (e) { countryOptions = []; }
+  return countryOptions;
+}
+
+window.__editPassenger = async function(index, row) {
+  const block = state.blocks[index];
+  if (!block) return;
+  const p = (block.passengers || []).find(x => Number(x.row) === Number(row)) || { row };
+  modal.open('Yolcu kimliğini düzelt', `
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Uyruk (ISO kodu)</label>
+        <input class="form-input font-mono uppercase" id="ep-nat" value="${escHtml(p.nationality || '')}" placeholder="IRL, GBR, TUR..." autocomplete="off" />
+        <div class="form-help">IRE, UK, GER gibi kodlar kaydederken ISO'ya (IRL, GBR, DEU) çevrilir.</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Cinsiyet</label>
+        <select class="form-select" id="ep-sex">
+          <option value="" ${!p.sex ? 'selected' : ''}>—</option>
+          <option value="M" ${p.sex === 'M' ? 'selected' : ''}>Erkek</option>
+          <option value="F" ${p.sex === 'F' ? 'selected' : ''}>Kadın</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-group mt-4">
+      <label class="form-label">Ad Soyad</label>
+      <input class="form-input uppercase" id="ep-name" value="${escHtml(p.name || '')}" />
+    </div>
+    <div class="form-group mt-4">
+      <label class="form-label">Pasaport / Kimlik No</label>
+      <input class="form-input font-mono uppercase" id="ep-ppno" value="${escHtml(p.passport_no || '')}" />
+      <div class="form-help">Satır ${escHtml(String(row))} · yalnız bu 4 alan Excel'e yazılır.</div>
+    </div>
+  `, `
+    <button class="btn-secondary" onclick="window.__closeModal()">İptal</button>
+    <button class="btn-primary" id="btn-ep-save" onclick="window.__savePassenger(${index}, ${row})">Kaydet</button>
+  `);
+  const natEl = document.getElementById('ep-nat');
+  if (natEl) attachCombobox(natEl, () => countryOptions || []);
+  loadCountryOptions();
+};
+
+let savingPassenger = false;
+window.__savePassenger = async function(index, row) {
+  if (savingPassenger) return;
+  const val = (id) => document.getElementById(id)?.value.trim() || '';
+  const update = {
+    nationality: val('ep-nat').toUpperCase(),
+    sex: val('ep-sex').toUpperCase(),
+    name: val('ep-name').toUpperCase(),
+    passport_no: val('ep-ppno').toUpperCase(),
+  };
+  if (!update.name && !update.passport_no) { toast.warning('İsim ya da pasaport no gerekli'); return; }
+  const btn = document.getElementById('btn-ep-save');
+  savingPassenger = true;
+  if (btn) btn.disabled = true;
+  try {
+    await api.post('/api/planning/write-identity', {
+      sheet: state.currentSheet,
+      updates: { [row]: update },
+      expected_revision: state.revision,
+    });
+    toast.success('Kimlik güncellendi', update.name || update.passport_no);
+    modal.close();
+    window.__loadDay();
+  } catch (err) {
+    toast.error('Kaydedilemedi', err.message);
+    if (btn?.isConnected) btn.disabled = false;
+  } finally {
+    savingPassenger = false;
   }
 };
 

@@ -49,6 +49,7 @@ from app.manifest.planning import (
     delete_reservation as planning_delete_reservation,
     list_sheets as planning_list_sheets,
     create_day_sheet as planning_create_day_sheet,
+    create_missing_days as planning_create_missing_days,
     reorder_reservation as planning_reorder_reservation,
     delete_passenger_from_reservation as planning_delete_passenger,
     resize_reservation as planning_resize_reservation,
@@ -76,6 +77,7 @@ from app.reports import (
 from app.version import APP_VERSION
 from app import updater as updater_mod
 from app import list_marks
+from app.country.country_map import normalize_code as normalize_country_code
 
 app = FastAPI(title="İrtifa Uçuş Sistemi", version=APP_VERSION)
 
@@ -947,6 +949,60 @@ def api_planning_create_day(body: dict, request: Request) -> dict:
     }
 
 
+@app.post("/api/planning/create-missing-days")
+def api_planning_create_missing_days(body: dict, request: Request) -> dict:
+    """Bir ayın bugünden (ya da `from`) sonraki eksik günlerini boş gün olarak oluşturur.
+
+    Gövde: {"year": 2026, "month": 10} ya da {"days": ["25.10.2026", ...]}. Geçmiş günler
+    oluşturulmaz (uçuş olmayan günler boş kalır).
+    """
+    import calendar as _cal
+
+    s = _load_settings()
+    if s.uses_google_sheets():
+        raise HTTPException(status_code=400, detail="Toplu gün oluşturma yalnız Excel modunda.")
+    xlsx_path = s.planning_path()
+    if not xlsx_path.exists():
+        raise HTTPException(status_code=404, detail=f"Planlama dosyası bulunamadı: {xlsx_path}")
+
+    today = _dt.date.today()
+    days = [str(d) for d in (body.get("days") or [])]
+    if not days:
+        try:
+            year, month = int(body.get("year")), int(body.get("month"))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=422, detail="year/month ya da days gerekli.")
+        last = _cal.monthrange(year, month)[1]
+        days = [f"{d:02d}.{month:02d}.{year}" for d in range(1, last + 1)]
+    days = [d for d in days
+            if (dd := _parse_sheet_day(d)) is not None and dd >= today]
+
+    try:
+        created, revision, backup = atomic_update(
+            xlsx_path,
+            expected_revision=body.get("expected_revision"),
+            reason="create_missing_days",
+            mutator=lambda temp: planning_create_missing_days(temp, days),
+        )
+    except (WorkbookConflictError, WorkbookLockedError) as e:
+        raise _atomic_error(e)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Günler oluşturulamadı: {e}")
+
+    if created:
+        audit_mod.record("days_created", actor=_actor(request), detail={"days": created})
+    return {"success": True, "created": created, "workbook_revision": revision, "backup": backup.name}
+
+
+def _parse_sheet_day(name: str):
+    try:
+        return _dt.datetime.strptime(name.strip(), "%d.%m.%Y").date()
+    except ValueError:
+        return None
+
+
 @app.post("/api/planning/create-block")
 def api_planning_create_block(body: dict, request: Request) -> dict:
     """Yeni rezervasyon bloğu ekle; balonu PAX'a göre otomatik ata (first-fit).
@@ -1214,7 +1270,7 @@ def api_planning_write_identity(body: dict, request: Request) -> dict:
     updates: dict[int, dict] = {}
     for key, val in raw_updates.items():
         try:
-            updates[int(key)] = val
+            updates[int(key)] = _normalize_identity_fields(val if isinstance(val, dict) else {})
         except (ValueError, TypeError):
             raise HTTPException(
                 status_code=422,
@@ -1360,13 +1416,33 @@ def api_planning_write_operation(body: dict, request: Request) -> dict:
     }
 
 
+_SEX_ALIASES = {"E": "M", "ERKEK": "M", "MALE": "M", "K": "F", "KADIN": "F", "KADİN": "F", "FEMALE": "F"}
+
+
+def _normalize_identity_fields(fields: dict) -> dict:
+    """Elle düzeltilen kimlik alanları: uyruk ISO'ya, cinsiyet M/F'ye, isim/pasaport büyük harfe.
+    Yalnız gelen anahtarlar döner (write_identity eksik alana dokunmaz)."""
+    out: dict = {}
+    if "nationality" in fields:
+        out["nationality"] = normalize_country_code(str(fields.get("nationality") or ""))
+    if "sex" in fields:
+        sex = str(fields.get("sex") or "").strip().upper()
+        out["sex"] = _SEX_ALIASES.get(sex, sex)[:1] if sex else ""
+    if "name" in fields:
+        out["name"] = " ".join(str(fields.get("name") or "").split()).upper()
+    if "passport_no" in fields:
+        out["passport_no"] = "".join(str(fields.get("passport_no") or "").split()).upper()
+    return out
+
+
 def _clean_identities(raw: list) -> list[dict]:
     identities: list[dict] = []
     for item in raw or []:
         if not isinstance(item, dict):
             continue
         identity = {
-            "nationality": str(item.get("nationality", "")).strip().upper(),
+            # ISO dışı yaygın kodlar ISO'ya çevrilir (IRE→IRL, UK→GBR, D→DEU …)
+            "nationality": normalize_country_code(str(item.get("nationality", ""))),
             "sex": str(item.get("sex", "")).strip().upper(),
             "name": str(item.get("name", "")).strip().upper(),
             "passport_no": str(item.get("passport_no", "")).strip().upper(),

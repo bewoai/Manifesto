@@ -212,7 +212,8 @@ def _merge_local_into(mrz: MRZResult, local: MRZResult, *, server_document_no: s
 
 def _fields_to_mrz(fields: dict, *, kind: str, group: dict) -> MRZResult:
     """MRZ'siz okuma (liste, kimlik ön yüzü, mesaj): alanlardan checks={} ile MRZResult."""
-    nat = str(fields.get("nationality") or group.get("nationality_hint") or "").strip().upper()[:3]
+    from app.country.country_map import normalize_code
+    nat = normalize_code(str(fields.get("nationality") or group.get("nationality_hint") or ""))[:3]
     gender = str(fields.get("gender") or "").strip().upper()[:1]
     return MRZResult(
         format={"id_front": "ID_FRONT", "printed_list": "LIST", "handwritten_list": "LIST",

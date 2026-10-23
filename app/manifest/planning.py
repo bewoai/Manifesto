@@ -6,6 +6,8 @@ diğer her şey (PAX, otel, balon, pilot...) operasyon girişidir ve dokunulmaz.
 """
 from __future__ import annotations
 
+import re
+
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -506,31 +508,145 @@ def list_sheets(planning_xlsx: Path) -> list[str]:
     return get_cached_excel_data(planning_xlsx, "list_sheets", _read)
 
 
-def create_day_sheet(planning_xlsx: Path, new_sheet: str, source_sheet: Optional[str] = None) -> Path:
-    """Yeni gün sekmesi oluşturur: kaynak günü kopyalar, veri satırlarını temizler."""
-    wb = openpyxl.load_workbook(planning_xlsx)
-    if new_sheet in wb.sheetnames:
-        wb.close()
-        raise ValueError(f"'{new_sheet}' sayfası zaten var.")
+def sheet_date(name: str):
+    """'GG.AA.YYYY' sayfa adını tarihe çevirir; gün sayfası değilse None."""
+    import datetime as _dt
+    m = re.fullmatch(r"\s*(\d{1,2})\.(\d{1,2})\.(\d{4})\s*", str(name or ""))
+    if not m:
+        return None
+    try:
+        return _dt.date(int(m.group(3)), int(m.group(2)), int(m.group(1)))
+    except ValueError:
+        return None
 
-    candidates = [s for s in wb.sheetnames if s.lower() not in ("sayfa2", "sheet2")]
+
+def nearest_source_sheet(sheetnames: list[str], new_sheet: str) -> Optional[str]:
+    """Yeni gün için kopyalanacak gün: tarihçe en yakın ÖNCEKİ gün, yoksa en yakın sonraki."""
+    target = sheet_date(new_sheet)
+    dated = [(sheet_date(s), s) for s in sheetnames if sheet_date(s) and s != new_sheet]
+    if not dated:
+        return None
+    if target is None:
+        return max(dated)[1]
+    before = [d for d in dated if d[0] < target]
+    return (max(before) if before else min(dated))[1]
+
+
+def is_seat_layout(ws, capacity: int = config.DEFAULT_BALLOON_CAPACITY) -> bool:
+    """Sayfa satırları balon bantlarına önceden dağıtılmış mı (arkadaşın şablonu)?
+
+    Ölçüt: en az 2 balon bandı kadar satırda balon kodu var ve her balon en çok 2
+    ardışık parça hâlinde (ekleme şablonunda balonlar bloklar arasında karışır).
+    """
+    from collections import Counter
+
+    cap = max(int(capacity or 28), 1)
+    rows = _rows_from_ws(ws)
+    with_balloon = [r for r in rows if r.balloon]
+    if len(with_balloon) < 2 * cap:
+        return False
+    runs: Counter = Counter()
+    prev = None
+    for r in with_balloon:
+        if prev is None or r.balloon != prev.balloon or r.row != prev.row + 1:
+            runs[r.balloon] += 1
+        prev = r
+    return max(runs.values()) <= 2
+
+
+def _prepare_blank_day(ws, new_sheet: str, *, keep_seats: bool) -> None:
+    """Kopyalanmış gün sayfasını boşaltır: rezervasyon birleşmeleri çözülür, veri temizlenir.
+
+    keep_seats=True: firma/balon/pilot/geleceği yer korunur → koltuk düzeni aynen kalır.
+    Başlıktaki tarih hücresi yeni güne güncellenir.
+    """
+    import datetime as _dt
+
+    for rng in list(ws.merged_cells.ranges):
+        if rng.min_row >= config.PLANNING_FIRST_DATA_ROW:
+            ws.unmerge_cells(str(rng))
+    for row in range(config.PLANNING_FIRST_DATA_ROW, ws.max_row + 1):
+        if keep_seats:
+            _clear_row(ws, row)
+        else:
+            for col in range(1, config.COL_PASSPORT_NO + 1):
+                ws.cell(row, col).value = None
+    new_date = sheet_date(new_sheet)
+    if new_date:
+        for r in range(1, config.PLANNING_FIRST_DATA_ROW - 1):
+            for c in range(1, ws.max_column + 1):
+                v = ws.cell(r, c).value
+                if isinstance(v, (_dt.datetime, _dt.date)):
+                    ws.cell(r, c).value = _dt.datetime(new_date.year, new_date.month, new_date.day)
+
+
+def _place_chronologically(wb, ws) -> None:
+    """Yeni gün sayfasını tarih sırasındaki yerine taşır (gün olmayan sayfalar sonda kalır)."""
+    target = sheet_date(ws.title)
+    if target is None:
+        return
+    names = wb.sheetnames
+    idx_now = names.index(ws.title)
+    dest = None
+    for i, n in enumerate(names):
+        d = sheet_date(n)
+        if n != ws.title and d and d > target:
+            dest = i
+            break
+    if dest is None:
+        # son gün sayfasının hemen arkası
+        dated_idx = [i for i, n in enumerate(names) if n != ws.title and sheet_date(n)]
+        dest = (max(dated_idx) + 1) if dated_idx else idx_now
+    if dest > idx_now:
+        dest -= 1
+    wb.move_sheet(ws, offset=dest - idx_now)
+
+
+def _create_day_in_wb(wb, new_sheet: str, source_sheet: Optional[str]) -> str:
+    if new_sheet in wb.sheetnames:
+        raise ValueError(f"'{new_sheet}' sayfası zaten var.")
     if source_sheet and source_sheet in wb.sheetnames:
         source_name = source_sheet
-    elif candidates:
-        source_name = candidates[-1]
     else:
-        wb.close()
+        source_name = nearest_source_sheet(wb.sheetnames, new_sheet)
+    if not source_name:
         raise ValueError("Kopyalanacak gün sayfası bulunamadı.")
-
-    ws = wb.copy_worksheet(wb[source_name])
+    src = wb[source_name]
+    keep_seats = is_seat_layout(src)
+    ws = wb.copy_worksheet(src)
     ws.title = new_sheet
-    for row in range(config.PLANNING_FIRST_DATA_ROW, ws.max_row + 1):
-        for col in range(1, config.COL_PASSPORT_NO + 1):
-            ws.cell(row, col).value = None
+    _prepare_blank_day(ws, new_sheet, keep_seats=keep_seats)
+    _place_chronologically(wb, ws)
+    return source_name
 
-    wb.save(planning_xlsx)
-    wb.close()
+
+def create_day_sheet(planning_xlsx: Path, new_sheet: str, source_sheet: Optional[str] = None) -> Path:
+    """Yeni gün sekmesi oluşturur: en yakın önceki günü (ya da verilen kaynağı) kopyalar,
+    rezervasyonları temizler. Kaynak koltuk düzenindeyse balon bantları/firma/pilot korunur."""
+    wb = openpyxl.load_workbook(planning_xlsx)
+    try:
+        _create_day_in_wb(wb, new_sheet, source_sheet)
+        wb.save(planning_xlsx)
+    finally:
+        wb.close()
     return planning_xlsx
+
+
+def create_missing_days(planning_xlsx: Path, days: list[str]) -> list[str]:
+    """Verilen günlerden dosyada olmayanları (tarih sırasıyla) boş gün olarak oluşturur."""
+    wb = openpyxl.load_workbook(planning_xlsx)
+    created: list[str] = []
+    try:
+        for day in sorted({d for d in days if sheet_date(d)}, key=sheet_date):
+            if day in wb.sheetnames:
+                continue
+            _create_day_in_wb(wb, day, None)
+            created.append(day)
+        if created:
+            wb.save(planning_xlsx)
+    finally:
+        wb.close()
+    return created
 
 
 def delete_reservation(planning_xlsx: Path, sheet: str, rows: list[int],

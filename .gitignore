@@ -12,7 +12,8 @@ dist/
 # Veri / PII — gerçek planlama ve manifesto dosyaları repo'ya konmaz (KVKK, brief §10)
 *.xlsx
 *.xlsm
-!data/manifest_template.xlsx   # PII'siz şablon hariç tutulabilir
+# PII'siz şablon hariç tutulabilir (gitignore satır içi yorumu desteklemez)
+!data/manifest_template.xlsx
 data/*.db
 data/incoming/
 
@@ -42,3 +43,5 @@ ocr_debug.txt
 
 # Codex review çalışma zamanı (cihaz kimliği + yerel db)
 /.review-runtime/
+# PII'siz test kopyaları (maskelenmiş; gerçek veri buraya konmaz)
+!tests/fixtures/*.xlsx

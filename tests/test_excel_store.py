@@ -65,8 +65,12 @@ def test_delete_middle_passenger_compacts_and_next_reservation_is_safe(tmp_path)
     )
     block = read_blocks(path, "24.06.2026")[0]
     assert [p.name for p in block.passengers] == ["ONE", "THREE"]
+    # Boşalan satır 6 BYF'nin serbest koltuğu olarak kalır (balon kodu korunur):
+    # başka balonun grubu oraya yazılmaz, sona eklenir; aynı balonun grubu koltuğu kullanır.
     created = create_reservation(path, "24.06.2026", pax=1, balloon="BTK")
-    assert created["lead_row"] == 6
+    assert created["lead_row"] == 7 and created["mode"] == "append"
+    same = create_reservation(path, "24.06.2026", pax=1, balloon="BYF")
+    assert same["lead_row"] == 6 and same["mode"] == "seat"
 
 
 def test_resize_requires_confirmation_for_identity_loss(tmp_path):

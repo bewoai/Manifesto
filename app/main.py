@@ -42,6 +42,8 @@ from app.manifest.planning import (
     read_rows,
     balloon_load as planning_balloon_load,
     assign_balloon as planning_assign_balloon,
+    choose_balloon as planning_choose_balloon,
+    free_seat_summary as planning_free_seat_summary,
     pilot_for_balloon as planning_pilot_for_balloon,
     create_reservation as planning_create_reservation,
     delete_reservation as planning_delete_reservation,
@@ -879,6 +881,10 @@ def api_planning_load(sheet: str = Query(..., description="Gün sayfa adı")) ->
         blocks,
         balloon_capacity=s.balloon_capacity,
     )
+    try:
+        free_seats = planning_free_seat_summary(read_rows(xlsx_path, sheet), blocks)
+    except Exception:
+        free_seats = {}
 
     return {
         "sheet": sheet,
@@ -889,6 +895,7 @@ def api_planning_load(sheet: str = Query(..., description="Gün sayfa adı")) ->
         "total_blocks": len(blocks),
         "workbook_revision": revision,
         "readiness": readiness,
+        "free_seats": free_seats,   # koltuk şablonu: balon → {free, longest}
     }
 
 
@@ -983,21 +990,16 @@ def api_planning_create_block(body: dict, request: Request) -> dict:
         raise HTTPException(status_code=500, detail=f"Sayfa okunamadı: {e}")
 
     load = planning_balloon_load(blocks)
-    balloon, overflow = planning_assign_balloon(load, pax, s.balloon_codes, s.balloon_capacity)
+    requested_balloon = str(body.get("requested_balloon", "")).strip().upper()
+    choice = planning_choose_balloon(rows, blocks, pax, s.balloon_codes, s.balloon_capacity)
+    balloon, overflow = choice["balloon"], choice["overflow"]
     if not balloon:
         raise HTTPException(status_code=409, detail="Tanımlı balon kodu yok (Settings).")
-    requested_balloon = str(body.get("requested_balloon", "")).strip().upper()
     allow_overflow = bool(body.get("allow_overflow"))
     if overflow and not (allow_overflow and requested_balloon in s.balloon_codes):
         raise HTTPException(
             status_code=409,
-            detail={
-                "code": "capacity_confirmation_required",
-                "message": "Hiçbir balonda grubun tamamına yer yok.",
-                "balloon_load": load,
-                "capacity": s.balloon_capacity,
-                "balloon_codes": s.balloon_codes,
-            },
+            detail=_capacity_detail(choice, rows, blocks, load, s, pax),
         )
     if overflow:
         balloon = requested_balloon
@@ -1497,6 +1499,26 @@ def _mark_extractions_approved(identities: list[dict], sheet: str, rows: list[in
     return removed
 
 
+def _capacity_detail(choice: dict, rows, blocks, load: dict, s, pax: int) -> dict:
+    """409 kapasite onayı gövdesi; koltuk şablonunda serbest koltuk özeti eklenir."""
+    detail = {
+        "code": "capacity_confirmation_required",
+        "message": "Hiçbir balonda grubun tamamına yer yok.",
+        "balloon_load": load,
+        "capacity": s.balloon_capacity,
+        "balloon_codes": s.balloon_codes,
+    }
+    if choice.get("mode") == "seat":
+        seats = planning_free_seat_summary(rows, blocks)
+        free_txt = ", ".join(f"{b} {v['free']} (en uzun {v['longest']})" for b, v in sorted(seats.items())) or "yok"
+        detail["message"] = (
+            f"Hiçbir balonda {pax} ardışık boş koltuk yok. Boş koltuklar: {free_txt}. "
+            "Onaylarsanız rezervasyon şablonun altına eklenir."
+        )
+        detail["free_seats"] = seats
+    return detail
+
+
 @app.post("/api/planning/create-with-identities")
 def api_create_with_identities(body: dict, request: Request) -> dict:
     """Atomically create a reservation and write its approved identities."""
@@ -1521,22 +1543,16 @@ def api_create_with_identities(body: dict, request: Request) -> dict:
         if body.get(key) not in (None, "")
     }
 
+    current_rows = read_rows(path, sheet)
     current_blocks = read_blocks(path, sheet)
     current_load = planning_balloon_load(current_blocks)
-    suggested, overflow = planning_assign_balloon(
-        current_load, pax, s.balloon_codes, s.balloon_capacity
-    )
+    choice = planning_choose_balloon(current_rows, current_blocks, pax, s.balloon_codes, s.balloon_capacity)
+    suggested, overflow = choice["balloon"], choice["overflow"]
     requested = str(body.get("requested_balloon", "")).strip().upper()
     if overflow and not (body.get("allow_overflow") and requested in s.balloon_codes):
         raise HTTPException(
             status_code=409,
-            detail={
-                "code": "capacity_confirmation_required",
-                "message": "Hiçbir balonda grubun tamamına yer yok.",
-                "balloon_load": current_load,
-                "capacity": s.balloon_capacity,
-                "balloon_codes": s.balloon_codes,
-            },
+            detail=_capacity_detail(choice, current_rows, current_blocks, current_load, s, pax),
         )
     balloon = requested if overflow else suggested
 

@@ -137,7 +137,9 @@ def build_rows(planning_xlsx: Path, sheet: str, balloon: str) -> list[ManifestRo
     okunmaz: dışarıdan düzenlenmiş Excel'in eski DB kopyasıyla manifestoya girmesi engellenir.
     """
     balloon = balloon.upper().strip()
-    rows = [r for r in read_rows(planning_xlsx, sheet) if r.balloon == balloon]
+    # Yalnız kişiler: boş koltuk ve kimliği gelmemiş yolcu yeri manifestoya girmez
+    rows = [r for r in read_rows(planning_xlsx, sheet)
+            if r.balloon == balloon and (r.name or r.passport_no)]
     return [_transform(r) for r in rows]
 
 

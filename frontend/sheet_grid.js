@@ -76,7 +76,7 @@ function render() {
       <button class="btn-primary btn-sm" id="sg-save" onclick="window.__sgSave()" ${dirty.size ? '' : 'disabled'}>
         <span class="material-symbols-outlined text-[18px]">save</span> Kaydet
       </button>
-      ${mergePlan.blocks ? `<button class="btn-secondary btn-sm" onclick="window.__sgMergeBlocks()" title="Rezervasyonun ortak bilgilerini (PAX, irtibat, otel, pickup, rezerve yapan, acente, not) blok boyunca tek hücrede birleştirir">
+      ${mergePlan.blocks ? `<button class="btn-secondary btn-sm" onclick="window.__sgMergeBlocks()" title="Sayfadaki diğer rezervasyonlarda birleşik olan kolonları (${esc((mergePlan.columns || []).join(', '))}) bu rezervasyonlarda da birleştirir">
         <span class="material-symbols-outlined text-[18px]">table_rows</span> ${mergePlan.blocks} rezervasyonu birleştir
       </button>` : ''}
       <button class="btn-ghost btn-sm" onclick="window.__sgOpenExcel()" title="Dosyayı Microsoft Excel'de aç. Excel açıkken uygulama dosyaya yazamaz.">
@@ -231,8 +231,8 @@ window.__sgMergeBlocks = async function() {
   const n = grid.data.merge_plan?.blocks || 0;
   const ok = await modal.confirm({
     title: `${n} rezervasyon birleşik düzene getirilsin mi?`,
-    bodyHtml: `<p class="text-on-surface mb-2">Her rezervasyonun PAX, irtibat/oda, otel, pickup, rezerve yapan, acente ve not bilgisi, Excel'deki doğru örnekteki gibi tek hücrede birleştirilir. Tekrar eden kopyalar silinir, değer ilk satırda kalır.</p>
-      <p class="text-sm text-on-surface-variant">Satırlarında farklı değer olan kolonlara dokunulmaz. Önce yedek alınır.</p>`,
+    bodyHtml: `<p class="text-on-surface mb-2">Bu sayfadaki diğer rezervasyonlarda birleşik olan kolonlar <strong>${esc((grid.data.merge_plan?.columns || []).join(', '))}</strong> bu rezervasyonlarda da tek hücrede birleştirilir. Tekrar eden kopyalar silinir, değer ilk satırda kalır.</p>
+      <p class="text-sm text-on-surface-variant">Yolcu başına yazılan kolonlara (ör. irtibat, not) sayfa öyle kullanmıyorsa dokunulmaz. Satırlarında farklı değer olan kolon atlanır. Önce yedek alınır; Yönetim &gt; Excel Yedekleri'nden geri alınabilir.</p>`,
     confirmLabel: 'Birleştir',
   });
   if (!ok) return;

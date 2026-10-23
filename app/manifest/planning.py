@@ -1180,22 +1180,47 @@ def write_operation_details(
 # girilmiş bazı bloklarda aynı değer her satıra tekrar yazılmış olabiliyor; bu yardımcı
 # yalnız güvenli durumda (tüm dolu değerler aynı) birleştirir, farklı değer varsa dokunmaz.
 
+def _multi_row_blocks(rows: list[PlanningRow]) -> list[tuple[ReservationBlock, int, int]]:
+    out = []
+    for b in group_blocks(rows):
+        block_rows = sorted(b.rows)
+        if len(block_rows) >= 2 and block_rows == list(range(block_rows[0], block_rows[-1] + 1)):
+            out.append((b, block_rows[0], block_rows[-1]))
+    return out
+
+
+def block_merge_columns(rows: list[PlanningRow], merged: list[tuple[int, int, int, int]]) -> tuple[int, ...]:
+    """Sayfanın KENDİ düzenine göre hangi kolonlar rezervasyon boyunca birleştirilir.
+
+    Çok satırlı rezervasyonların en az yarısında tam (lider..son satır) birleşik olan aday
+    kolonlar seçilir. Sayfada henüz birleşik rezervasyon yoksa çekirdek beş kolon. Böylece
+    yolcu başına yazılan irtibat/oda ve not gibi kolonlar zorla birleştirilmez.
+    """
+    blocks = _multi_row_blocks(rows)
+    exact = {(m[0], m[1], m[3]) for m in merged if m[0] == m[2]}
+    counts = {c: sum(1 for _, lead, last in blocks if (c, lead, last) in exact) for c in config.BLOCK_MERGE_CANDIDATE_COLS}
+    with_any = sum(1 for _, lead, last in blocks if any((c, lead, last) in exact for c in config.BLOCK_MERGE_CANDIDATE_COLS))
+    if with_any < 2:
+        return tuple(config.BLOCK_MERGE_CORE_COLS)
+    chosen = tuple(c for c in config.BLOCK_MERGE_CANDIDATE_COLS if counts[c] * 2 >= with_any)
+    return chosen or tuple(config.BLOCK_MERGE_CORE_COLS)
+
+
 def plan_block_merges(rows: list[PlanningRow], get, merged: list[tuple[int, int, int, int]]) -> dict:
     """Hangi blok/kolonun birleştirileceğini hesaplar (yazmaz).
 
     get(r, c) → hücre metni; merged → (min_col, min_row, max_col, max_row) listesi.
+    Kolonlar sayfanın kendi düzeninden öğrenilir (`block_merge_columns`).
     Döner: {"actions": [{lead_row, last_row, col, value}], "skipped": [{lead_row, lead_name, col, values}],
-            "blocks": birleştirilecek blok sayısı}
+            "blocks": birleştirilecek blok sayısı, "columns": [kolon no]}
     """
     actions: list[dict] = []
     skipped: list[dict] = []
     touched: set[int] = set()
-    for b in group_blocks(rows):
-        block_rows = sorted(b.rows)
-        if len(block_rows) < 2 or block_rows != list(range(block_rows[0], block_rows[-1] + 1)):
-            continue
-        lead, last = block_rows[0], block_rows[-1]
-        for col in config.LEAD_MERGE_COLS:
+    columns = block_merge_columns(rows, merged)
+    for b, lead, last in _multi_row_blocks(rows):
+        block_rows = list(range(lead, last + 1))
+        for col in columns:
             covering = [m for m in merged if m[0] <= col <= m[2] and not (m[3] < lead or m[1] > last)]
             if any(m[1] == lead and m[3] == last and m[0] == col == m[2] for m in covering):
                 continue          # zaten doğru birleşik
@@ -1209,7 +1234,7 @@ def plan_block_merges(rows: list[PlanningRow], get, merged: list[tuple[int, int,
                 continue
             actions.append({"lead_row": lead, "last_row": last, "col": col, "value": next(iter(filled), "")})
             touched.add(lead)
-    return {"actions": actions, "skipped": skipped, "blocks": len(touched)}
+    return {"actions": actions, "skipped": skipped, "blocks": len(touched), "columns": list(columns)}
 
 
 def merge_reservation_blocks(planning_xlsx: Path, sheet: str, out_path: Optional[Path] = None) -> dict:

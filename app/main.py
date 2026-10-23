@@ -957,7 +957,8 @@ def api_planning_view(sheet: str = Query(..., description="Gün sayfası, ör. 2
     ]
     try:
         plan = preview_block_merges(xlsx_path, sheet)
-        merge_plan = {"blocks": plan["blocks"], "cells": len(plan["actions"]), "skipped": len(plan["skipped"])}
+        merge_plan = {"blocks": plan["blocks"], "cells": len(plan["actions"]), "skipped": len(plan["skipped"]),
+                      "columns": [header[c - 1] if c - 1 < len(header) and header[c - 1] else str(c) for c in plan["columns"]]}
     except Exception:
         merge_plan = {"blocks": 0, "cells": 0, "skipped": 0}
     return {
@@ -1067,8 +1068,9 @@ def api_planning_write_cells(body: dict, request: Request) -> dict[str, Any]:
 
 @app.post("/api/planning/merge-blocks")
 def api_planning_merge_blocks(body: dict, request: Request) -> dict[str, Any]:
-    """Rezervasyonların ortak kolonlarını (PAX, irtibat, otel, pickup, rezerve, acente, not)
-    blok boyunca birleştirir. Yalnız tüm dolu değerler aynıysa; farklıysa o kolon atlanır."""
+    """Rezervasyonların ortak kolonlarını blok boyunca birleştirir. Kolonlar sayfanın kendi
+    düzeninden öğrenilir (çoğu rezervasyonda birleşik olanlar; örnek yoksa PAX, otel, pickup,
+    rezerve, acente). Yalnız tüm dolu değerler aynıysa; farklıysa o kolon atlanır."""
     from app.manifest.planning import merge_reservation_blocks
 
     sheet = str(body.get("sheet", "")).strip()

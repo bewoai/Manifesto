@@ -76,14 +76,31 @@ def _clamp_int(value, lo: int, hi: int) -> int:
     return min(max(n, lo), hi)
 
 
-def _int_map(value, *, upper: bool, lo: int, hi: int) -> dict[str, int]:
-    """{ad: sayı} sözlüğünü temizler: anahtar kırpılır (büyük harf), geçersiz/0 değerler atılır."""
+_TR_FOLD = str.maketrans({"Ş": "S", "Ğ": "G", "Ü": "U", "Ö": "O", "Ç": "C", "Â": "A", "Î": "I", "Û": "U"})
+
+
+def fold_agency(name) -> str:
+    """Acente adı eşleştirme anahtarı: Türkçe harf ve büyük/küçük harf duyarsız, tek boşluk.
+
+    "Bedel Turizm", "BEDEL TURİZM" ve "bedel  turizm" aynı acentedir → "BEDEL TURIZM".
+    """
+    text = str(name or "").replace("İ", "I").replace("ı", "I").upper().translate(_TR_FOLD)
+    return " ".join(text.split())
+
+
+def _int_map(value, *, upper: bool, lo: int, hi: int, key_fn=None) -> dict[str, int]:
+    """{ad: sayı} sözlüğünü temizler: anahtar kırpılır (büyük harf), geçersiz/0 değerler atılır.
+
+    `key_fn` verilirse anahtar ayrıca ondan geçirilir (ör. acente adları için `fold_agency`).
+    """
     out: dict[str, int] = {}
     if not isinstance(value, dict):
         return out
     for k, v in value.items():
         key = str(k or "").strip()
         key = key.upper() if upper else key
+        if key_fn is not None:
+            key = key_fn(key)
         try:
             n = int(v)
         except (TypeError, ValueError):
@@ -142,7 +159,14 @@ class Settings:
 
     def quota_for(self, agency: str) -> int:
         """Acentenin günlük kişi kotası; 0 = sınır yok."""
-        return self.agency_quotas.get(str(agency or '').strip().upper(), self.default_agency_quota)
+        key = fold_agency(agency)
+        if key in self.agency_quotas:
+            return self.agency_quotas[key]
+        # normalized() çağrılmamış ayarlar için anahtarları da katla
+        for name, quota in self.agency_quotas.items():
+            if fold_agency(name) == key:
+                return quota
+        return self.default_agency_quota
 
     # --- türetilmiş yollar ---
     def planning_path(self) -> Path:
@@ -207,7 +231,7 @@ class Settings:
         if not (1 <= self.balloon_capacity <= config.MAX_BALLOON_CAPACITY):
             self.balloon_capacity = config.DEFAULT_BALLOON_CAPACITY
         self.balloon_capacities = _int_map(self.balloon_capacities, upper=True, lo=1, hi=config.MAX_BALLOON_CAPACITY)
-        self.agency_quotas = _int_map(self.agency_quotas, upper=True, lo=1, hi=10000)
+        self.agency_quotas = _int_map(self.agency_quotas, upper=True, lo=1, hi=10000, key_fn=fold_agency)
         self.daily_max_balloons = _clamp_int(self.daily_max_balloons, 0, 50)
         self.default_agency_quota = _clamp_int(self.default_agency_quota, 0, 10000)
         # Balon kodları: upper, trim, uniq, boşları at

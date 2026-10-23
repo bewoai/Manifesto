@@ -67,7 +67,7 @@ from app.passport_store import (
     delete_image as delete_passport_image,
     save_image,
 )
-from app.readiness import check_blocks, check_workbook
+from app.readiness import agency_seats, agency_usage, check_blocks, check_workbook
 from app.reports import (
     driver_rows,
     driver_summary,
@@ -880,10 +880,7 @@ def api_planning_load(sheet: str = Query(..., description="Gün sayfa adı")) ->
             balloon_codes.append(code)
 
     load = planning_balloon_load(blocks)
-    readiness = check_blocks(
-        blocks,
-        balloon_capacity=s.balloon_capacity,
-    )
+    readiness = check_blocks(blocks, **_readiness_rules(s))
     try:
         free_seats = planning_free_seat_summary(read_rows(xlsx_path, sheet), blocks)
     except Exception:
@@ -894,7 +891,11 @@ def api_planning_load(sheet: str = Query(..., description="Gün sayfa adı")) ->
         "blocks": [_block_to_dict(b) for b in blocks],
         "balloon_codes": balloon_codes,
         "balloon_load": load,
-        "capacity": s.balloon_capacity,
+        "capacity": s.balloon_capacity,               # varsayılan kapasite
+        "capacities": _capacities(s, balloon_codes),  # balon → kapasite
+        "daily_max_balloons": s.daily_max_balloons,   # 0 = sınır yok
+        "balloons_in_use": sum(1 for v in load.values() if v > 0),
+        "agency_usage": agency_usage(blocks, s.quota_for),
         "total_blocks": len(blocks),
         "workbook_revision": revision,
         "readiness": readiness,
@@ -926,12 +927,13 @@ def api_planning_month_load(month: str = Query(..., pattern=r"^\d{4}-\d{2}$", de
 
     capacity = s.balloon_capacity
     codes = tuple(s.balloon_codes)
-    key = (str(xlsx_path.resolve()), month, revision, capacity, codes)
+    per_balloon = tuple(sorted(s.balloon_capacities.items()))
+    key = (str(xlsx_path.resolve()), month, revision, capacity, per_balloon, codes)
     days = _MONTH_LOAD_CACHE.get(key)
     cached = days is not None
     if not cached:
         try:
-            days = planning_month_load(xlsx_path, year, mon, capacity=capacity, codes=list(codes))
+            days = planning_month_load(xlsx_path, year, mon, capacity=s.capacity_for, codes=list(codes))
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Doluluk hesaplanamadı: {e}")
         while len(_MONTH_LOAD_CACHE) >= _MONTH_LOAD_CACHE_MAX:
@@ -1091,9 +1093,13 @@ def api_planning_create_block(body: dict, request: Request) -> dict:
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Sayfa okunamadı: {e}")
 
+    # Acente kotası, balon kapasitesinden ÖNCE kontrol edilir
+    quota_override = _check_agency_quota(s, blocks, lead_fields.get("agency", ""), pax, body)
+
     load = planning_balloon_load(blocks)
     requested_balloon = str(body.get("requested_balloon", "")).strip().upper()
-    choice = planning_choose_balloon(rows, blocks, pax, s.balloon_codes, s.balloon_capacity)
+    allowed = _daily_allowed_balloons(s, load)
+    choice = planning_choose_balloon(rows, blocks, pax, s.balloon_codes, s.capacity_for, allowed=allowed)
     balloon, overflow = choice["balloon"], choice["overflow"]
     if not balloon:
         raise HTTPException(status_code=409, detail="Tanımlı balon kodu yok (Settings).")
@@ -1101,7 +1107,7 @@ def api_planning_create_block(body: dict, request: Request) -> dict:
     if overflow and not (allow_overflow and requested_balloon in s.balloon_codes):
         raise HTTPException(
             status_code=409,
-            detail=_capacity_detail(choice, rows, blocks, load, s, pax),
+            detail=_capacity_detail(choice, rows, blocks, load, s, pax, allowed=allowed),
         )
     if overflow:
         balloon = requested_balloon
@@ -1132,7 +1138,8 @@ def api_planning_create_block(body: dict, request: Request) -> dict:
         actor=_actor(request),
         sheet=sheet,
         reservation_row=result["lead_row"],
-        detail={"pax": pax, "balloon": balloon, "overflow": overflow},
+        detail={"pax": pax, "balloon": balloon, "overflow": overflow,
+                "quota_override": quota_override},
     )
     _sync_sqlite(sheet)
     return {
@@ -1143,10 +1150,11 @@ def api_planning_create_block(body: dict, request: Request) -> dict:
         "lead_row": result["lead_row"],
         "rows": result["rows"],
         "capacity": s.balloon_capacity,
+        "balloon_capacity": s.capacity_for(balloon),
         "load": new_load,
         "message": (
             f"{pax} kişilik rezervasyon {balloon} balonuna atandı "
-            f"({new_load[balloon]}/{s.balloon_capacity})."
+            f"({new_load[balloon]}/{s.capacity_for(balloon)})."
             + (" ⚠ Tüm balonlar dolu, en boş balona yerleştirildi." if overflow else "")
         ),
         "workbook_revision": revision,
@@ -1621,14 +1629,76 @@ def _mark_extractions_approved(identities: list[dict], sheet: str, rows: list[in
     return removed
 
 
-def _capacity_detail(choice: dict, rows, blocks, load: dict, s, pax: int) -> dict:
-    """409 kapasite onayı gövdesi; koltuk şablonunda serbest koltuk özeti eklenir."""
+def _readiness_rules(s: settings_mod.Settings) -> dict:
+    """check_blocks/check_workbook için kapasite kuralları (balon başına kapasite, günlük
+    balon sınırı, acente kotası)."""
+    return {
+        "balloon_capacity": s.capacity_for,
+        "daily_max_balloons": s.daily_max_balloons,
+        "agency_quota": s.quota_for,
+    }
+
+
+def _capacities(s: settings_mod.Settings, codes) -> dict[str, int]:
+    """Balon kodu → kapasite: Ayarlar'daki kodlar + verilen (sayfada görülen) kodlar."""
+    out: dict[str, int] = {}
+    for code in [*s.balloon_codes, *codes]:
+        c = str(code or "").strip().upper()
+        if c and c not in out:
+            out[c] = s.capacity_for(c)
+    return out
+
+
+def _daily_allowed_balloons(s: settings_mod.Settings, load: dict) -> Optional[set[str]]:
+    """Günlük balon sınırı dolduysa yeni rezervasyonun gidebileceği (uçan) balonlar; yoksa None."""
+    limit = int(s.daily_max_balloons or 0)
+    if limit <= 0:
+        return None
+    in_use = {b for b, used in load.items() if used > 0}
+    return in_use if len(in_use) >= limit else None
+
+
+def _check_agency_quota(s: settings_mod.Settings, blocks, agency: str, pax: int, body: dict) -> bool:
+    """Acente günlük kotası aşılacaksa 409 `agency_quota_exceeded` (override yoksa).
+
+    Dönüş: kota aşıldı ama `allow_quota_override` ile geçildiyse True.
+    """
+    agency = str(agency or "").strip()
+    if not agency:
+        return False
+    quota = s.quota_for(agency)
+    if quota <= 0:
+        return False
+    used = agency_seats(blocks, agency)
+    if used + pax <= quota:
+        return False
+    if body.get("allow_quota_override"):
+        return True
+    raise HTTPException(status_code=409, detail={
+        "code": "agency_quota_exceeded",
+        "message": f"{agency} kotası aşılıyor: {used}+{pax}/{quota}.",
+        "agency": agency,
+        "used": used,
+        "pax": pax,
+        "quota": quota,
+    })
+
+
+def _capacity_detail(choice: dict, rows, blocks, load: dict, s, pax: int,
+                     allowed: Optional[set[str]] = None) -> dict:
+    """409 kapasite onayı gövdesi; koltuk şablonunda serbest koltuk özeti eklenir.
+
+    `allowed` doluysa günlük balon sınırı dolmuştur: yalnız uçan balonlar adaydı.
+    """
     detail = {
         "code": "capacity_confirmation_required",
         "message": "Hiçbir balonda grubun tamamına yer yok.",
         "balloon_load": load,
         "capacity": s.balloon_capacity,
+        "capacities": _capacities(s, load.keys()),
         "balloon_codes": s.balloon_codes,
+        "daily_max_balloons": s.daily_max_balloons,
+        "daily_limit_reached": allowed is not None,
     }
     if choice.get("mode") == "seat":
         seats = planning_free_seat_summary(rows, blocks)
@@ -1638,6 +1708,14 @@ def _capacity_detail(choice: dict, rows, blocks, load: dict, s, pax: int) -> dic
             "Onaylarsanız rezervasyon şablonun altına eklenir."
         )
         detail["free_seats"] = seats
+    if allowed is not None:
+        flying = ", ".join(sorted(allowed))
+        detail["balloons_in_use"] = sorted(allowed)
+        detail["message"] = (
+            f"Günlük balon sınırı ({s.daily_max_balloons}) dolu; yalnız uçan balonlara eklenebilir "
+            f"({flying}), hiçbirinde {pax} kişilik yer yok. "
+            "Onaylarsanız seçtiğiniz balona eklenir."
+        )
     return detail
 
 
@@ -1667,14 +1745,19 @@ def api_create_with_identities(body: dict, request: Request) -> dict:
 
     current_rows = read_rows(path, sheet)
     current_blocks = read_blocks(path, sheet)
+    # Acente kotası, balon kapasitesinden ÖNCE kontrol edilir
+    quota_override = _check_agency_quota(s, current_blocks, fields.get("agency", ""), pax, body)
     current_load = planning_balloon_load(current_blocks)
-    choice = planning_choose_balloon(current_rows, current_blocks, pax, s.balloon_codes, s.balloon_capacity)
+    allowed = _daily_allowed_balloons(s, current_load)
+    choice = planning_choose_balloon(current_rows, current_blocks, pax, s.balloon_codes, s.capacity_for,
+                                     allowed=allowed)
     suggested, overflow = choice["balloon"], choice["overflow"]
     requested = str(body.get("requested_balloon", "")).strip().upper()
     if overflow and not (body.get("allow_overflow") and requested in s.balloon_codes):
         raise HTTPException(
             status_code=409,
-            detail=_capacity_detail(choice, current_rows, current_blocks, current_load, s, pax),
+            detail=_capacity_detail(choice, current_rows, current_blocks, current_load, s, pax,
+                                    allowed=allowed),
         )
     balloon = requested if overflow else suggested
 
@@ -1711,7 +1794,8 @@ def api_create_with_identities(body: dict, request: Request) -> dict:
         actor=_actor(request),
         sheet=sheet,
         reservation_row=result["lead_row"],
-        detail={"pax": pax, "identity_count": len(identities), "balloon": balloon},
+        detail={"pax": pax, "identity_count": len(identities), "balloon": balloon,
+                "quota_override": quota_override},
     )
     if not s.uses_google_sheets():
         _sync_sqlite(sheet)
@@ -1720,6 +1804,7 @@ def api_create_with_identities(body: dict, request: Request) -> dict:
         **result,
         "overflow": overflow,
         "capacity": s.balloon_capacity,
+        "balloon_capacity": s.capacity_for(balloon),
         "workbook_revision": revision,
         "backup": backup.name,
     }
@@ -2238,7 +2323,7 @@ def api_manifest_export(
     try:
         xlsx_path = _resolve_planning_path(s)
         readiness = check_workbook(
-            xlsx_path, sheet, balloon_capacity=s.balloon_capacity
+            xlsx_path, sheet, **_readiness_rules(s)
         )
         if readiness["issue_count"] and not override_reason.strip():
             raise HTTPException(
@@ -2279,7 +2364,7 @@ def api_manifest_export(
 def api_readiness(sheet: str) -> dict:
     s = _load_settings()
     path = _resolve_planning_path(s)
-    return check_workbook(path, sheet, balloon_capacity=s.balloon_capacity)
+    return check_workbook(path, sheet, **_readiness_rules(s))
 
 
 @app.get("/api/reports/drivers/preview")
@@ -2342,7 +2427,7 @@ def api_all_outputs(request: Request, body: dict) -> FileResponse:
     s = _load_settings()
     planning_path = _resolve_planning_path(s)
     readiness = check_workbook(
-        planning_path, sheet, balloon_capacity=s.balloon_capacity
+        planning_path, sheet, **_readiness_rules(s)
     )
     if readiness["issue_count"] and not reason:
         raise HTTPException(

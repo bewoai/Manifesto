@@ -10,7 +10,7 @@ import re
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Iterable, Optional, Union
 
 import openpyxl
 
@@ -297,24 +297,53 @@ def balloon_load(blocks: list[ReservationBlock]) -> dict[str, int]:
     return load
 
 
+Capacity = Union[int, Callable[[str], int]]
+
+
+def capacity_fn(capacity: Capacity) -> Callable[[str], int]:
+    """Kapasite argümanını `kod → kapasite` fonksiyonuna çevirir.
+
+    Tek bir int (eski çağrılar, testler) tüm balonlara aynı kapasiteyi verir; fonksiyon
+    (ör. `Settings.capacity_for`) balon başına kapasite verir. Boş kod varsayılanı döndürür.
+    """
+    if callable(capacity):
+        return lambda code: int(capacity(str(code or "").strip().upper()))
+    cap = int(capacity)
+    return lambda _code: cap
+
+
+def _candidates(codes: list[str], allowed: Optional[Iterable[str]]) -> list[str]:
+    """`allowed` verilirse (günlük balon sınırı dolu) yalnız o balonlar; sıra `codes`, sonra kalanlar."""
+    if allowed is None:
+        return list(codes)
+    allowed_set = {str(c).strip().upper() for c in allowed if c}
+    out = [c for c in codes if c in allowed_set]
+    out += sorted(allowed_set - set(out))
+    return out
+
+
 def assign_balloon(
     load: dict[str, int],
     pax: int,
     codes: list[str],
-    capacity: int,
+    capacity: Capacity,
+    allowed: Optional[Iterable[str]] = None,
 ) -> tuple[str, bool]:
     """Yeni bir `pax` kişilik grup için balon seç (grup bölünmez).
 
     First-fit: `codes` sırasında kalan kapasitesi ≥ pax olan ilk balonu döndürür.
     Hiçbiri sığmazsa en az dolu balonu döndürür ve overflow=True işaretler.
+    `allowed` verilirse yalnız bu balonlar aday olur (günlük balon sınırı).
     """
-    if not codes:
-        return "", True
-    for code in codes:
-        if capacity - load.get(code, 0) >= pax:
+    cap = capacity_fn(capacity)
+    candidates = _candidates(codes, allowed)
+    if not candidates:
+        return (codes[0] if codes else ""), True
+    for code in candidates:
+        if cap(code) - load.get(code, 0) >= pax:
             return code, False
     # Hiçbiri tüm grubu alamıyor → en boş balon + overflow uyarısı
-    least = min(codes, key=lambda c: load.get(c, 0))
+    least = min(candidates, key=lambda c: load.get(c, 0) - cap(c))
     return least, True
 
 
@@ -349,16 +378,24 @@ def choose_balloon(
     blocks: list[ReservationBlock],
     pax: int,
     codes: list[str],
-    capacity: int,
+    capacity: Capacity,
     requested: str = "",
+    allowed: Optional[Iterable[str]] = None,
 ) -> dict:
     """Yeni `pax` kişilik grup için balon ve yazım biçimi seçer (grup bölünmez).
 
     Koltuk şablonu (sayfada serbest koltuk var): `requested`, sonra `codes` sırası, sonra
-    sayfadaki diğer balonlar içinde ≥ pax ardışık serbest koltuğu olan ilk balon → "seat".
-    Hiçbirinde yer yoksa overflow (operatör onayıyla şablonun altına eklenir).
-    Ekleme şablonu (serbest koltuk yok): mevcut first-fit kapasite kuralı → "append".
+    sayfadaki diğer balonlar içinde ≥ pax ardışık serbest koltuğu olan ve balon kapasitesini
+    aşmayan ilk balon → "seat". Hiçbirinde yer yoksa overflow (operatör onayıyla şablonun
+    altına eklenir). Ekleme şablonu (serbest koltuk yok): first-fit kapasite kuralı → "append".
+
+    `capacity`: tek int ya da `kod → kapasite` fonksiyonu (balon başına kapasite).
+    `allowed`: verilirse yalnız bu balonlar aday olur (günlük balon sınırı dolduğunda
+    uçan balonlar); iki modda da geçerlidir.
     """
+    cap = capacity_fn(capacity)
+    allowed_set = None if allowed is None else {str(c).strip().upper() for c in allowed if c}
+    load = balloon_load(blocks)
     runs = free_seat_runs(rows, blocks)
     requested = (requested or "").strip().upper()
     if runs:
@@ -368,27 +405,36 @@ def choose_balloon(
             if code in seen:
                 continue
             seen.add(code)
+            if allowed_set is not None and code not in allowed_set:
+                continue
+            if load.get(code, 0) + pax > cap(code):
+                continue
             if any(len(seq) >= pax for seq in runs.get(code, [])):
                 return {"balloon": code, "overflow": False, "mode": "seat"}
-        if is_seat_template(rows, runs, capacity):
-            least = requested if requested in codes else (codes[0] if codes else next(iter(runs)))
+        if is_seat_template(rows, runs, cap):
+            pool = _candidates(codes, allowed_set)
+            if requested in codes and (allowed_set is None or requested in allowed_set):
+                least = requested
+            else:
+                least = pool[0] if pool else (codes[0] if codes else next(iter(runs)))
             return {"balloon": least, "overflow": True, "mode": "seat"}
         # Ekleme şablonunda silmeden kalan küçük boşluklar: grup sığmıyorsa sona ekle
-    balloon, overflow = assign_balloon(balloon_load(blocks), pax, codes, capacity)
+    balloon, overflow = assign_balloon(load, pax, codes, cap, allowed=allowed_set)
     return {"balloon": balloon, "overflow": overflow, "mode": "append"}
 
 
-def is_seat_template(rows: list[PlanningRow], runs: dict[str, list[list[int]]], capacity: int) -> bool:
+def is_seat_template(rows: list[PlanningRow], runs: dict[str, list[list[int]]], capacity: Capacity) -> bool:
     """Sayfa, koltukları önceden balonlara dağıtan bir şablon mu?
 
-    Ölçüt: serbest koltuğu olan en az bir balonun sayfada (dolu + boş) en az `capacity`
-    satırı var. Arkadaşın şablonunda her balon 28 satırlık banttır; uygulamanın ekleme
-    şablonunda serbest koltuk yalnız silmeden kalır ve bant oluşturmaz.
+    Ölçüt: serbest koltuğu olan en az bir balonun sayfada (dolu + boş) en az kendi
+    kapasitesi kadar satırı var. Arkadaşın şablonunda her balon 28 satırlık banttır;
+    uygulamanın ekleme şablonunda serbest koltuk yalnız silmeden kalır ve bant oluşturmaz.
     """
     from collections import Counter
 
+    cap = capacity_fn(capacity)
     per_balloon = Counter(r.balloon for r in rows if r.balloon)
-    return any(per_balloon[b] >= capacity for b in runs)
+    return any(per_balloon[b] >= cap(b) for b in runs)
 
 
 def pilot_for_balloon(rows: list[PlanningRow], code: str) -> str:
@@ -596,7 +642,7 @@ def sheet_date(name: str):
         return None
 
 
-def day_seat_load(ws, *, capacity: int, codes: list[str]) -> dict:
+def day_seat_load(ws, *, capacity: Capacity, codes: list[str]) -> dict:
     """Bir gün sayfasının koltuk doluluğu: {"used", "free", "total"}.
 
     Dolu = `balloon_load` toplamı; serbest = `free_seat_summary` toplamı.
@@ -607,21 +653,22 @@ def day_seat_load(ws, *, capacity: int, codes: list[str]) -> dict:
     return _day_seat_load_rows(_rows_from_ws(ws), capacity=capacity, codes=codes)
 
 
-def _day_seat_load_rows(rows: list[PlanningRow], *, capacity: int, codes: list[str]) -> dict:
+def _day_seat_load_rows(rows: list[PlanningRow], *, capacity: Capacity, codes: list[str]) -> dict:
+    cap = capacity_fn(capacity)
     blocks = group_blocks(rows)
     load = balloon_load(blocks)
     free = free_seat_summary(rows, blocks)
     used = sum(load.values())
     free_total = sum(v["free"] for v in free.values())
-    if _is_seat_layout_rows(rows, capacity):
+    if _is_seat_layout_rows(rows, cap("")):   # bant tespiti varsayılan kapasiteyle
         total = used + free_total
     else:
         balloons = {c for c in codes if c} | set(load) | set(free)
-        total = max(used + free_total, capacity * len(balloons))
+        total = max(used + free_total, sum(cap(b) for b in balloons))
     return {"used": used, "free": free_total, "total": total}
 
 
-def month_load(planning_xlsx: Path, year: int, month: int, *, capacity: int, codes: list[str]) -> dict[str, dict]:
+def month_load(planning_xlsx: Path, year: int, month: int, *, capacity: Capacity, codes: list[str]) -> dict[str, dict]:
     """Ayın her gün sayfası için `day_seat_load`. Anahtar 'GG.AA.YYYY'.
 
     Ortak salt-okunur ızgarayı kullanır (gün okumalarıyla aynı tek okuma); okunamayan

@@ -4,6 +4,7 @@
    ═══════════════════════════════════════════════════════════════════ */
 import { api, toast, renderHeader, modal, helpIcon, appStatus, registerUnsavedCheck } from '/app.js';
 import { attachCombobox } from '/combobox.js';
+import { capacityFor, isQuotaExceeded, quotaConfirmOptions } from '/capacity_rules.js';
 import {
   annotationMatches, fold, inferRule, isStaffAnnotation, normalizeAgencyKey,
   KIND_LABELS, LIST_KINDS, MARK_RULE_OPTIONS,
@@ -1617,6 +1618,11 @@ window.__writePlanning = async function() {
       btn.disabled = true;
       btn.innerHTML = '<span class="material-symbols-outlined animate-spin text-[20px]">progress_activity</span> Oluşturuluyor...';
     }
+    // Yeni rezervasyon gövdesi; kota onayı (allow_quota_override) yerinde eklenir.
+    const createBody = {
+      sheet, pax, hotel, agency, reserved_by, identities: approved,
+      expected_revision: state.revision,
+    };
 
     try {
       if (existingMode) {
@@ -1629,10 +1635,11 @@ window.__writePlanning = async function() {
         toast.success('Kimlikler eklendi', `${approved.length} yolcu mevcut rezervasyona yazıldı${ruleNote}`);
         await resetAfterWrite(sheet, approvedIdx);
       } else {
-        const res = await api.post('/api/planning/create-with-identities', {
-          sheet, pax, hotel, agency, reserved_by, identities: approved,
-          expected_revision: state.revision,
-        });
+        const res = await postCreateWithIdentities(createBody);
+        if (!res) {   // kota aşımı onaylanmadı: kartlar ekranda kalır
+          toast.info('Rezervasyon oluşturulmadı', 'Acente kotası aşılmadı. Kartlar ekranda duruyor.');
+          return;
+        }
         const ruleNote = await autoSaveRules(ruleCandidates);
         toast.success('Rezervasyon oluşturuldu', `${res.balloon} balonuna atandı — ${approved.length} yolcu yazıldı${ruleNote}`);
         await resetAfterWrite(sheet, approvedIdx);
@@ -1641,10 +1648,7 @@ window.__writePlanning = async function() {
       if (err.detail?.code === 'capacity_confirmation_required') {
         pendingOverflowWritten = approvedIdx;
         pendingOverflowRules = ruleCandidates;
-        return showPassportCapacityChoice({
-          sheet, pax, hotel, agency, reserved_by, identities: approved,
-          expected_revision: state.revision,
-        }, err.detail);
+        return showPassportCapacityChoice({ ...createBody }, err.detail);
       }
       toast.error('Hata', err.message);
     } finally {
@@ -1734,14 +1738,31 @@ async function resetAfterWrite(sheet, writtenIdx = []) {
   if (sheet) await loadBlocks(sheet);
 }
 
+// create-with-identities isteği; 409 agency_quota_exceeded gelirse operatöre sorar ve
+// allow_quota_override ile yeniden dener (body yerinde güncellenir). Vazgeçilirse null.
+async function postCreateWithIdentities(body) {
+  try {
+    return await api.post('/api/planning/create-with-identities', body);
+  } catch (err) {
+    if (!isQuotaExceeded(err) || body.allow_quota_override) throw err;
+    const ok = await modal.confirm(quotaConfirmOptions(err.detail, esc));
+    if (!ok) return null;
+    body.allow_quota_override = true;
+    return api.post('/api/planning/create-with-identities', body);
+  }
+}
+
 function showPassportCapacityChoice(body, detail) {
   window.__pendingPassportOverflow = body;
+  const intro = detail.message || 'Grup kapasite içinde hiçbir balona sığmıyor. Hedef balonu seçin.';
+  const limit = Number(detail.daily_max_balloons) || 0;
   modal.open('Balon Kapasitesi Doldu', `
-    <p class="text-on-surface-variant mb-4">Grup kapasite içinde hiçbir balona sığmıyor. Hedef balonu seçin.</p>
+    <p class="text-on-surface-variant mb-4">${esc(intro)}</p>
+    ${limit ? `<p class="text-sm text-on-surface-variant -mt-2 mb-4">Günlük en fazla ${limit} balon uçabilir.</p>` : ''}
     <div class="space-y-2">${(detail.balloon_codes || []).map(code => `
-      <label class="flex items-center justify-between rounded-lg border border-tertiary/10 p-3 cursor-pointer">
+      <label class="flex items-center justify-between rounded-lg border border-line p-3 cursor-pointer">
         <span><input type="radio" name="pp-overflow-balloon" value="${esc(code)}" class="mr-3" />${esc(code)}</span>
-        <strong>${Number(detail.balloon_load?.[code] || 0)}/${Number(detail.capacity || 0)}</strong>
+        <strong class="tnum">${Number(detail.balloon_load?.[code] || 0)}/${capacityFor(detail, code)}</strong>
       </label>`).join('')}</div>
   `, `
     <button class="btn-secondary" onclick="window.__closeModal()">İptal</button>
@@ -1761,7 +1782,11 @@ window.__confirmPassportOverflow = async function() {
     btn.innerHTML = '<span class="material-symbols-outlined animate-spin text-[18px]">progress_activity</span> Kaydediliyor...';
   }
   try {
-    const res = await api.post('/api/planning/create-with-identities', body);
+    const res = await postCreateWithIdentities(body);
+    if (!res) {
+      toast.info('Rezervasyon oluşturulmadı', 'Acente kotası aşılmadı. Kartlar ekranda duruyor.');
+      return;
+    }
     window.__pendingPassportOverflow = null;
     modal.close();
     const ruleNote = await autoSaveRules(pendingOverflowRules);

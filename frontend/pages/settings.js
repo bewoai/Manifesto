@@ -1,10 +1,14 @@
 /* ═══════════════════════════════════════════════════════════════════
    Ayarlar — Vision modu, API key, dosya yolları, KVKK
    ═══════════════════════════════════════════════════════════════════ */
-import { api, toast, renderHeader, applyTheme, currentTheme } from '/app.js';
+import { api, toast, renderHeader, applyTheme, currentTheme, balloonBadge, escapeHtml, setBalloonCodes } from '/app.js';
+import { agencyQuotaRows, collectIntMap, foldAgency } from '/capacity_rules.js';
 
 let currentSettings = {};
 let renderToken = 0;
+// Balon başına kapasite ve acente kotası tablolarının girilmiş (henüz kaydedilmemiş) değerleri.
+let capacityDraft = {};   // { KOD: '30' }
+let quotaDraft = [];      // [{ name, value }]
 
 export async function render(container) {
   const currentToken = ++renderToken;
@@ -107,7 +111,7 @@ export async function render(container) {
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div class="form-group">
             <label class="form-label">Acenteleriniz</label>
-            <textarea id="s-agencies" class="form-input h-24" placeholder="Acente 1, Acente 2..."></textarea>
+            <textarea id="s-agencies" class="form-input h-24" placeholder="Acente 1, Acente 2..." onchange="window.__renderQuotaRows()"></textarea>
             <div class="form-help">Virgülle ayırın.</div>
           </div>
           <div class="form-group">
@@ -121,15 +125,47 @@ export async function render(container) {
           <span class="material-symbols-outlined text-primary text-3xl">air</span>
           <h2 class="font-headline text-headline-sm text-on-surface">Balon Ayarları</h2>
         </div>
-        <div class="form-group">
-          <label class="form-label">Balon kapasitesi (kişi)</label>
-          <input class="form-input" id="s-balloon-capacity" type="number" min="1" max="28" placeholder="28" />
-          <div class="form-help">Her balona en fazla kaç kişi binebilir. Otomatik atama bu sınırı kullanır.</div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div class="form-group">
+            <label class="form-label" for="s-balloon-capacity">Varsayılan balon kapasitesi (kişi)</label>
+            <input class="form-input" id="s-balloon-capacity" type="number" min="1" max="60" placeholder="28" oninput="window.__syncCapacityPlaceholders()" />
+            <div class="form-help">Kapasitesi ayrıca girilmeyen her balon bu sınırı kullanır. Otomatik atama bu sınıra göre yapılır.</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="s-daily-max-balloons">Günlük en fazla balon</label>
+            <input class="form-input" id="s-daily-max-balloons" type="number" min="0" max="50" placeholder="Sınırsız" />
+            <div class="form-help">Bir günde en fazla kaç balon uçabilir. Boş ya da 0 ise sınır yoktur.</div>
+          </div>
         </div>
         <div class="form-group">
-          <label class="form-label">Balon kodları</label>
-          <input class="form-input" id="s-balloon-codes" placeholder="BYF, BTK, BYJ, BZR, BZV" />
+          <label class="form-label" for="s-balloon-codes">Balon kodları</label>
+          <input class="form-input" id="s-balloon-codes" placeholder="BYF, BTK, BYJ, BZR, BZV" onchange="window.__renderCapacityRows()" />
           <div class="form-help">Virgülle ayır. Yeni rezervasyon bu balonlara sırayla (first-fit) atanır.</div>
+        </div>
+        <div class="form-group">
+          <span class="form-label" id="s-capacity-table-label">Balon başına kapasite</span>
+          <div id="s-balloon-capacities" class="rounded-lg border border-line divide-y divide-line" aria-labelledby="s-capacity-table-label"></div>
+          <div class="form-help">Boş bırakılan balon varsayılan kapasiteyi kullanır. En fazla 60 kişi.</div>
+        </div>
+
+        <h3 class="font-headline text-lg font-semibold text-on-surface mt-8 mb-1">Acente kotaları</h3>
+        <p class="text-sm text-on-surface-variant mb-4">Bir acentenin bir güne en fazla kaç yolcu ekleyebileceği. Kota dolunca rezervasyon onay ister.</p>
+        <div class="form-group">
+          <label class="form-label" for="s-default-agency-quota">Varsayılan acente kotası (kişi)</label>
+          <input class="form-input max-w-[220px]" id="s-default-agency-quota" type="number" min="0" max="10000" placeholder="Sınırsız" oninput="window.__syncQuotaPlaceholders()" />
+          <div class="form-help">Aşağıda kotası girilmeyen acenteler bunu kullanır. Boş ya da 0 ise sınır yoktur.</div>
+        </div>
+        <div class="form-group">
+          <span class="form-label" id="s-quota-table-label">Acente bazında kota</span>
+          <div id="s-agency-quotas" class="rounded-lg border border-line divide-y divide-line" aria-labelledby="s-quota-table-label"></div>
+          <div class="flex gap-2 mt-3">
+            <input class="form-input flex-1" id="s-new-quota-agency" placeholder="Acente adı" onkeydown="if (event.key === 'Enter') { event.preventDefault(); window.__addQuotaAgency(); }" />
+            <button type="button" class="btn-secondary whitespace-nowrap" onclick="window.__addQuotaAgency()">
+              <span class="material-symbols-outlined text-base">add</span>
+              Acente ekle
+            </button>
+          </div>
+          <div class="form-help">Boş bırakılan acente varsayılan kotayı kullanır. Acente adları büyük/küçük harf ve Türkçe harf farkı gözetmeden eşleşir.</div>
         </div>
       </div>
 
@@ -344,6 +380,14 @@ function fillForm(s) {
   val('s-output-dir', s.output_dir);
   val('s-balloon-capacity', s.balloon_capacity);
   val('s-balloon-codes', Array.isArray(s.balloon_codes) ? s.balloon_codes.join(', ') : '');
+  val('s-daily-max-balloons', Number(s.daily_max_balloons) > 0 ? s.daily_max_balloons : '');
+  val('s-default-agency-quota', Number(s.default_agency_quota) > 0 ? s.default_agency_quota : '');
+  capacityDraft = Object.fromEntries(Object.entries(s.balloon_capacities || {}).map(([k, v]) => [String(k).toUpperCase(), String(v)]));
+  quotaDraft = agencyQuotaRows(s.operation_options?.agency || [], s.agency_quotas || {})
+    .map(({ name, quota }) => ({ name, value: quota === null ? '' : String(quota) }));
+  if (Array.isArray(s.balloon_codes)) setBalloonCodes(s.balloon_codes);
+  renderCapacityRows({ keepDom: false });
+  renderQuotaRows({ keepDom: false });
   chk('s-weather-enabled', s.weather_enabled);
   val('s-weather-provider', s.weather_provider);
   val('s-weather-poll', s.weather_poll_minutes);
@@ -354,6 +398,110 @@ function fillForm(s) {
   val('s-weather-lon', s.weather_longitude);
   chk('s-delete-images', s.delete_images_after_write);
 }
+
+// ─── Balon başına kapasite ───
+const parseList = (text, upper = false) => String(text || '').split(',')
+  .map((s) => (upper ? s.trim().toUpperCase() : s.trim())).filter(Boolean);
+
+function capacityPlaceholder() {
+  const v = parseInt(document.getElementById('s-balloon-capacity')?.value, 10);
+  return String(v > 0 ? v : (currentSettings.balloon_capacity || 28));
+}
+
+function readCapacityDom() {
+  document.querySelectorAll('[data-capacity-code]').forEach((el) => {
+    capacityDraft[el.dataset.capacityCode] = el.value.trim();
+  });
+}
+
+function renderCapacityRows({ keepDom = true } = {}) {
+  const root = document.getElementById('s-balloon-capacities');
+  if (!root) return;
+  if (keepDom) readCapacityDom();
+  const codes = [...new Set(parseList(document.getElementById('s-balloon-codes')?.value, true))];
+  if (!codes.length) {
+    root.innerHTML = '<div class="px-3 py-3 text-sm text-on-surface-variant">Önce balon kodlarını girin.</div>';
+    return;
+  }
+  const ph = capacityPlaceholder();
+  root.innerHTML = codes.map((code) => `
+    <div class="flex items-center gap-3 px-3 py-2">
+      <span class="flex-1">${balloonBadge(code)}</span>
+      <input class="form-input w-28 py-1.5 tnum" type="number" min="1" max="60" data-capacity-code="${escapeHtml(code)}"
+        value="${escapeHtml(capacityDraft[code] || '')}" placeholder="${escapeHtml(ph)}" aria-label="${escapeHtml(code)} kapasitesi (kişi)" />
+      <span class="text-sm text-on-surface-variant w-8">kişi</span>
+    </div>`).join('');
+}
+window.__renderCapacityRows = () => renderCapacityRows();
+window.__syncCapacityPlaceholders = function() {
+  const ph = capacityPlaceholder();
+  document.querySelectorAll('[data-capacity-code]').forEach((el) => { el.placeholder = ph; });
+};
+
+// ─── Acente kotaları ───
+function quotaPlaceholder() {
+  const v = parseInt(document.getElementById('s-default-agency-quota')?.value, 10);
+  return v > 0 ? String(v) : 'Sınırsız';
+}
+
+function readQuotaDom() {
+  const values = new Map();
+  document.querySelectorAll('[data-quota-agency]').forEach((el) => values.set(foldAgency(el.dataset.quotaAgency), el.value.trim()));
+  quotaDraft = quotaDraft.map((r) => (values.has(foldAgency(r.name)) ? { ...r, value: values.get(foldAgency(r.name)) } : r));
+}
+
+function renderQuotaRows({ keepDom = true } = {}) {
+  const root = document.getElementById('s-agency-quotas');
+  if (!root) return;
+  if (keepDom) readQuotaDom();
+  const listed = parseList(document.getElementById('s-agencies')?.value);
+  const listedKeys = new Set(listed.map(foldAgency));
+  const prev = new Map(quotaDraft.map((r) => [foldAgency(r.name), r]));
+  // Acente listesindekiler önce; listede olmayan satır yalnız kota girilmişse ya da elle eklendiyse kalır.
+  const names = agencyQuotaRows([...listed, ...quotaDraft.map((r) => r.name)]).map((r) => r.name);
+  quotaDraft = names
+    .map((name) => {
+      const p = prev.get(foldAgency(name));
+      return { name, value: p?.value || '', added: !!p?.added };
+    })
+    .filter((r) => listedKeys.has(foldAgency(r.name)) || r.value || r.added);
+  if (!quotaDraft.length) {
+    root.innerHTML = '<div class="px-3 py-3 text-sm text-on-surface-variant">Acente yok. Yukarıdaki acente listesine ekleyin ya da aşağıdan ekleyin.</div>';
+    return;
+  }
+  const ph = quotaPlaceholder();
+  root.innerHTML = quotaDraft.map((r, i) => `
+    <div class="flex items-center gap-3 px-3 py-2">
+      <span class="flex-1 min-w-0 truncate text-on-surface">${escapeHtml(r.name)}</span>
+      <input class="form-input w-28 py-1.5 tnum" type="number" min="0" max="10000" data-quota-agency="${escapeHtml(r.name)}"
+        value="${escapeHtml(r.value)}" placeholder="${escapeHtml(ph)}" aria-label="${escapeHtml(r.name)} günlük kotası (kişi)" />
+      <span class="text-sm text-on-surface-variant w-8">kişi</span>
+      ${listedKeys.has(foldAgency(r.name))
+        ? '<span class="w-9" aria-hidden="true"></span>'
+        : `<button type="button" class="btn-ghost btn-icon" title="Satırı kaldır" aria-label="${escapeHtml(r.name)} kotasını kaldır" onclick="window.__removeQuotaAgency(${i})"><span class="material-symbols-outlined">close</span></button>`}
+    </div>`).join('');
+}
+window.__renderQuotaRows = () => renderQuotaRows();
+window.__syncQuotaPlaceholders = function() {
+  const ph = quotaPlaceholder();
+  document.querySelectorAll('[data-quota-agency]').forEach((el) => { el.placeholder = ph; });
+};
+window.__addQuotaAgency = function() {
+  const input = document.getElementById('s-new-quota-agency');
+  const name = input?.value.trim();
+  if (!name) return;
+  readQuotaDom();
+  const key = foldAgency(name);
+  if (!quotaDraft.some((r) => foldAgency(r.name) === key)) quotaDraft.push({ name, value: '', added: true });
+  input.value = '';
+  renderQuotaRows({ keepDom: false });
+  [...document.querySelectorAll('[data-quota-agency]')].find((el) => foldAgency(el.dataset.quotaAgency) === key)?.focus();
+};
+window.__removeQuotaAgency = function(index) {
+  readQuotaDom();
+  quotaDraft.splice(index, 1);
+  renderQuotaRows({ keepDom: false });
+};
 
 window.__settingsImportPlan = async function() {
   const { toast } = await import('/app.js');
@@ -417,6 +565,24 @@ window.__saveSettings = async function() {
   if (cap) body.balloon_capacity = cap;
   const codes = gv('s-balloon-codes');
   if (codes) body.balloon_codes = codes.split(',').map(c => c.trim().toUpperCase()).filter(Boolean);
+  // Balon başına kapasite (yalnız listedeki kodlar; boş = varsayılan), günlük balon sınırı
+  readCapacityDom();
+  const codeSet = new Set(body.balloon_codes || parseList(codes, true));
+  body.balloon_capacities = collectIntMap(
+    Object.entries(capacityDraft).filter(([code]) => codeSet.has(code)).map(([name, value]) => ({ name, value })),
+    { upperKey: true },
+  );
+  body.daily_max_balloons = Math.max(0, parseInt(gv('s-daily-max-balloons'), 10) || 0);
+  // Acente kotaları (boş = varsayılan kota)
+  readQuotaDom();
+  body.agency_quotas = collectIntMap(quotaDraft);
+  body.default_agency_quota = Math.max(0, parseInt(gv('s-default-agency-quota'), 10) || 0);
+  const badCap = [['Varsayılan', cap], ...Object.entries(body.balloon_capacities)].find(([, n]) => n && (n < 1 || n > 60));
+  if (badCap) {
+    toast.warning('Kapasite 1–60 arası olmalı', `${badCap[0]}: ${badCap[1]}`);
+    window.__switchSettingsTab?.('panel-operasyon');
+    return;
+  }
   const poll = parseInt(gv('s-weather-poll'), 10);
   if (poll) body.weather_poll_minutes = poll;
 

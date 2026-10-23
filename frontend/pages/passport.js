@@ -5,7 +5,7 @@
 import { api, toast, renderHeader, modal, helpIcon, appStatus, registerUnsavedCheck } from '/app.js';
 import { attachCombobox } from '/combobox.js';
 import {
-  annotationMatches, fold, isStaffAnnotation, normalizeAgencyKey,
+  annotationMatches, fold, inferRule, isStaffAnnotation, normalizeAgencyKey,
   KIND_LABELS, LIST_KINDS, MARK_RULE_OPTIONS,
 } from '/list_marks.js';
 
@@ -31,6 +31,7 @@ const MANUAL_REVIEW_QUEUE_KEY = 'irtifa_manual_review_queue';
 let writing = false;
 let overflowSubmitting = false;
 let pendingOverflowWritten = [];   // kapasite onayı bekleyen yazımın kart indeksleri
+let pendingOverflowRules = [];     // kapasite onayı bekleyen yazımda otomatik kaydedilecek kurallar
 
 // OCR, kaydı Manuel Kontrol kuyruğuna düşürdüyse (requires_manual_review) ve operatör
 // henüz orada onaylamadıysa kart pasiftir: aynı kayıt iki yerde onaylanamaz.
@@ -962,8 +963,19 @@ function ensurePanel(seg) {
   if (panel) return panel;
   const group = segmentGroup(seg);
   const agency = String(group.agency || '').trim();
+  // Kural kaynağı: acenteye kayıtlı kural > işaret dağılımından algılanan. Algılama yalnız
+  // liste/mesaj görsellerinde ve listenin kendi evet/hayır kolonu (selected) yokken yapılır;
+  // çok pasaportlu fotoğrafta işaret dili olmaz.
+  const listLike = seg.indices.some(i => LIST_KINDS.has(state.records[i]?.source_kind));
+  const hasSelectedColumn = seg.indices.some(i => typeof state.records[i]?.selected === 'boolean');
+  const inferred = listLike && !hasSelectedColumn
+    ? inferRule(seg.indices.map(i => state.records[i]?.annotation))
+    : null;
+  const saved = savedRuleFor(agency);
   panel = {
-    rule: savedRuleFor(agency),       // acente biliniyorsa kayıtlı kural otomatik seçili
+    rule: saved || inferred?.rule || '',
+    ruleSource: saved ? 'saved' : (inferred ? 'auto' : ''),   // saved | auto | user
+    inferred,
     agency,
     agencyFromGroup: !!agency,
     onlySelected: false,
@@ -997,7 +1009,9 @@ function panelCounts(seg) {
 
 function counterHtml(seg) {
   const { selected, total } = panelCounts(seg);
-  const pax = parseInt(segmentGroup(seg).pax, 10) || 0;
+  // Kural "Hepsi uçuyor" ise PAX karşılaştırması gösterilmez (herkes uçuyor varsayımı).
+  const allRule = listPanels.get(seg.file)?.rule === 'all';
+  const pax = allRule ? 0 : (parseInt(segmentGroup(seg).pax, 10) || 0);
   const paxNote = !pax ? ''
     : pax === selected
       ? `<div class="text-xs text-success mt-1">Listedeki PAX ${pax} ile eşleşiyor</div>`
@@ -1065,11 +1079,19 @@ function renderListPanel(seg, s) {
   const options = [`<option value="">Seçim yapılmadı</option>`]
     .concat(ruleOptions().map(o => `<option value="${esc(o.id)}" ${panel.rule === o.id ? 'selected' : ''}>${esc(o.label)}</option>`))
     .join('');
-  const ruleStatus = savedRule
-    ? (savedRule === panel.rule
-      ? `<span class="text-success">Bu acente için kayıtlı</span>`
-      : `<span class="text-on-surface-variant">Kayıtlı kural: ${esc(ruleLabel(savedRule))}</span>`)
+  const inferredText = panel.inferred
+    ? `${ruleLabel(panel.inferred.rule)} (${panel.inferred.matched}/${panel.inferred.total})`
     : '';
+  let ruleStatus = '';
+  if (savedRule && panel.inferred && panel.inferred.rule !== savedRule) {
+    ruleStatus = `<span class="text-warning">Kayıtlı: ${esc(ruleLabel(savedRule))} — bu listede ${esc(inferredText)} görünüyor</span>`;
+  } else if (savedRule) {
+    ruleStatus = savedRule === panel.rule
+      ? `<span class="text-success">Bu acente için kayıtlı</span>`
+      : `<span class="text-on-surface-variant">Kayıtlı kural: ${esc(ruleLabel(savedRule))}</span>`;
+  } else if (panel.inferred) {
+    ruleStatus = `<span class="text-info">Otomatik algılandı: ${esc(inferredText)}</span>`;
+  }
 
   return `
     <div class="glass-panel rounded-3xl p-5 border-l-4 border-l-info animate-fade-in" id="lpanel-${s}">
@@ -1173,6 +1195,7 @@ window.__listRuleChanged = function(s, rule) {
   if (!panel) return;
   syncCardsToState();
   panel.rule = rule;
+  panel.ruleSource = 'user';
   if (rule) applyRule(seg, rule);
   renderCards();
 };
@@ -1184,8 +1207,10 @@ window.__listAgencyChanged = function(s, value) {
   syncCardsToState();
   panel.agency = String(value || '').trim();
   const saved = savedRuleFor(panel.agency);
-  if (saved && !panel.rule) {
+  // Operatörün elle seçtiği kural ezilmez; algılanan (auto) kural kayıtlıyla değişir.
+  if (saved && panel.ruleSource !== 'user' && panel.rule !== saved) {
     panel.rule = saved;
+    panel.ruleSource = 'saved';
     applyRule(seg, saved);
     toast.info('Kayıtlı kural uygulandı', `${panel.agency}: ${ruleLabel(saved)}`);
   }
@@ -1549,6 +1574,8 @@ window.__writePlanning = async function() {
     return;
   }
 
+  const ruleCandidates = ruleSaveCandidates(approvedIdx);
+
   writing = true;
   try {
     if (skipped.length) {
@@ -1600,19 +1627,22 @@ window.__writePlanning = async function() {
         await api.post('/api/planning/append-identities', {
           sheet, lead_row: leadRow, identities: approved, expected_revision: state.revision,
         });
-        toast.success('Kimlikler eklendi', `${approved.length} yolcu mevcut rezervasyona yazıldı`);
+        const ruleNote = await autoSaveRules(ruleCandidates);
+        toast.success('Kimlikler eklendi', `${approved.length} yolcu mevcut rezervasyona yazıldı${ruleNote}`);
         await resetAfterWrite(sheet, approvedIdx);
       } else {
         const res = await api.post('/api/planning/create-with-identities', {
           sheet, pax, hotel, agency, reserved_by, identities: approved,
           expected_revision: state.revision,
         });
-        toast.success('Rezervasyon oluşturuldu', `${res.balloon} balonuna atandı — ${approved.length} yolcu yazıldı`);
+        const ruleNote = await autoSaveRules(ruleCandidates);
+        toast.success('Rezervasyon oluşturuldu', `${res.balloon} balonuna atandı — ${approved.length} yolcu yazıldı${ruleNote}`);
         await resetAfterWrite(sheet, approvedIdx);
       }
     } catch (err) {
       if (err.detail?.code === 'capacity_confirmation_required') {
         pendingOverflowWritten = approvedIdx;
+        pendingOverflowRules = ruleCandidates;
         return showPassportCapacityChoice({
           sheet, pax, hotel, agency, reserved_by, identities: approved,
           expected_revision: state.revision,
@@ -1629,6 +1659,36 @@ window.__writePlanning = async function() {
     writing = false;
   }
 };
+
+// Yazılan satırların listelerinde kullanılan kural, acente biliniyor ve o acentenin kayıtlı
+// kuralı yoksa yazım başarıyla bitince kaydedilir (bir sonraki listede otomatik gelir).
+function ruleSaveCandidates(writtenIdx) {
+  const written = new Set(writtenIdx);
+  const formAgency = document.getElementById('pp-agency')?.value.trim() || '';
+  const out = new Map();
+  for (const seg of segments) {
+    if (!seg.isList || !seg.indices.some(i => written.has(i))) continue;
+    const panel = listPanels.get(seg.file);
+    const agency = (panel?.agency || formAgency).trim();
+    const key = normalizeAgencyKey(agency);
+    if (!panel?.rule || !key || savedRuleFor(agency) || out.has(key)) continue;
+    out.set(key, { agency, rule: panel.rule });
+  }
+  return [...out.values()];
+}
+
+// Dönüş: toast mesajına eklenecek not ('' = kaydedilen yok). Hata yazımı bozmaz.
+async function autoSaveRules(candidates) {
+  let saved = 0;
+  for (const { agency, rule } of candidates || []) {
+    try {
+      const res = await api.post('/api/lists/mark-rule', { agency, rule });
+      state.markRules = res.rules || state.markRules;
+      saved++;
+    } catch { /* kural kaydı isteğe bağlı */ }
+  }
+  return saved ? ' · Kural acenteye kaydedildi' : '';
+}
 
 // Başarılı yazımdan sonra: tarama ve rezervasyon formu bir sonraki rezervasyona hazır.
 // Başka otel için bekleyen liste satırları (ve görselleri) ekranda kalır → "diğer oteller
@@ -1706,7 +1766,9 @@ window.__confirmPassportOverflow = async function() {
     const res = await api.post('/api/planning/create-with-identities', body);
     window.__pendingPassportOverflow = null;
     modal.close();
-    toast.warning('Kapasite aşımı onaylandı', `${res.balloon} balonuna atandı — ${body.identities?.length || 0} yolcu yazıldı`);
+    const ruleNote = await autoSaveRules(pendingOverflowRules);
+    pendingOverflowRules = [];
+    toast.warning('Kapasite aşımı onaylandı', `${res.balloon} balonuna atandı — ${body.identities?.length || 0} yolcu yazıldı${ruleNote}`);
     await resetAfterWrite(body.sheet, pendingOverflowWritten);
     pendingOverflowWritten = [];
   } catch (err) {

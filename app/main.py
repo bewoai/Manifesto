@@ -914,6 +914,149 @@ _MONTH_LOAD_CACHE: dict[tuple, dict] = {}
 _MONTH_LOAD_CACHE_MAX = 24
 
 
+@app.get("/api/planning/view")
+def api_planning_view(sheet: str = Query(..., description="Gün sayfası, ör. 22.10.2026")) -> dict[str, Any]:
+    """Planlama Excel'inin bir gün sayfasını uygulama içinde göstermek için hücre değerleri.
+
+    Satırlar Excel'deki gerçek satır numaralarıyla döner (uyarılardaki "Satır 83" bulunabilsin).
+    Ortak salt-okunur ızgara kullanılır; dosya değişmediyse diske gidilmez.
+    """
+    from app.manifest.planning import workbook_grid
+
+    s = _load_settings()
+    xlsx_path = _resolve_planning_path(s)
+    if not xlsx_path.exists():
+        raise HTTPException(status_code=404, detail=f"Planlama dosyası bulunamadı: {xlsx_path}")
+    try:
+        grid = workbook_grid(xlsx_path)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Planlama dosyası okunamadı: {e}")
+    if sheet not in grid:
+        raise HTTPException(status_code=404, detail=f"'{sheet}' sayfası yok.")
+    values = grid[sheet]
+    header_idx = config.PLANNING_HEADER_ROW - 1
+    header = [_cell_text(v) for v in values[header_idx]] if len(values) > header_idx else []
+    rows = []
+    for i, row in enumerate(values[config.PLANNING_FIRST_DATA_ROW - 1:], start=config.PLANNING_FIRST_DATA_ROW):
+        cells = [_cell_text(v) for v in row]
+        if any(cells):
+            rows.append({"row": i, "cells": cells})
+    title = " ".join(t for t in (_cell_text(v) for r in values[:header_idx] for v in r) if t)
+    return {
+        "sheet": sheet,
+        "file": xlsx_path.name,
+        "workbook_revision": workbook_revision(xlsx_path),
+        "first_data_row": config.PLANNING_FIRST_DATA_ROW,
+        "max_col": config.COL_PASSPORT_NO,
+        "title": title,
+        "header_row": config.PLANNING_HEADER_ROW,
+        "header": header,
+        "rows": rows,
+        "columns": {
+            "pax": config.COL_PAX, "name": config.COL_NAME, "balloon": config.COL_BALLOON,
+            "passport": config.COL_PASSPORT_NO,
+        },
+    }
+
+
+@app.post("/api/planning/cells")
+def api_planning_write_cells(body: dict, request: Request) -> dict[str, Any]:
+    """Uygulama içi Excel görünümünden hücre düzenlemeleri (toplu, tek yedekli yazım).
+
+    body: {"sheet": "22.10.2026", "expected_revision": "...", "changes": [{"row": 83, "col": 7, "value": "04:30"}]}
+    Yalnız veri satırları (4+) ve A..T kolonları; birleşik alanın sol üstü dışındaki hücre
+    yazılamaz. Biçim korunur (tam yükleme). PAX sayıya, pasaport metne çevrilir.
+    """
+    import openpyxl
+    from openpyxl.cell.cell import MergedCell
+
+    sheet = str(body.get("sheet", "")).strip()
+    changes = body.get("changes") or []
+    if not sheet or not isinstance(changes, list) or not changes:
+        raise HTTPException(status_code=422, detail="Gün ve en az bir değişiklik gerekli.")
+    if len(changes) > 2000:
+        raise HTTPException(status_code=422, detail="Tek seferde en fazla 2000 hücre.")
+    cleaned: list[tuple[int, int, Any]] = []
+    for ch in changes:
+        try:
+            r, c = int(ch.get("row")), int(ch.get("col"))
+        except (TypeError, ValueError, AttributeError):
+            raise HTTPException(status_code=422, detail="Geçersiz hücre adresi.")
+        if r < config.PLANNING_FIRST_DATA_ROW or not 1 <= c <= config.COL_PASSPORT_NO:
+            raise HTTPException(status_code=422, detail=f"Satır {r}, kolon {c} düzenlenemez.")
+        raw = ch.get("value")
+        text = "" if raw is None else str(raw).strip()
+        value: Any = text or None
+        if value is not None and c == config.COL_PAX:
+            try:
+                value = int(float(text))
+            except ValueError:
+                raise HTTPException(status_code=422, detail=f"Satır {r}: PAX sayı olmalı.")
+        elif value is not None and c in (config.COL_NAME, config.COL_PASSPORT_NO, config.COL_UYRUK, config.COL_BALLOON):
+            value = text.upper()
+        cleaned.append((r, c, value))
+
+    s = _load_settings()
+    xlsx_path = _resolve_planning_path(s)
+    if not xlsx_path.exists():
+        raise HTTPException(status_code=404, detail=f"Planlama dosyası bulunamadı: {xlsx_path}")
+
+    def mutate(temp: Path) -> int:
+        wb = openpyxl.load_workbook(temp)
+        try:
+            if sheet not in wb.sheetnames:
+                raise KeyError(f"'{sheet}' sayfası yok.")
+            ws = wb[sheet]
+            for r, c, value in cleaned:
+                cell = ws.cell(r, c)
+                if isinstance(cell, MergedCell):
+                    raise ValueError(f"Satır {r}, kolon {c} birleşik bir alanın içinde; alanın ilk hücresini düzenleyin.")
+                cell.value = value
+                if c == config.COL_PASSPORT_NO and value is not None:
+                    cell.number_format = "@"
+            wb.save(temp)
+        finally:
+            wb.close()
+        return len(cleaned)
+
+    try:
+        count, revision, backup = atomic_update(
+            xlsx_path,
+            expected_revision=body.get("expected_revision"),
+            reason="edit_cells",
+            mutator=mutate,
+        )
+    except (WorkbookConflictError, WorkbookLockedError) as e:
+        raise _atomic_error(e)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e).strip("'\""))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Hücreler yazılamadı: {e}")
+
+    audit_mod.record(
+        "cells_edited",
+        actor=_actor(request),
+        sheet=sheet,
+        detail={"count": count, "cells": [f"{openpyxl.utils.get_column_letter(c)}{r}" for r, c, _ in cleaned[:50]]},
+    )
+    _sync_sqlite(sheet)
+    return {"success": True, "count": count, "workbook_revision": revision, "backup": backup.name}
+
+
+@app.post("/api/planning/open-excel")
+def api_planning_open_excel() -> dict[str, Any]:
+    """Planlama dosyasını Excel'de açar. Not: Excel açıkken dosya kilitlenir, uygulama yazamaz."""
+    s = _load_settings()
+    xlsx_path = _resolve_planning_path(s)
+    if not xlsx_path.exists():
+        raise HTTPException(status_code=404, detail=f"Planlama dosyası bulunamadı: {xlsx_path}")
+    if os.name == "nt":
+        os.startfile(str(xlsx_path))  # noqa: S606 — yerel masaüstü uygulaması
+    return {"path": str(xlsx_path)}
+
+
 @app.get("/api/planning/month-load")
 def api_planning_month_load(month: str = Query(..., pattern=r"^\d{4}-\d{2}$", description="YYYY-AA")) -> dict:
     """Takvim için ayın her uçuş gününün koltuk doluluğu."""

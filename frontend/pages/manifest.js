@@ -2,6 +2,7 @@
    Manifesto — Önizleme tablosu ve Excel export
    ═══════════════════════════════════════════════════════════════════ */
 import { api, toast, renderHeader } from '/app.js';
+import { openIdentityEditor } from '/identity_edit.js';
 
 let state = {
   sheets: [],
@@ -75,7 +76,9 @@ export async function render(container) {
       <div class="flex flex-wrap gap-3">
         <button class="btn-primary" onclick="window.__allOutputs()"><span class="material-symbols-outlined">folder_zip</span> Tüm Çıktıları Hazırla</button>
         <button class="btn-secondary" onclick="window.__cleanupPassports()"><span class="material-symbols-outlined">shield_lock</span> Günlük Pasaport Verilerini Temizle</button>
+        <button class="btn-ghost" onclick="window.__openOutputFolder()" title="Seçili günün çıktı klasörünü Gezgin'de aç"><span class="material-symbols-outlined">folder_open</span> Çıktı Klasörünü Aç</button>
       </div>
+      <div id="mf-output-location" class="hidden mt-4 p-3 rounded-xl bg-success/10 border border-success/20 text-sm"></div>
     </div>
 
     <!-- Preview Table -->
@@ -294,6 +297,7 @@ function renderTable() {
           <th class="p-4 text-sm font-medium text-on-surface-variant">UYRUK</th>
           <th class="p-4 text-sm font-medium text-on-surface-variant">PASAPORT / KİMLİK NO</th>
           <th class="p-4 text-sm font-medium text-on-surface-variant">UYARILAR</th>
+          <th class="p-4 w-12"></th>
         </tr>
       </thead>
       <tbody class="divide-y divide-white/5">
@@ -305,15 +309,30 @@ function renderTable() {
             <td class="p-4 text-on-surface-variant">${esc(r.nationality)}</td>
             <td class="p-4 text-on-surface-variant font-mono">${esc(r.passport_no)}</td>
             <td class="p-4">${(r.warnings || []).length
-              ? `<span class="badge badge-yellow">${esc(r.warnings.join(', '))}</span>`
+              ? `<button type="button" class="badge badge-yellow cursor-pointer hover:brightness-110 flex items-center gap-1 w-max" title="Tıklayın ve düzeltin" onclick="window.__mfFix(${i})"><span class="material-symbols-outlined text-[16px]">edit</span>${esc(r.warnings.join(', '))}</button>`
               : '<span class="badge badge-green flex items-center gap-1 w-max"><span class="material-symbols-outlined text-[16px]">check</span> Geçerli</span>'
             }</td>
+            <td class="p-4 text-right">${r.row ? `<button class="btn-ghost btn-icon" title="Kimliği düzelt" onclick="window.__mfFix(${i})"><span class="material-symbols-outlined">edit</span></button>` : ''}</td>
           </tr>
         `).join('')}
       </tbody>
     </table>
   `;
 }
+
+window.__mfFix = function(i) {
+  const r = state.rows[i];
+  if (!r || !r.row) { toast.warning('Satır bulunamadı', 'Önizlemeyi yenileyip tekrar deneyin.'); return; }
+  const warn = (r.warnings || []).join(', ');
+  openIdentityEditor({
+    sheet: state.currentSheet,
+    row: r.row,
+    values: { nationality: r.raw_nationality, sex: r.raw_sex, name: r.name, passport_no: r.passport_no },
+    hint: warn || '',
+    focus: /uyruk/i.test(warn) ? 'nationality' : /cinsiyet/i.test(warn) ? 'sex' : undefined,
+    onSaved: () => window.__mfPreview(),
+  });
+};
 
 window.__mfExport = function() {
   if (!state.currentSheet || !state.currentBalloon) return;
@@ -380,9 +399,34 @@ async function downloadFetch(url, options, fallbackName) {
     anchor.download = name;
     anchor.click();
     setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
-    toast.success('İndirme hazır', name);
+    const outDir = decodeURIComponent(response.headers.get('x-output-dir') || '');
+    showOutputLocation(outDir, name);
+    toast.success('Çıktılar kaydedildi', outDir ? `${name} → ${outDir}` : name);
   } catch (err) { toast.error('Çıktı oluşturulamadı', err.message); }
 }
+
+function showOutputLocation(outDir, name) {
+  const el = document.getElementById('mf-output-location');
+  if (!el || !outDir) return;
+  el.classList.remove('hidden');
+  el.innerHTML = `
+    <div class="flex flex-wrap items-center gap-3">
+      <span class="material-symbols-outlined text-success">folder</span>
+      <div class="flex-1 min-w-0">
+        <div class="text-on-surface font-medium">${esc(name)} kaydedildi</div>
+        <div class="text-on-surface-variant font-mono text-xs break-all">${esc(outDir)}</div>
+        <div class="text-on-surface-variant text-xs mt-1">WhatsApp/Drive'a gönderirken dosyayı bu klasörden seçin; ZIP penceresinin içinden sürüklemeyin.</div>
+      </div>
+      <button class="btn-secondary" onclick="window.__openOutputFolder()"><span class="material-symbols-outlined">folder_open</span> Klasörü Aç</button>
+    </div>`;
+}
+
+window.__openOutputFolder = async function() {
+  const sheet = document.getElementById('mf-sheet')?.value || state.currentSheet || '';
+  try {
+    await api.post('/api/outputs/open-folder', { sheet });
+  } catch (err) { toast.error('Klasör açılamadı', err.message); }
+};
 
 function esc(s) {
   return String(s || '')

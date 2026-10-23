@@ -29,17 +29,20 @@ class ManifestRow:
     nationality: str  # ULKELER İngilizce adı
     passport_no: str
     warnings: list[str]
+    row: int = 0                 # planlama satırı (önizlemeden düzeltme için)
+    raw_nationality: str = ""    # planlamadaki ham uyruk kodu
+    raw_sex: str = ""            # planlamadaki ham cinsiyet
 
 
 def _transform(row: PlanningRow) -> ManifestRow:
     warnings: list[str] = []
     sex = config.SEX_TR.get(row.sex.upper().strip())
     if sex is None:
-        warnings.append(f"bilinmeyen cinsiyet {row.sex!r}")
+        warnings.append(f"Cinsiyet tanınmıyor: {row.sex!r}" if row.sex else "Cinsiyet boş")
         sex = row.sex
     nat = iso3_to_name(row.nationality)
     if nat is None:
-        warnings.append(f"uyruk kodu country_map'te yok: {row.nationality!r}")
+        warnings.append(f"Uyruk kodu tanınmıyor: {row.nationality!r}" if row.nationality else "Uyruk boş")
         nat = row.nationality
     return ManifestRow(
         name=row.name.upper(),
@@ -47,6 +50,9 @@ def _transform(row: PlanningRow) -> ManifestRow:
         nationality=nat,
         passport_no=row.passport_no,
         warnings=warnings,
+        row=row.row,
+        raw_nationality=row.nationality,
+        raw_sex=row.sex,
     )
 
 

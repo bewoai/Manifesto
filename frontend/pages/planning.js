@@ -3,6 +3,7 @@
    ═══════════════════════════════════════════════════════════════════ */
 import { api, toast, modal, renderHeader, helpIcon, registerUnsavedCheck } from '/app.js';
 import { attachCombobox } from '/combobox.js';
+import { openIdentityEditor } from '/identity_edit.js';
 
 let state = {
   sheets: [],
@@ -997,83 +998,17 @@ window.__deleteBlock = async function(index) {
   }
 };
 
-let countryOptions = null;
-async function loadCountryOptions() {
-  if (countryOptions) return countryOptions;
-  try {
-    const res = await api.get('/api/countries');
-    countryOptions = (res.countries || []).map(c => ({ value: c.code, label: `${c.code} — ${c.name}` }));
-  } catch (e) { countryOptions = []; }
-  return countryOptions;
-}
-
-window.__editPassenger = async function(index, row) {
+window.__editPassenger = function(index, row) {
   const block = state.blocks[index];
   if (!block) return;
   const p = (block.passengers || []).find(x => Number(x.row) === Number(row)) || { row };
-  modal.open('Yolcu kimliğini düzelt', `
-    <div class="form-row">
-      <div class="form-group">
-        <label class="form-label">Uyruk (ISO kodu)</label>
-        <input class="form-input font-mono uppercase" id="ep-nat" value="${escHtml(p.nationality || '')}" placeholder="IRL, GBR, TUR..." autocomplete="off" />
-        <div class="form-help">IRE, UK, GER gibi kodlar kaydederken ISO'ya (IRL, GBR, DEU) çevrilir.</div>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Cinsiyet</label>
-        <select class="form-select" id="ep-sex">
-          <option value="" ${!p.sex ? 'selected' : ''}>—</option>
-          <option value="M" ${p.sex === 'M' ? 'selected' : ''}>Erkek</option>
-          <option value="F" ${p.sex === 'F' ? 'selected' : ''}>Kadın</option>
-        </select>
-      </div>
-    </div>
-    <div class="form-group mt-4">
-      <label class="form-label">Ad Soyad</label>
-      <input class="form-input uppercase" id="ep-name" value="${escHtml(p.name || '')}" />
-    </div>
-    <div class="form-group mt-4">
-      <label class="form-label">Pasaport / Kimlik No</label>
-      <input class="form-input font-mono uppercase" id="ep-ppno" value="${escHtml(p.passport_no || '')}" />
-      <div class="form-help">Satır ${escHtml(String(row))} · yalnız bu 4 alan Excel'e yazılır.</div>
-    </div>
-  `, `
-    <button class="btn-secondary" onclick="window.__closeModal()">İptal</button>
-    <button class="btn-primary" id="btn-ep-save" onclick="window.__savePassenger(${index}, ${row})">Kaydet</button>
-  `);
-  const natEl = document.getElementById('ep-nat');
-  if (natEl) attachCombobox(natEl, () => countryOptions || []);
-  loadCountryOptions();
-};
-
-let savingPassenger = false;
-window.__savePassenger = async function(index, row) {
-  if (savingPassenger) return;
-  const val = (id) => document.getElementById(id)?.value.trim() || '';
-  const update = {
-    nationality: val('ep-nat').toUpperCase(),
-    sex: val('ep-sex').toUpperCase(),
-    name: val('ep-name').toUpperCase(),
-    passport_no: val('ep-ppno').toUpperCase(),
-  };
-  if (!update.name && !update.passport_no) { toast.warning('İsim ya da pasaport no gerekli'); return; }
-  const btn = document.getElementById('btn-ep-save');
-  savingPassenger = true;
-  if (btn) btn.disabled = true;
-  try {
-    await api.post('/api/planning/write-identity', {
-      sheet: state.currentSheet,
-      updates: { [row]: update },
-      expected_revision: state.revision,
-    });
-    toast.success('Kimlik güncellendi', update.name || update.passport_no);
-    modal.close();
-    window.__loadDay();
-  } catch (err) {
-    toast.error('Kaydedilemedi', err.message);
-    if (btn?.isConnected) btn.disabled = false;
-  } finally {
-    savingPassenger = false;
-  }
+  openIdentityEditor({
+    sheet: state.currentSheet,
+    row,
+    values: p,
+    expectedRevision: state.revision,
+    onSaved: () => window.__loadDay(),
+  });
 };
 
 window.__deletePassenger = async function(index, row) {

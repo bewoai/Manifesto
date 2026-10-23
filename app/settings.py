@@ -135,6 +135,7 @@ class Settings:
     balloon_capacity: int = config.DEFAULT_BALLOON_CAPACITY   # balon başına max yolcu (varsayılan)
     balloon_capacities: dict[str, int] = field(default_factory=dict)  # {kod: kapasite}; yoksa balloon_capacity
     daily_max_balloons: int = 0      # bir günde uçabilecek en fazla balon; 0 = sınır yok
+    daily_capacity: int = 0          # acentenin bir günde satabileceği toplam kişi (ör. 112); 0 = sınır yok
     balloon_codes: list[str] = field(default_factory=lambda: list(config.DEFAULT_BALLOON_CODES))
     weather_enabled: bool = True
     weather_provider: str = "open_meteo"
@@ -218,6 +219,7 @@ class Settings:
             self.balloon_capacity = config.DEFAULT_BALLOON_CAPACITY
         self.balloon_capacities = _int_map(self.balloon_capacities, upper=True, lo=1, hi=config.MAX_BALLOON_CAPACITY)
         self.daily_max_balloons = _clamp_int(self.daily_max_balloons, 0, 50)
+        self.daily_capacity = _clamp_int(self.daily_capacity, 0, 2000)
         # Balon kodları: upper, trim, uniq, boşları at
         codes: list[str] = []
         seen_codes: set[str] = set()

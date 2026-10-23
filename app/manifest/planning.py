@@ -619,10 +619,19 @@ def _unmerge_rows(ws, lo: int, hi: int) -> None:
             ws.unmerge_cells(str(rng))
 
 
-def _merge_lead_columns(ws, lead: int, last: int) -> None:
+def _block_merged_cols(ws, lead: int, last: int) -> tuple[int, ...]:
+    """Bloğun kendi düzeni: lider..son satırı tam kapsayan tek kolonluk birleşimler."""
+    return tuple(sorted(
+        rng.min_col for rng in ws.merged_cells.ranges
+        if rng.min_col == rng.max_col and rng.min_row == lead and rng.max_row == last
+    ))
+
+
+def _merge_lead_columns(ws, lead: int, last: int, cols: Optional[tuple[int, ...]] = None) -> None:
+    """Blok boyunca dikey birleştirir. cols verilmezse varsayılan lider kolonları."""
     if last <= lead:
         return
-    for col in config.LEAD_MERGE_COLS:
+    for col in (config.LEAD_MERGE_COLS if cols is None else cols):
         ws.merge_cells(start_row=lead, start_column=col, end_row=last, end_column=col)
 
 
@@ -945,6 +954,7 @@ def reorder_reservation(planning_xlsx: Path, sheet: str, source_rows: list[int],
             "bloğu başka bir bloğun başına veya listenin sonuna bırakın."
         )
 
+    own_cols = _block_merged_cols(ws, lo, hi)
     _unmerge_rows(ws, lo, hi)
 
     # insert_rows birleşmeleri taşımaz → hedefin altındakileri ayır, ekle, kaydırarak geri tak
@@ -976,7 +986,7 @@ def reorder_reservation(planning_xlsx: Path, sheet: str, source_rows: list[int],
     _reattach_merges(ws, detached, delta=-num_rows)
 
     final_target = target_row if target_row <= lo else target_row - num_rows
-    _merge_lead_columns(ws, final_target, final_target + num_rows - 1)
+    _merge_lead_columns(ws, final_target, final_target + num_rows - 1, own_cols)
     
     target = out_path or planning_xlsx
     wb.save(target)
@@ -1008,6 +1018,7 @@ def delete_passenger_from_reservation(
     ws = wb[sheet]
     lo, hi = min(rows), max(rows)
 
+    own_cols = _block_merged_cols(ws, lo, hi) or None
     _unmerge_rows(ws, lo, hi)
 
     identity_cols = (config.COL_UYRUK, config.COL_MF, config.COL_NAME, config.COL_PASSPORT_NO)
@@ -1029,7 +1040,7 @@ def delete_passenger_from_reservation(
         pax = len(rows)
     pax = max(1, pax - 1)
     ws.cell(lead_row, config.COL_PAX).value = pax
-    _merge_lead_columns(ws, lead_row, rows[-2])
+    _merge_lead_columns(ws, lead_row, rows[-2], own_cols)
 
     target = out_path or planning_xlsx
     wb.save(target)
@@ -1057,6 +1068,7 @@ def resize_reservation(
     ws = wb[sheet]
     old_last = rows[-1]
     new_last = lead_row + new_pax - 1
+    own_cols = _block_merged_cols(ws, lead_row, old_last) or None
     _unmerge_rows(ws, lead_row, max(old_last, new_last))
 
     if new_last > old_last:
@@ -1111,7 +1123,7 @@ def resize_reservation(
             _clear_row(ws, row)
 
     ws.cell(lead_row, config.COL_PAX).value = new_pax
-    _merge_lead_columns(ws, lead_row, new_last)
+    _merge_lead_columns(ws, lead_row, new_last, own_cols)
     target = out_path or planning_xlsx
     wb.save(target)
     wb.close()
@@ -1180,108 +1192,4 @@ def write_operation_details(
 # girilmiş bazı bloklarda aynı değer her satıra tekrar yazılmış olabiliyor; bu yardımcı
 # yalnız güvenli durumda (tüm dolu değerler aynı) birleştirir, farklı değer varsa dokunmaz.
 
-def _multi_row_blocks(rows: list[PlanningRow]) -> list[tuple[ReservationBlock, int, int]]:
-    out = []
-    for b in group_blocks(rows):
-        block_rows = sorted(b.rows)
-        if len(block_rows) >= 2 and block_rows == list(range(block_rows[0], block_rows[-1] + 1)):
-            out.append((b, block_rows[0], block_rows[-1]))
-    return out
 
-
-def block_merge_columns(rows: list[PlanningRow], merged: list[tuple[int, int, int, int]]) -> tuple[int, ...]:
-    """Sayfanın KENDİ düzenine göre hangi kolonlar rezervasyon boyunca birleştirilir.
-
-    Çok satırlı rezervasyonların en az yarısında tam (lider..son satır) birleşik olan aday
-    kolonlar seçilir. Sayfada henüz birleşik rezervasyon yoksa çekirdek beş kolon. Böylece
-    yolcu başına yazılan irtibat/oda ve not gibi kolonlar zorla birleştirilmez.
-    """
-    blocks = _multi_row_blocks(rows)
-    exact = {(m[0], m[1], m[3]) for m in merged if m[0] == m[2]}
-    counts = {c: sum(1 for _, lead, last in blocks if (c, lead, last) in exact) for c in config.BLOCK_MERGE_CANDIDATE_COLS}
-    with_any = sum(1 for _, lead, last in blocks if any((c, lead, last) in exact for c in config.BLOCK_MERGE_CANDIDATE_COLS))
-    if with_any < 2:
-        return tuple(config.BLOCK_MERGE_CORE_COLS)
-    chosen = tuple(c for c in config.BLOCK_MERGE_CANDIDATE_COLS if counts[c] * 2 >= with_any)
-    return chosen or tuple(config.BLOCK_MERGE_CORE_COLS)
-
-
-def plan_block_merges(rows: list[PlanningRow], get, merged: list[tuple[int, int, int, int]]) -> dict:
-    """Hangi blok/kolonun birleştirileceğini hesaplar (yazmaz).
-
-    get(r, c) → hücre metni; merged → (min_col, min_row, max_col, max_row) listesi.
-    Kolonlar sayfanın kendi düzeninden öğrenilir (`block_merge_columns`).
-    Döner: {"actions": [{lead_row, last_row, col, value}], "skipped": [{lead_row, lead_name, col, values}],
-            "blocks": birleştirilecek blok sayısı, "columns": [kolon no]}
-    """
-    actions: list[dict] = []
-    skipped: list[dict] = []
-    touched: set[int] = set()
-    columns = block_merge_columns(rows, merged)
-    for b, lead, last in _multi_row_blocks(rows):
-        block_rows = list(range(lead, last + 1))
-        for col in columns:
-            covering = [m for m in merged if m[0] <= col <= m[2] and not (m[3] < lead or m[1] > last)]
-            if any(m[1] == lead and m[3] == last and m[0] == col == m[2] for m in covering):
-                continue          # zaten doğru birleşik
-            if covering:
-                skipped.append({"lead_row": lead, "lead_name": b.lead_name, "col": col, "values": ["(başka bir birleşik alan)"]})
-                continue
-            values = [get(r, col) for r in block_rows]
-            filled = {v for v in values if v}
-            if len(filled) > 1:
-                skipped.append({"lead_row": lead, "lead_name": b.lead_name, "col": col, "values": sorted(filled)})
-                continue
-            actions.append({"lead_row": lead, "last_row": last, "col": col, "value": next(iter(filled), "")})
-            touched.add(lead)
-    return {"actions": actions, "skipped": skipped, "blocks": len(touched), "columns": list(columns)}
-
-
-def merge_reservation_blocks(planning_xlsx: Path, sheet: str, out_path: Optional[Path] = None) -> dict:
-    """`plan_block_merges` planını uygular: değer lider satıra yazılır, diğerleri temizlenip birleştirilir."""
-    wb = openpyxl.load_workbook(planning_xlsx)
-    try:
-        if sheet not in wb.sheetnames:
-            raise KeyError(f"'{sheet}' sayfası yok.")
-        ws = wb[sheet]
-        rows = _rows_from_ws(ws)
-        merged = [(m.min_col, m.min_row, m.max_col, m.max_row) for m in ws.merged_cells.ranges]
-        plan = plan_block_merges(rows, lambda r, c: _cell(ws, r, c), merged)
-        for a in plan["actions"]:
-            lead_cell = ws.cell(a["lead_row"], a["col"])
-            raw = None
-            for r in range(a["lead_row"], a["last_row"] + 1):     # özgün tipi koru (saat, sayı)
-                v = ws.cell(r, a["col"]).value
-                if v not in (None, ""):
-                    raw = v
-                    break
-            for r in range(a["lead_row"] + 1, a["last_row"] + 1):
-                ws.cell(r, a["col"]).value = None
-            lead_cell.value = raw
-            ws.merge_cells(start_row=a["lead_row"], start_column=a["col"], end_row=a["last_row"], end_column=a["col"])
-            from openpyxl.styles import Alignment
-            al = lead_cell.alignment
-            lead_cell.alignment = Alignment(horizontal=al.horizontal or "center", vertical="center", wrap_text=al.wrap_text)
-        wb.save(out_path or planning_xlsx)
-    finally:
-        wb.close()
-    clear_excel_cache()
-    return {"blocks": plan["blocks"], "cells": len(plan["actions"]), "skipped": plan["skipped"]}
-
-
-def preview_block_merges(planning_xlsx: Path, sheet: str) -> dict:
-    """Ortak salt-okunur ızgara + XML birleşmeleriyle yazmadan plan (Excel görünümü düğmesi için)."""
-    grid = workbook_grid(planning_xlsx)
-    if sheet not in grid:
-        raise KeyError(f"'{sheet}' sayfası yok.")
-    values = grid[sheet]
-    rows = _rows_from_grid(values)
-
-    def get(r: int, c: int) -> str:
-        if r - 1 >= len(values):
-            return ""
-        row = values[r - 1]
-        v = row[c - 1] if c - 1 < len(row) else None
-        return "" if v is None else str(v).strip()
-
-    return plan_block_merges(rows, get, _merged_ranges(planning_xlsx).get(sheet, []))

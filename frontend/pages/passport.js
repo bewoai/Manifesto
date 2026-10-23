@@ -4,7 +4,7 @@
    ═══════════════════════════════════════════════════════════════════ */
 import { api, toast, renderHeader, modal, helpIcon, appStatus, registerUnsavedCheck } from '/app.js';
 import { attachCombobox } from '/combobox.js';
-import { capacityFor, isQuotaExceeded, quotaConfirmOptions } from '/capacity_rules.js';
+import { capacityFor, isDailyCapacityExceeded, dailyCapacityConfirmOptions } from '/capacity_rules.js';
 import {
   annotationMatches, fold, inferRule, isStaffAnnotation, normalizeAgencyKey,
   KIND_LABELS, LIST_KINDS, MARK_RULE_OPTIONS,
@@ -1618,7 +1618,7 @@ window.__writePlanning = async function() {
       btn.disabled = true;
       btn.innerHTML = '<span class="material-symbols-outlined animate-spin text-[20px]">progress_activity</span> Oluşturuluyor...';
     }
-    // Yeni rezervasyon gövdesi; kota onayı (allow_quota_override) yerinde eklenir.
+    // Yeni rezervasyon gövdesi; günlük kapasite onayı (allow_daily_capacity_override) yerinde eklenir.
     const createBody = {
       sheet, pax, hotel, agency, reserved_by, identities: approved,
       expected_revision: state.revision,
@@ -1738,16 +1738,16 @@ async function resetAfterWrite(sheet, writtenIdx = []) {
   if (sheet) await loadBlocks(sheet);
 }
 
-// create-with-identities isteği; 409 agency_quota_exceeded gelirse operatöre sorar ve
-// allow_quota_override ile yeniden dener (body yerinde güncellenir). Vazgeçilirse null.
+// create-with-identities isteği; 409 daily_capacity_exceeded gelirse operatöre sorar ve
+// allow_daily_capacity_override ile yeniden dener (body yerinde güncellenir). Vazgeçilirse null.
 async function postCreateWithIdentities(body) {
   try {
     return await api.post('/api/planning/create-with-identities', body);
   } catch (err) {
-    if (!isQuotaExceeded(err) || body.allow_quota_override) throw err;
-    const ok = await modal.confirm(quotaConfirmOptions(err.detail, esc));
+    if (!isDailyCapacityExceeded(err) || body.allow_daily_capacity_override) throw err;
+    const ok = await modal.confirm(dailyCapacityConfirmOptions(err.detail, esc));
     if (!ok) return null;
-    body.allow_quota_override = true;
+    body.allow_daily_capacity_override = true;
     return api.post('/api/planning/create-with-identities', body);
   }
 }

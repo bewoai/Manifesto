@@ -5,7 +5,7 @@
    biniş kartı. Veri: /api/planning/sheets, /api/planning/load, /api/weather/status.
    ═══════════════════════════════════════════════════════════════════ */
 import { api, toast, renderHeader, modal, balloonInk, envStripe, setBalloonCodes } from '/app.js';
-import { capacityFor, balloonLimitText } from '/capacity_rules.js';
+import { capacityFor, balloonLimitText, daySeats } from '/capacity_rules.js';
 import { planningRoute } from '/issue_links.js';
 
 let renderId = 0;
@@ -215,7 +215,14 @@ function summarizeBalloons(data) {
       overflow: used > cap,
     });
   }
+  // Günlük balon sınırı doluysa uçmayan balon satışa açık değil
+  const usable = new Set(daySeats(out, dayRules(data)).usable);
+  out.forEach((b) => { b.grounded = !usable.has(b.code); });
   return out;
+}
+
+function dayRules(data) {
+  return { maxBalloons: Number(data.daily_max_balloons) || 0, dailyCapacity: Number(data.daily_capacity) || 0 };
 }
 
 function mostCommon(values) {
@@ -255,16 +262,16 @@ function renderTodo(data, balloons) {
   if (c.missing_identity) push('warn', `${c.missing_identity} yolcunun kimlik bilgisi eksik`, issueRoute('missing_identity'), 'Tamamla');
   if (c.duplicate_document) push('danger', `${c.duplicate_document} belge numarası birden fazla satırda`, issueRoute('duplicate_document'), 'Düzelt');
   balloons.filter((b) => b.overflow).forEach((b) => push('danger', `${b.code} kapasitesi aşıldı: ${b.used}/${b.cap}`, dayRoute, 'Dağıt'));
-  (r.issues || []).filter((i) => i.code === 'daily_balloon_limit').slice(0, 1).forEach((i) => push('danger', i.message || 'Günlük balon sınırı aşıldı', dayRoute, 'Dağıt'));
+  (r.issues || []).filter((i) => i.code === 'daily_balloon_limit' || i.code === 'daily_capacity_exceeded').forEach((i) => push('danger', i.message || 'Günlük balon sınırı aşıldı', dayRoute, 'Dağıt'));
   if (c.pax_mismatch) push('warn', `${c.pax_mismatch} rezervasyonda PAX ile yolcu sayısı tutmuyor`, issueRoute('pax_mismatch'), 'Düzenle');
   const opsMissing = [
     ['missing_pickup', 'pickup saati'], ['missing_driver', 'şoför'], ['missing_hotel', 'otel'],
     ['missing_coming_place', 'geleceği yer'], ['missing_pilot', 'pilot'], ['missing_balloon', 'balon'],
   ].filter(([k]) => c[k]);
   opsMissing.forEach(([k, label]) => push('warn', `${c[k]} rezervasyonda ${label} eksik`, issueRoute(k), 'Düzenle'));
-  const freeTotal = balloons.reduce((n, b) => n + b.free, 0);
+  const freeTotal = daySeats(balloons, dayRules(data)).free;
   if (freeTotal > 0 && balloons.length) {
-    const detail = balloons.filter((b) => b.free).map((b) => `${b.code} ${b.free}`).join(', ');
+    const detail = balloons.filter((b) => b.free && !b.grounded).map((b) => `${b.code} ${b.free}`).join(', ');
     push('info', `${freeTotal} boş koltuk · ${detail}`, 'passport', 'Rezervasyon ekle');
   }
   if (r.ready && (data.total_blocks || 0) > 0) push('ok', 'Gün hazır. Manifesto ve şoför listelerini alabilirsiniz.', 'manifest', 'Çıktıları hazırla');
@@ -287,13 +294,14 @@ function renderMetrics(data, balloons) {
   const root = document.getElementById('dash-metrics');
   if (!root) return;
   const r = data.readiness || {};
-  const seats = balloons.reduce((n, b) => n + b.cap, 0);
-  const pax = balloons.reduce((n, b) => n + b.used, 0);
-  const free = balloons.reduce((n, b) => n + b.free, 0);
-  const limit = Number(data.daily_max_balloons) || 0;
+  const rules = dayRules(data);
+  const { seats, free, pax } = daySeats(balloons, rules);
+  const limit = rules.maxBalloons;
   const inUse = data.balloons_in_use ?? balloons.filter((b) => b.used > 0).length;
+  const seatSub = balloonLimitText(inUse, limit, balloons.length) + (rules.dailyCapacity ? ` · günlük ${rules.dailyCapacity} kişi` : '');
+  const over = (limit && inUse > limit) || (rules.dailyCapacity && pax > rules.dailyCapacity);
   const metrics = [
-    ['Koltuk', seats, balloonLimitText(inUse, limit, balloons.length), limit && inUse > limit ? 'text-danger font-semibold' : ''],
+    ['Koltuk', seats, seatSub, over ? 'text-danger font-semibold' : ''],
     ['Yolcu', pax, `${data.total_blocks || 0} rezervasyon`],
     ['Boş', free, free ? 'satışa açık' : 'tam dolu'],
     ['Kontrol', r.issue_count || 0, r.ready ? 'eksik yok' : 'bekleyen uyarı'],
@@ -326,7 +334,7 @@ function renderBoard(balloons) {
         const status = b.overflow ? `<span class="badge badge-red">Kapasite aşıldı</span>`
           : b.issues ? `<span class="badge badge-yellow">${b.issues} eksik</span>`
           : b.reservations ? `<span class="badge badge-green"><span class="material-symbols-outlined">check</span>Hazır</span>`
-          : `<span class="text-sm text-on-surface-variant">Boş</span>`;
+          : `<span class="text-sm text-on-surface-variant">${b.grounded ? 'Uçmuyor' : 'Boş'}</span>`;
         return `
         <tr class="cursor-pointer ${state.changed.has(b.code) ? 'changed' : ''}" onclick="window.__dashSelect('${esc(b.code)}')" aria-selected="${sel}">
           <td>

@@ -269,3 +269,30 @@ def test_api_capacity_409_without_daily_limit_has_new_fields(tmp_path, monkeypat
     assert not d["message"].startswith("Günlük")
 
 
+
+
+def test_readiness_flags_daily_capacity():
+    blocks = [_block(4, pax=2, balloon="BYF"), _block(10, pax=2, balloon="BYJ")]
+    assert "daily_capacity_exceeded" not in check_blocks(blocks, daily_capacity=4)["counts"]
+    r = check_blocks(blocks, daily_capacity=3)
+    issue = next(i for i in r["issues"] if i["code"] == "daily_capacity_exceeded")
+    assert issue["message"] == "Günlük kapasite aşıldı: 4/3 kişi."
+
+
+def test_api_daily_capacity_409_and_override(tmp_path, monkeypatch, append_wb):
+    # append_wb: 28 + 20 + 20 + 20 = 88 kişi
+    c = _make_client(tmp_path, monkeypatch, append_wb, daily_capacity=90)
+    load = c.get("/api/planning/load", params={"sheet": APPEND_DAY}).json()
+    assert load["daily_capacity"] == 90
+    r = _create(c, APPEND_DAY, pax=3, agency="ACENTE Y")
+    assert r.status_code == 409, r.text
+    d = r.json()["detail"]
+    assert d["code"] == "daily_capacity_exceeded" and (d["used"], d["pax"], d["capacity"]) == (88, 3, 90)
+    r = _create(c, APPEND_DAY, endpoint="/api/planning/create-with-identities", pax=3, agency="ACENTE Y")
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "daily_capacity_exceeded"
+    ok = _create(c, APPEND_DAY, pax=2, agency="ACENTE Y")
+    assert ok.status_code == 200, ok.text
+    over = _create(c, APPEND_DAY, pax=3, agency="ACENTE Y", allow_daily_capacity_override=True)
+    assert over.status_code == 200, over.text
+    load = c.get("/api/planning/load", params={"sheet": APPEND_DAY}).json()
+    assert load["readiness"]["counts"].get("daily_capacity_exceeded") == 1

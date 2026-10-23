@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════════
-   Kapasite kuralları — balon başına kapasite, günlük balon sınırı, acente kotası.
+   Kapasite kuralları — balon başına kapasite, günlük balon sınırı, günlük toplam kapasite.
    Saf yardımcılar (DOM yok): Ayarlar, Ana sayfa, Planlama ve Pasaport ortak kullanır.
    Node ile test edilir: tests/test_capacity_rules_js.py
    ═══════════════════════════════════════════════════════════════════ */
@@ -12,49 +12,6 @@ export function capacityFor(source, code) {
   const n = Number(own);
   if (own !== undefined && own !== null && own !== '' && Number.isFinite(n) && n > 0) return n;
   return Number(source?.capacity) || DEFAULT_CAPACITY;
-}
-
-/** Acente adını karşılaştırma anahtarına çevirir: büyük/küçük harf ve Türkçe harf farkı yok. */
-export function foldAgency(name) {
-  return String(name ?? '')
-    .trim()
-    .replace(/\s+/g, ' ')
-    .toLocaleUpperCase('tr-TR')
-    .replace(/İ/g, 'I')
-    .replace(/Ş/g, 'S')
-    .replace(/Ğ/g, 'G')
-    .replace(/Ü/g, 'U')
-    .replace(/Ö/g, 'O')
-    .replace(/Ç/g, 'C');
-}
-
-/**
- * Ayarlar'daki kota tablosu satırları: bilinen acenteler + kotası kayıtlı acenteler,
- * aynı acente bir kez. Ad, listedeki yazımıyla gösterilir.
- * Dönüş: [{ name, quota }] (quota: sayı ya da null = sınırsız).
- */
-export function agencyQuotaRows(agencies = [], quotas = {}) {
-  const rows = [];
-  const byKey = new Map();
-  const add = (name, quota) => {
-    const clean = String(name ?? '').trim();
-    const key = foldAgency(clean);
-    if (!key) return;
-    const existing = byKey.get(key);
-    if (existing) {
-      if (quota !== null && existing.quota === null) existing.quota = quota;
-      return;
-    }
-    const row = { name: clean, quota };
-    byKey.set(key, row);
-    rows.push(row);
-  };
-  for (const name of agencies || []) add(name, null);
-  for (const [name, q] of Object.entries(quotas || {})) {
-    const n = parseInt(q, 10);
-    add(name, Number.isFinite(n) && n > 0 ? n : null);
-  }
-  return rows;
 }
 
 /** [{name, value}] → {ad: sayı}; boş, 0 ve geçersiz değerler atlanır. */
@@ -76,31 +33,46 @@ export function balloonLimitText(inUse, max, total) {
   return `${Number(total) || 0} balon`;
 }
 
-/** Kotası tanımlı acenteler (quota > 0); kota aşan önce. */
-export function quotaRows(agencyUsage = []) {
-  return (agencyUsage || [])
-    .filter((u) => Number(u?.quota) > 0)
-    .map((u) => ({ agency: u.agency, used: Number(u.used) || 0, quota: Number(u.quota), over: Number(u.used) > Number(u.quota) }))
-    .sort((a, b) => Number(b.over) - Number(a.over));
+/**
+ * Günün satılabilir koltukları. Günlük balon sınırı doluysa uçmayan balonlar sayılmaz
+ * (sınıra yer varsa en büyük kapasiteli boş balonlar eklenir). Günlük toplam kapasite
+ * (ör. 112 kişi) tanımlıysa koltuk ve boş yer onunla sınırlanır.
+ * balloons: [{ code, cap, used }]. Dönüş: { seats, free, pax, usable: [kod] }.
+ */
+export function daySeats(balloons = [], { maxBalloons = 0, dailyCapacity = 0 } = {}) {
+  const num = (v) => Number(v) || 0;
+  const limit = num(maxBalloons);
+  const flying = balloons.filter((b) => num(b.used) > 0);
+  const idle = balloons.filter((b) => num(b.used) <= 0).sort((x, y) => num(y.cap) - num(x.cap));
+  const usable = limit > 0 ? [...flying, ...idle.slice(0, Math.max(0, limit - flying.length))] : [...flying, ...idle];
+  const pax = balloons.reduce((n, b) => n + num(b.used), 0);
+  let seats = usable.reduce((n, b) => n + num(b.cap), 0);
+  let free = usable.reduce((n, b) => n + Math.max(0, num(b.cap) - num(b.used)), 0);
+  const cap = num(dailyCapacity);
+  if (cap > 0) {
+    seats = Math.min(seats, cap);
+    free = Math.min(free, Math.max(0, cap - pax));
+  }
+  return { seats, free, pax, usable: usable.map((b) => b.code) };
 }
 
-export function isQuotaExceeded(err) {
-  return err?.status === 409 && err?.detail?.code === 'agency_quota_exceeded';
+export function isDailyCapacityExceeded(err) {
+  return err?.status === 409 && err?.detail?.code === 'daily_capacity_exceeded';
 }
 
-/** 409 agency_quota_exceeded için modal.confirm seçenekleri. esc: HTML kaçış fonksiyonu. */
-export function quotaConfirmOptions(detail = {}, esc = (s) => String(s ?? '')) {
+/** 409 daily_capacity_exceeded için modal.confirm seçenekleri. esc: HTML kaçış fonksiyonu. */
+export function dailyCapacityConfirmOptions(detail = {}, esc = (s) => String(s ?? '')) {
   const used = Number(detail.used) || 0;
   const pax = Number(detail.pax) || 0;
-  const quota = Number(detail.quota) || 0;
-  const message = detail.message || `${detail.agency || 'Acente'} günlük kotasını aşıyor.`;
-  const numbers = quota
-    ? `<p class="text-sm text-on-surface-variant mt-2">${esc(detail.agency || 'Acente')}: bugün ${used} kişi + bu rezervasyon ${pax} kişi = <strong class="text-danger tnum">${used + pax}/${quota}</strong></p>`
+  const cap = Number(detail.capacity) || 0;
+  const message = detail.message || 'Günlük kapasite aşılıyor.';
+  const numbers = cap
+    ? `<p class="text-sm text-on-surface-variant mt-2">Bu günde ${used} kişi + bu rezervasyon ${pax} kişi = <strong class="text-danger tnum">${used + pax}/${cap}</strong></p>`
     : '';
   return {
-    title: 'Acente kotası aşılıyor',
+    title: 'Günlük kapasite aşılıyor',
     bodyHtml: `<p class="text-on-surface">${esc(message)}</p>${numbers}`,
-    confirmLabel: 'Kotayı aşarak ekle',
+    confirmLabel: 'Kapasiteyi aşarak ekle',
     cancelLabel: 'Vazgeç',
     tone: 'danger',
   };

@@ -135,6 +135,11 @@ export async function render(container) {
             <input class="form-input" id="s-daily-max-balloons" type="number" min="0" max="50" placeholder="Sınırsız" />
             <div class="form-help">Bir günde en fazla kaç balon uçabilir. Boş ya da 0 ise sınır yoktur.</div>
           </div>
+          <div class="form-group">
+            <label class="form-label" for="s-daily-capacity">Günlük toplam kapasite (kişi)</label>
+            <input class="form-input" id="s-daily-capacity" type="number" min="0" max="2000" placeholder="Sınırsız" />
+            <div class="form-help">Acentenin bir günde satabileceği toplam kişi (ör. 112). Boş koltuk bu sınıra göre gösterilir; aşan rezervasyon onay ister.</div>
+          </div>
         </div>
         <div class="form-group">
           <label class="form-label" for="s-balloon-codes">Balon kodları</label>
@@ -361,6 +366,7 @@ function fillForm(s) {
   val('s-balloon-capacity', s.balloon_capacity);
   val('s-balloon-codes', Array.isArray(s.balloon_codes) ? s.balloon_codes.join(', ') : '');
   val('s-daily-max-balloons', Number(s.daily_max_balloons) > 0 ? s.daily_max_balloons : '');
+  val('s-daily-capacity', Number(s.daily_capacity) > 0 ? s.daily_capacity : '');
   capacityDraft = Object.fromEntries(Object.entries(s.balloon_capacities || {}).map(([k, v]) => [String(k).toUpperCase(), String(v)]));
   if (Array.isArray(s.balloon_codes)) setBalloonCodes(s.balloon_codes);
   renderCapacityRows({ keepDom: false });
@@ -485,6 +491,7 @@ window.__saveSettings = async function() {
     { upperKey: true },
   );
   body.daily_max_balloons = Math.max(0, parseInt(gv('s-daily-max-balloons'), 10) || 0);
+  body.daily_capacity = Math.max(0, parseInt(gv('s-daily-capacity'), 10) || 0);
   // Acente kotası kaldırıldı (2026-10-24): satış acente bazında, sorumluluk alan acentede
   body.agency_quotas = {};
   body.default_agency_quota = 0;

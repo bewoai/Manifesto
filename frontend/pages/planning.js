@@ -6,7 +6,7 @@ import { parseQuery, matchesBlock, describeTerms } from '/planning_search.js';
 import { mountSheetGrid, sheetGridDirty } from '/sheet_grid.js';
 import { attachCombobox } from '/combobox.js';
 import { openIdentityEditor } from '/identity_edit.js';
-import { capacityFor, balloonLimitText, isQuotaExceeded, quotaConfirmOptions } from '/capacity_rules.js';
+import { capacityFor, balloonLimitText, isDailyCapacityExceeded, dailyCapacityConfirmOptions } from '/capacity_rules.js';
 import { issueLabel, issueLeadRows, findBlockIndexForRow } from '/issue_links.js';
 
 let state = {
@@ -1270,17 +1270,17 @@ window.__submitReservation = async function() {
   }
 };
 
-// create-block isteği; 409 agency_quota_exceeded gelirse operatöre sorar ve
-// allow_quota_override ile yeniden dener. body yerinde güncellenir (sonraki kapasite
-// onayı da kota onayını taşısın). Vazgeçilirse null döner.
+// create-block isteği; 409 daily_capacity_exceeded gelirse operatöre sorar ve
+// allow_daily_capacity_override ile yeniden dener. body yerinde güncellenir (sonraki kapasite
+// onayı da günlük kapasite onayını taşısın). Vazgeçilirse null döner.
 async function postCreateBlock(body) {
   try {
     return await api.post('/api/planning/create-block', body);
   } catch (err) {
-    if (!isQuotaExceeded(err) || body.allow_quota_override) throw err;
-    const ok = await modal.confirm(quotaConfirmOptions(err.detail, escHtml));
+    if (!isDailyCapacityExceeded(err) || body.allow_daily_capacity_override) throw err;
+    const ok = await modal.confirm(dailyCapacityConfirmOptions(err.detail, escHtml));
     if (!ok) return null;
-    body.allow_quota_override = true;
+    body.allow_daily_capacity_override = true;
     return api.post('/api/planning/create-block', body);
   }
 }

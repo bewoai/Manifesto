@@ -60,7 +60,6 @@ function render() {
       for (const c of spanCols) if (!(r === m.row && c === spanCols[0])) covered.add(`${r}:${c}`);
     }
   }
-  const mergePlan = data.merge_plan || { blocks: 0 };
   const cellVal = (row, c) => {
     const key = `${row.row}:${c}`;
     return dirty.has(key) ? dirty.get(key) : (row.cells[c - 1] || '');
@@ -76,9 +75,6 @@ function render() {
       <button class="btn-primary btn-sm" id="sg-save" onclick="window.__sgSave()" ${dirty.size ? '' : 'disabled'}>
         <span class="material-symbols-outlined text-[18px]">save</span> Kaydet
       </button>
-      ${mergePlan.blocks ? `<button class="btn-secondary btn-sm" onclick="window.__sgMergeBlocks()" title="Sayfadaki diğer rezervasyonlarda birleşik olan kolonları (${esc((mergePlan.columns || []).join(', '))}) bu rezervasyonlarda da birleştirir">
-        <span class="material-symbols-outlined text-[18px]">table_rows</span> ${mergePlan.blocks} rezervasyonu birleştir
-      </button>` : ''}
       <button class="btn-ghost btn-sm" onclick="window.__sgOpenExcel()" title="Dosyayı Microsoft Excel'de aç. Excel açıkken uygulama dosyaya yazamaz.">
         <span class="material-symbols-outlined text-[18px]">open_in_new</span> Excel'de aç
       </button>
@@ -224,27 +220,3 @@ window.__sgOpenExcel = async function() {
   } catch (err) { toast.error('Excel açılamadı', err.message); }
 };
 
-
-window.__sgMergeBlocks = async function() {
-  if (!grid) return;
-  if (grid.dirty.size) { toast.warning('Önce kaydedin', 'Kaydedilmemiş hücreler varken birleştirme yapılamaz.'); return; }
-  const n = grid.data.merge_plan?.blocks || 0;
-  const ok = await modal.confirm({
-    title: `${n} rezervasyon birleşik düzene getirilsin mi?`,
-    bodyHtml: `<p class="text-on-surface mb-2">Bu sayfadaki diğer rezervasyonlarda birleşik olan kolonlar <strong>${esc((grid.data.merge_plan?.columns || []).join(', '))}</strong> bu rezervasyonlarda da tek hücrede birleştirilir. Tekrar eden kopyalar silinir, değer ilk satırda kalır.</p>
-      <p class="text-sm text-on-surface-variant">Yolcu başına yazılan kolonlara (ör. irtibat, not) sayfa öyle kullanmıyorsa dokunulmaz. Satırlarında farklı değer olan kolon atlanır. Önce yedek alınır; Yönetim &gt; Excel Yedekleri'nden geri alınabilir.</p>`,
-    confirmLabel: 'Birleştir',
-  });
-  if (!ok) return;
-  try {
-    const res = await api.post('/api/planning/merge-blocks', { sheet: grid.sheet, expected_revision: grid.data.workbook_revision });
-    const skipped = (res.skipped || []).length;
-    toast.success(`${res.blocks} rezervasyon birleştirildi`, skipped ? `${skipped} kolon farklı değerler içerdiği için atlandı.` : `Yedek: ${res.backup}`);
-    const { root, sheet, onSaved } = grid;
-    await mountSheetGrid(root, { sheet, onSaved });
-    onSaved?.();
-  } catch (err) {
-    if (err.status === 409) toast.warning('Dosya bu arada değişti', 'Sayfayı yenileyip tekrar deneyin. Excel açıksa kapatın.');
-    else toast.error('Birleştirilemedi', err.message);
-  }
-};

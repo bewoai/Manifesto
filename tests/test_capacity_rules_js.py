@@ -33,35 +33,43 @@ out.noData = m.capacityFor({}, 'BTK');
 
 
 @pytest.mark.skipif(not NODE, reason="node yok")
-def test_agency_rows_merge_case_and_turkish_insensitive():
+def test_collect_int_map_and_limit_text():
     got = run("""
-out.rows = m.agencyQuotaRows(['Bedel Turizm', 'Şahin Tur', 'Acente 3'], { 'BEDEL TURIZM': 30, 'SAHIN TUR': '0', 'YENİ': 12 });
 out.map = m.collectIntMap([{ name: 'A', value: '5' }, { name: 'B', value: '' }, { name: 'C', value: '0' }, { name: ' ', value: '3' }]);
 out.upper = m.collectIntMap([{ name: 'bzr', value: '40' }], { upperKey: true });
+out.limited = m.balloonLimitText(3, 4, 5);
+out.free = m.balloonLimitText(3, 0, 5);
 """)
-    assert got["rows"] == [
-        {"name": "Bedel Turizm", "quota": 30},
-        {"name": "Şahin Tur", "quota": None},
-        {"name": "Acente 3", "quota": None},
-        {"name": "YENİ", "quota": 12},
-    ]
-    assert got["map"] == {"A": 5}
-    assert got["upper"] == {"BZR": 40}
+    assert got["map"] == {"A": 5} and got["upper"] == {"BZR": 40}
+    assert got["limited"] == "3/4 balon" and got["free"] == "5 balon"
 
 
 @pytest.mark.skipif(not NODE, reason="node yok")
-def test_limit_text_quota_rows_and_quota_error():
+def test_day_seats_respects_balloon_limit_and_daily_capacity():
     got = run("""
-out.limited = m.balloonLimitText(3, 4, 5);
-out.free = m.balloonLimitText(3, 0, 5);
-out.rows = m.quotaRows([{ agency: 'A', used: 5, quota: 10 }, { agency: 'B', used: 12, quota: 10 }, { agency: 'C', used: 3, quota: 0 }]);
-out.isQuota = m.isQuotaExceeded({ status: 409, detail: { code: 'agency_quota_exceeded' } });
-out.notQuota = m.isQuotaExceeded({ status: 409, detail: { code: 'capacity_confirmation_required' } });
-const opts = m.quotaConfirmOptions({ message: 'X <kota>', agency: 'A', used: 8, pax: 4, quota: 10 }, s => String(s).replace(/</g, '&lt;'));
-out.label = opts.confirmLabel; out.tone = opts.tone; out.body = opts.bodyHtml;
+const day = [
+  { code: 'BYF', cap: 28, used: 28 }, { code: 'BTK', cap: 14, used: 0 }, { code: 'BYJ', cap: 28, used: 28 },
+  { code: 'BZR', cap: 28, used: 28 }, { code: 'BZV', cap: 28, used: 28 }, { code: 'BSC', cap: 2, used: 0 },
+  { code: 'BZK', cap: 20, used: 0 },
+];
+out.none = m.daySeats(day);
+out.limit = m.daySeats(day, { maxBalloons: 4 });
+out.both = m.daySeats(day, { maxBalloons: 4, dailyCapacity: 112 });
+const partial = [{ code: 'A', cap: 28, used: 20 }, { code: 'B', cap: 14, used: 0 }, { code: 'C', cap: 20, used: 0 }];
+out.room = m.daySeats(partial, { maxBalloons: 2 });
+out.capped = m.daySeats(partial, { dailyCapacity: 40 });
+out.isCap = m.isDailyCapacityExceeded({ status: 409, detail: { code: 'daily_capacity_exceeded' } });
+out.notCap = m.isDailyCapacityExceeded({ status: 409, detail: { code: 'capacity_confirmation_required' } });
+const opts = m.dailyCapacityConfirmOptions({ message: 'X <k>', used: 110, pax: 4, capacity: 112 }, s => String(s).replace(/</g, '&lt;'));
+out.label = opts.confirmLabel; out.body = opts.bodyHtml;
 """)
-    assert got["limited"] == "3/4 balon" and got["free"] == "5 balon"
-    assert [r["agency"] for r in got["rows"]] == ["B", "A"] and got["rows"][0]["over"] is True
-    assert got["isQuota"] is True and got["notQuota"] is False
-    assert got["label"] == "Kotayı aşarak ekle" and got["tone"] == "danger"
-    assert "X &lt;kota>" in got["body"] and "12/10" in got["body"]
+    # Ekran görüntüsündeki gün: sınırsız 148/36; 4 balon sınırıyla uçmayanlar düşer → 112/0
+    assert (got["none"]["seats"], got["none"]["free"]) == (148, 36)
+    assert (got["limit"]["seats"], got["limit"]["free"]) == (112, 0)
+    assert sorted(got["limit"]["usable"]) == ["BYF", "BYJ", "BZR", "BZV"]
+    assert (got["both"]["seats"], got["both"]["free"]) == (112, 0)
+    # sınıra yer varsa en büyük boş balon eklenir
+    assert got["room"]["usable"] == ["A", "C"] and got["room"]["free"] == 28
+    assert (got["capped"]["seats"], got["capped"]["free"]) == (40, 20)
+    assert got["isCap"] is True and got["notCap"] is False
+    assert got["label"] == "Kapasiteyi aşarak ekle" and "X &lt;k>" in got["body"] and "114/112" in got["body"]

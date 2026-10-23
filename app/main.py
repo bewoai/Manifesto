@@ -901,6 +901,7 @@ def api_planning_load(sheet: str = Query(..., description="Gün sayfa adı")) ->
         "capacity": s.balloon_capacity,               # varsayılan kapasite
         "capacities": _capacities(s, balloon_codes),  # balon → kapasite
         "daily_max_balloons": s.daily_max_balloons,   # 0 = sınır yok
+        "daily_capacity": s.daily_capacity,           # günlük toplam kişi; 0 = sınır yok
         "balloons_in_use": sum(1 for v in load.values() if v > 0),
         "total_blocks": len(blocks),
         "workbook_revision": revision,
@@ -949,21 +950,14 @@ def api_planning_view(sheet: str = Query(..., description="Gün sayfası, ör. 2
     while rows and not any(rows[-1]["cells"]):
         rows.pop()
     title = " ".join(t for t in (_cell_text(v) for r in values[:header_idx] for v in r) if t)
-    from app.manifest.planning import _merged_ranges, preview_block_merges
+    from app.manifest.planning import _merged_ranges
     merges = [
         {"row": min_row, "col": min_col, "rowspan": max_row - min_row + 1, "colspan": max_col - min_col + 1}
         for (min_col, min_row, max_col, max_row) in _merged_ranges(xlsx_path).get(sheet, [])
         if min_row >= config.PLANNING_FIRST_DATA_ROW and min_col <= config.COL_PASSPORT_NO
     ]
-    try:
-        plan = preview_block_merges(xlsx_path, sheet)
-        merge_plan = {"blocks": plan["blocks"], "cells": len(plan["actions"]), "skipped": len(plan["skipped"]),
-                      "columns": [header[c - 1] if c - 1 < len(header) and header[c - 1] else str(c) for c in plan["columns"]]}
-    except Exception:
-        merge_plan = {"blocks": 0, "cells": 0, "skipped": 0}
     return {
         "merges": merges,
-        "merge_plan": merge_plan,
         "sheet": sheet,
         "file": xlsx_path.name,
         "workbook_revision": workbook_revision(xlsx_path),
@@ -1066,37 +1060,6 @@ def api_planning_write_cells(body: dict, request: Request) -> dict[str, Any]:
     return {"success": True, "count": count, "workbook_revision": revision, "backup": backup.name}
 
 
-@app.post("/api/planning/merge-blocks")
-def api_planning_merge_blocks(body: dict, request: Request) -> dict[str, Any]:
-    """Rezervasyonların ortak kolonlarını blok boyunca birleştirir. Kolonlar sayfanın kendi
-    düzeninden öğrenilir (çoğu rezervasyonda birleşik olanlar; örnek yoksa PAX, otel, pickup,
-    rezerve, acente). Yalnız tüm dolu değerler aynıysa; farklıysa o kolon atlanır."""
-    from app.manifest.planning import merge_reservation_blocks
-
-    sheet = str(body.get("sheet", "")).strip()
-    if not sheet:
-        raise HTTPException(status_code=422, detail="Gün seçimi gerekli.")
-    s = _load_settings()
-    xlsx_path = _resolve_planning_path(s)
-    if not xlsx_path.exists():
-        raise HTTPException(status_code=404, detail=f"Planlama dosyası bulunamadı: {xlsx_path}")
-    try:
-        result, revision, backup = atomic_update(
-            xlsx_path,
-            expected_revision=body.get("expected_revision"),
-            reason="merge_blocks",
-            mutator=lambda temp: merge_reservation_blocks(temp, sheet),
-        )
-    except (WorkbookConflictError, WorkbookLockedError) as e:
-        raise _atomic_error(e)
-    except KeyError as e:
-        raise HTTPException(status_code=404, detail=str(e).strip("'\""))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Birleştirilemedi: {e}")
-    audit_mod.record("blocks_merged", actor=_actor(request), sheet=sheet,
-                     detail={"blocks": result["blocks"], "cells": result["cells"], "skipped": len(result["skipped"])})
-    _sync_sqlite(sheet)
-    return {"success": True, **result, "workbook_revision": revision, "backup": backup.name}
 
 
 @app.post("/api/planning/open-excel")
@@ -1295,6 +1258,7 @@ def api_planning_create_block(body: dict, request: Request) -> dict:
         raise HTTPException(status_code=500, detail=f"Sayfa okunamadı: {e}")
 
     load = planning_balloon_load(blocks)
+    _check_daily_capacity(s, load, pax, body)
     requested_balloon = str(body.get("requested_balloon", "")).strip().upper()
     allowed = _daily_allowed_balloons(s, load)
     lead_hotel = lead_fields.get("hotel", "")
@@ -1838,7 +1802,27 @@ def _readiness_rules(s: settings_mod.Settings) -> dict:
     return {
         "balloon_capacity": s.capacity_for,
         "daily_max_balloons": s.daily_max_balloons,
+        "daily_capacity": s.daily_capacity,
     }
+
+
+def _check_daily_capacity(s: settings_mod.Settings, load: dict, pax: int, body: dict) -> None:
+    """Günlük toplam kapasite (Ayarlar, ör. 112 kişi) aşılacaksa 409 daily_capacity_exceeded.
+
+    Operatör onaylarsa (`allow_daily_capacity_override`) rezervasyon yine de eklenir."""
+    limit = int(s.daily_capacity or 0)
+    if limit <= 0 or body.get("allow_daily_capacity_override"):
+        return
+    used = sum(int(v or 0) for v in load.values())
+    if used + pax > limit:
+        raise HTTPException(status_code=409, detail={
+            "code": "daily_capacity_exceeded",
+            "used": used,
+            "pax": pax,
+            "capacity": limit,
+            "message": f"Günlük kapasite {limit} kişi. Bu günde {used} kişi var; {pax} kişilik rezervasyon "
+                       f"ile {used + pax} olur.",
+        })
 
 
 def _capacities(s: settings_mod.Settings, codes) -> dict[str, int]:
@@ -1935,6 +1919,7 @@ def api_create_with_identities(body: dict, request: Request) -> dict:
     current_rows = read_rows(path, sheet)
     current_blocks = read_blocks(path, sheet)
     current_load = planning_balloon_load(current_blocks)
+    _check_daily_capacity(s, current_load, pax, body)
     allowed = _daily_allowed_balloons(s, current_load)
     lead_hotel = fields.get("hotel", "")
     lead_pickup = fields.get("pickup", "")

@@ -19,12 +19,14 @@ def check_blocks(
     *,
     balloon_capacity: Capacity = config.DEFAULT_BALLOON_CAPACITY,
     daily_max_balloons: int = 0,
+    daily_capacity: int = 0,
     pending_review_count: int = 0,
 ) -> dict:
     """Gün sayfasının uçuşa hazırlık kontrolü.
 
     `balloon_capacity`: tek int ya da `kod → kapasite` (ör. `Settings.capacity_for`).
     `daily_max_balloons`: > 0 ise yolcu taşıyan balon sayısı bunu aşarsa uyarı.
+    `daily_capacity`: > 0 ise günün toplam yolcusu bunu aşarsa uyarı (acentenin günlük kapasitesi).
     `lead_row` taşıyan her uyarıda `lead_name` de vardır (arayüz rezervasyona bağlantı kurar).
     """
     cap = capacity_fn(balloon_capacity)
@@ -114,6 +116,16 @@ def check_blocks(
             "message": f"Günlük balon sınırı aşıldı: {balloons_in_use}/{daily_max_balloons} balon.",
         })
 
+    total_seats = sum(balloon_load.values())
+    daily_capacity = int(daily_capacity or 0)
+    if daily_capacity > 0 and total_seats > daily_capacity:
+        issues.append({
+            "code": "daily_capacity_exceeded",
+            "used": total_seats,
+            "capacity": daily_capacity,
+            "message": f"Günlük kapasite aşıldı: {total_seats}/{daily_capacity} kişi.",
+        })
+
     if pending_review_count:
         issues.append({
             "code": "pending_ocr_review",
@@ -139,11 +151,13 @@ def check_workbook(
     *,
     balloon_capacity: Capacity = config.DEFAULT_BALLOON_CAPACITY,
     daily_max_balloons: int = 0,
+    daily_capacity: int = 0,
     pending_review_count: int = 0,
 ) -> dict:
     return check_blocks(
         read_blocks(planning_xlsx, sheet),
         balloon_capacity=balloon_capacity,
         daily_max_balloons=daily_max_balloons,
+        daily_capacity=daily_capacity,
         pending_review_count=pending_review_count,
     )

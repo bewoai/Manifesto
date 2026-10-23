@@ -373,3 +373,13 @@ Hatalı-eksik), acente bazlı eksik görünümü, kapasite (Sayfa2) entegrasyonu
   "… X otelinin diğer yolcularıyla aynı balona (KOD) atandı." (create-with-identities artık `message` döner).
 - `/api/planning/load` → `hotel_split` [{hotel, balloons, seats}]: 2+ balona dağılmış oteller, öneri;
   readiness uyarısı DEĞİL (çıktıyı engellemez). Test: `tests/test_hotel_grouping.py`.
+
+### Birleşim ve günlük kapasite (2026-10-24)
+- **"Rezervasyonları birleştir" tuşu kaldırıldı** (24.10'da irtibat/not kolonlarını gereksiz birleştirdi).
+  Yeni rezervasyon yalnız A/F/G/H/I'yı (PAX, otel, pickup, rezerve, acente) birleştirir
+  (`config.LEAD_MERGE_COLS`); E (irtibat/oda) ve M (not) yolcu başına. Taşıma/büyütme/yolcu silme
+  bloğun **kendi** birleşimlerini korur (`_block_merged_cols`). 24.10 Downloads orijinaline göre onarıldı.
+- **Günlük toplam kapasite** `Settings.daily_capacity` (arkadaşın acentesi 112; 0 = sınırsız). Aşan
+  rezervasyon 409 `daily_capacity_exceeded` → operatör onayıyla `allow_daily_capacity_override`;
+  readiness `daily_capacity_exceeded`. Ana sayfa koltuk/boş hesabı `daySeats`: günlük balon sınırı
+  doluysa uçmayan balonlar sayılmaz ("Uçmuyor"), toplam günlük kapasiteyle sınırlanır.

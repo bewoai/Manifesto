@@ -256,7 +256,6 @@ function renderTodo(data, balloons) {
   if (c.duplicate_document) push('danger', `${c.duplicate_document} belge numarası birden fazla satırda`, issueRoute('duplicate_document'), 'Düzelt');
   balloons.filter((b) => b.overflow).forEach((b) => push('danger', `${b.code} kapasitesi aşıldı: ${b.used}/${b.cap}`, dayRoute, 'Dağıt'));
   (r.issues || []).filter((i) => i.code === 'daily_balloon_limit').slice(0, 1).forEach((i) => push('danger', i.message || 'Günlük balon sınırı aşıldı', dayRoute, 'Dağıt'));
-  (r.issues || []).filter((i) => i.code === 'agency_quota_exceeded').forEach((i) => push('danger', i.message || `${i.agency} kotası aşıldı: ${i.used}/${i.quota}`, dayRoute, 'İncele'));
   if (c.pax_mismatch) push('warn', `${c.pax_mismatch} rezervasyonda PAX ile yolcu sayısı tutmuyor`, issueRoute('pax_mismatch'), 'Düzenle');
   const opsMissing = [
     ['missing_pickup', 'pickup saati'], ['missing_driver', 'şoför'], ['missing_hotel', 'otel'],

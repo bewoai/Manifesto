@@ -6,7 +6,7 @@ import { parseQuery, matchesBlock, describeTerms } from '/planning_search.js';
 import { mountSheetGrid, sheetGridDirty } from '/sheet_grid.js';
 import { attachCombobox } from '/combobox.js';
 import { openIdentityEditor } from '/identity_edit.js';
-import { capacityFor, balloonLimitText, quotaRows, isQuotaExceeded, quotaConfirmOptions } from '/capacity_rules.js';
+import { capacityFor, balloonLimitText, isQuotaExceeded, quotaConfirmOptions } from '/capacity_rules.js';
 import { issueLabel, issueLeadRows, findBlockIndexForRow } from '/issue_links.js';
 
 let state = {
@@ -149,7 +149,6 @@ export async function render(container) {
           <div class="flex flex-col" id="sidebar-balloon-load-list">
             <!-- Dinamik olarak dolacak -->
           </div>
-          <div id="sidebar-agency-quota" style="display:none"></div>
         </div>
       </div>
 
@@ -802,28 +801,8 @@ function renderBalloonLoad() {
       </div>
     `;
   }).join('') || '<div class="text-sm text-on-surface-variant p-2">Kayıtlı balon yok. Listeler\'den balon kodu ekleyin.</div>');
-  renderAgencyQuota();
 }
 
-// Acente kotaları: yalnız kotası tanımlı acenteler (quota > 0). Çubuk lapis; aşımda tuğla.
-function renderAgencyQuota() {
-  const el = document.getElementById('sidebar-agency-quota');
-  if (!el) return;
-  const rows = quotaRows(state.agencyUsage);
-  if (!rows.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
-  el.style.display = '';
-  el.innerHTML = `
-    <div class="text-label-md uppercase text-on-surface-variant mt-5 mb-1">Acente kotaları</div>
-    ${rows.map(r => {
-      const pct = Math.min(100, Math.round((r.used / Math.max(1, r.quota)) * 100));
-      return `
-      <div class="flex items-center gap-3 py-2 border-b border-line last:border-0 text-sm">
-        <span class="w-24 shrink-0 truncate ${r.over ? 'text-danger font-semibold' : 'text-on-surface'}" title="${escHtml(r.agency)}">${escHtml(r.agency)}</span>
-        <div class="seat-bar flex-1" style="--env: var(${r.over ? '--danger' : '--primary'})"><span style="width:${pct}%"></span></div>
-        <span class="tnum font-semibold w-14 text-right ${r.over ? 'text-danger' : 'text-on-surface'}">${r.used}/${r.quota}</span>
-      </div>`;
-    }).join('')}`;
-}
 
 window.__selectBlock = function(index) {
   state.selectedBlock = state.selectedBlock === index ? null : index;

@@ -48,6 +48,7 @@ from app.manifest.planning import (
     create_reservation as planning_create_reservation,
     delete_reservation as planning_delete_reservation,
     list_sheets as planning_list_sheets,
+    month_load as planning_month_load,
     create_day_sheet as planning_create_day_sheet,
     create_missing_days as planning_create_missing_days,
     reorder_reservation as planning_reorder_reservation,
@@ -898,6 +899,51 @@ def api_planning_load(sheet: str = Query(..., description="Gün sayfa adı")) ->
         "workbook_revision": revision,
         "readiness": readiness,
         "free_seats": free_seats,   # koltuk şablonu: balon → {free, longest}
+    }
+
+
+# Takvim doluluğu: (dosya, ay, revizyon, kapasite, kodlar) → gün → {used, free, total}.
+# Revizyon dosya içeriğinden türediği için Excel dışarıdan değişince anahtar da değişir;
+# kaynak yine Excel'dir, önbellek yalnız aynı içeriğin tekrar okunmasını önler.
+_MONTH_LOAD_CACHE: dict[tuple, dict] = {}
+_MONTH_LOAD_CACHE_MAX = 24
+
+
+@app.get("/api/planning/month-load")
+def api_planning_month_load(month: str = Query(..., pattern=r"^\d{4}-\d{2}$", description="YYYY-AA")) -> dict:
+    """Takvim için ayın her uçuş gününün koltuk doluluğu."""
+    year, mon = (int(x) for x in month.split("-"))
+    if not 1 <= mon <= 12:
+        raise HTTPException(status_code=422, detail=f"Geçersiz ay: {month}")
+    s = _load_settings()
+    xlsx_path = _resolve_planning_path(s)
+    if not xlsx_path.exists():
+        raise HTTPException(status_code=404, detail=f"Planlama dosyası bulunamadı: {xlsx_path}")
+    try:
+        revision = workbook_revision(xlsx_path)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Planlama dosyası okunamadı: {e}")
+
+    capacity = s.balloon_capacity
+    codes = tuple(s.balloon_codes)
+    key = (str(xlsx_path.resolve()), month, revision, capacity, codes)
+    days = _MONTH_LOAD_CACHE.get(key)
+    cached = days is not None
+    if not cached:
+        try:
+            days = planning_month_load(xlsx_path, year, mon, capacity=capacity, codes=list(codes))
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Doluluk hesaplanamadı: {e}")
+        while len(_MONTH_LOAD_CACHE) >= _MONTH_LOAD_CACHE_MAX:
+            _MONTH_LOAD_CACHE.pop(next(iter(_MONTH_LOAD_CACHE)))
+        _MONTH_LOAD_CACHE[key] = days
+
+    return {
+        "month": month,
+        "days": days,
+        "capacity": capacity,
+        "workbook_revision": revision,
+        "cached": cached,
     }
 
 

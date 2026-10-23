@@ -19,6 +19,8 @@ let state = {
 let calState = {
   currentYear: new Date().getFullYear(),
   currentMonth: new Date().getMonth() + 1, // 1-12
+  monthLoad: {},        // 'YYYY-AA' → { revision, days: { 'GG.AA.YYYY': {used, free, total} } }
+  monthLoadPending: {},
 };
 
 const monthsTR = [
@@ -228,6 +230,40 @@ window.__nextMonth = function() {
   renderCalendar();
 };
 
+function monthKey(year, month) {
+  return `${year}-${String(month).padStart(2, '0')}`;
+}
+
+// Ayın gün doluluğu: sunucu workbook_revision ile önbellekler; burada yalnız revizyon
+// değiştiyse (yazım sonrası) yeniden istenir. Doluluk bilgi amaçlıdır, hata takvimi bozmaz.
+async function ensureMonthLoad(year, month) {
+  const key = monthKey(year, month);
+  const suffix = `.${String(month).padStart(2, '0')}.${year}`;
+  if (calState.monthLoadPending[key] || !state.sheets.some(s => s.endsWith(suffix))) return;
+  const have = calState.monthLoad[key];
+  if (have && (!state.revision || have.revision === state.revision)) return;
+  calState.monthLoadPending[key] = true;
+  try {
+    const data = await api.get(`/api/planning/month-load?month=${key}`);
+    const days = data.days || {};
+    const changed = !have || JSON.stringify(have.days) !== JSON.stringify(days);
+    calState.monthLoad[key] = { revision: data.workbook_revision || '', days };
+    if (changed && monthKey(calState.currentYear, calState.currentMonth) === key) renderCalendar();
+  } catch (err) {
+    // doluluk gösterilmez; takvim yine çalışır
+  } finally {
+    delete calState.monthLoadPending[key];
+  }
+}
+
+function dayLoadHtml(load) {
+  if (!load || !load.total) return '';
+  const pct = Math.min(100, Math.round((load.used / load.total) * 100));
+  const over = load.used > load.total ? ' over' : '';
+  return `<span class="seat-bar day-load${over}" aria-hidden="true"><span style="width:${pct}%"></span></span>`
+    + `<span class="sr-only">, ${load.used}/${load.total} koltuk dolu</span>`;
+}
+
 function renderCalendar() {
   const monthYearEl = document.getElementById('calendar-month-year');
   const daysGridEl = document.getElementById('calendar-days-grid');
@@ -247,6 +283,7 @@ function renderCalendar() {
 
   // Ayın günleri
   const today = todayStart();
+  const loadDays = (calState.monthLoad[monthKey(calState.currentYear, calState.currentMonth)] || {}).days || {};
   for (let day = 1; day <= daysInMonth; day++) {
     const formatted = formatCalendarDate(day, calState.currentMonth, calState.currentYear);
     const hasPlan = state.sheets.includes(formatted);
@@ -268,7 +305,9 @@ function renderCalendar() {
     if (isToday) cls += ' today';
 
     if (hasPlan) {
-      html += `<div class="${cls}" onclick="window.__loadDayDate('${formatted}')" title="Günü Yükle: ${formatted}">${day}</div>`;
+      const load = loadDays[formatted];
+      const seats = load && load.total ? ` · ${load.used}/${load.total} koltuk` : '';
+      html += `<div class="${cls}" onclick="window.__loadDayDate('${formatted}')" title="Günü Yükle: ${formatted}${seats}">${day}${dayLoadHtml(load)}</div>`;
     } else if (isPast) {
       // Geçmiş ve planı olmayan gün: yanlışlıkla gün oluşturulmasın diye tıklanamaz
       html += `<div class="${cls}" title="Geçmiş tarih — uçuş günü yok">${day}</div>`;
@@ -278,6 +317,7 @@ function renderCalendar() {
   }
 
   daysGridEl.innerHTML = html;
+  ensureMonthLoad(calState.currentYear, calState.currentMonth);
 
   const remainBtn = document.getElementById('btn-create-remaining');
   if (remainBtn) {

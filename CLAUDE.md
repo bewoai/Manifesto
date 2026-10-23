@@ -333,3 +333,15 @@ Hatalı-eksik), acente bazlı eksik görünümü, kapasite (Sayfa2) entegrasyonu
 - Hata düzeltmesi: `index.html` `app.js?v=N` yüklüyordu, sayfalar `/app.js` → derlemede iki modül kopyası
   (kullanıcı/sürüm bilgisi kayboluyordu). Artık sorgu eki yok.
 - Dar ekranda menü üstten açılır (`__toggleNav`). Tasarım kararları ve tasarım sistemi: `DESIGN.md`.
+
+### Takvim doluluğu (2026-10-24)
+- `GET /api/planning/month-load?month=YYYY-AA` → gün (`GG.AA.YYYY`) → `{used, free, total}`; hesap
+  `planning.month_load/day_seat_load` (`balloon_load` + `free_seat_summary`, kitap bir kez açılır).
+  Toplam: koltuk şablonunda sayfadaki koltuklar (dolu + serbest); ekleme şablonunda kapasite ×
+  (Ayarlar kodları ∪ sayfadaki balonlar).
+- Önbellek `main._MONTH_LOAD_CACHE`, anahtar (dosya, ay, `workbook_revision`, kapasite, kodlar); Excel
+  değişince revizyon değişir, kaynak yine Excel. Yanıtta `cached`. Google Sheets modunda her indirme
+  yeni mtime → önbellek isabet etmez (bilinen sınır).
+- Takvim (`pages/planning.js`): plan günlerinin altında `.seat-bar.day-load` (lapis; aşımda tuğla;
+  zarf mürekkebi değil — Envelope Rule). İstemci, ay verisini `state.revision` değişene dek yeniden istemez.
+  Bugün lapis çerçeveli.

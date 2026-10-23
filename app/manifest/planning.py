@@ -520,6 +520,49 @@ def sheet_date(name: str):
         return None
 
 
+def day_seat_load(ws, *, capacity: int, codes: list[str]) -> dict:
+    """Bir gün sayfasının koltuk doluluğu: {"used", "free", "total"}.
+
+    Dolu = `balloon_load` toplamı; serbest = `free_seat_summary` toplamı.
+    Koltuk şablonunda (balon bantları) toplam, sayfadaki koltuklardır (dolu + serbest).
+    Ekleme şablonunda satır yalnız yolcu için açıldığından toplam = kapasite × balon sayısı
+    (Ayarlar'daki kodlar + sayfada görülenler).
+    """
+    rows = _rows_from_ws(ws)
+    blocks = group_blocks(rows)
+    load = balloon_load(blocks)
+    free = free_seat_summary(rows, blocks)
+    used = sum(load.values())
+    free_total = sum(v["free"] for v in free.values())
+    if is_seat_layout(ws, capacity):
+        total = used + free_total
+    else:
+        balloons = {c for c in codes if c} | set(load) | set(free)
+        total = max(used + free_total, capacity * len(balloons))
+    return {"used": used, "free": free_total, "total": total}
+
+
+def month_load(planning_xlsx: Path, year: int, month: int, *, capacity: int, codes: list[str]) -> dict[str, dict]:
+    """Ayın her gün sayfası için `day_seat_load`. Anahtar 'GG.AA.YYYY'.
+
+    Çalışma kitabı bir kez açılır; okunamayan sayfa atlanır (takvim yine çizilir).
+    """
+    wb = openpyxl.load_workbook(planning_xlsx, data_only=True)
+    try:
+        out: dict[str, dict] = {}
+        for name in wb.sheetnames:
+            d = sheet_date(name)
+            if d is None or d.year != year or d.month != month:
+                continue
+            try:
+                out[d.strftime("%d.%m.%Y")] = day_seat_load(wb[name], capacity=capacity, codes=codes)
+            except Exception:
+                continue
+        return out
+    finally:
+        wb.close()
+
+
 def nearest_source_sheet(sheetnames: list[str], new_sheet: str) -> Optional[str]:
     """Yeni gün için kopyalanacak gün: tarihçe en yakın ÖNCEKİ gün, yoksa en yakın sonraki."""
     target = sheet_date(new_sheet)

@@ -771,7 +771,7 @@
 .calendar-day.no-plan:hover { background: rgb(var(--ink) / 0.06); color: rgb(var(--ink)); }
 .calendar-day.past { color: rgb(var(--ink) / 0.3); cursor: default; }
 .calendar-day.past:hover { background: transparent; color: rgb(var(--ink) / 0.3); }
-.calendar-day.today { border-color: rgb(var(--outline)); }
+.calendar-day.today { border-color: rgb(var(--primary)); }
 .calendar-day.has-plan {
   background: rgb(var(--primary) / 0.12);
   color: rgb(var(--primary));
@@ -783,6 +783,20 @@
   color: rgb(var(--on-primary)) !important;
   font-weight: 700;
   border-color: transparent !important;
+}
+/* Gün doluluğu: .seat-bar; bütün gün için zarf mürekkebi değil lapis (Envelope Rule) */
+.calendar-day .day-load {
+  --env: var(--primary);
+  position: absolute;
+  left: 24%;
+  right: 24%;
+  bottom: 5px;
+  height: 3px;
+}
+.calendar-day .day-load.over { --env: var(--danger); }
+.calendar-day.selected .day-load {
+  --env: var(--on-primary);
+  background-color: rgb(var(--on-primary) / 0.3);
 }
 
 .calendar-nav-btn {

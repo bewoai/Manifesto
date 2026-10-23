@@ -5,6 +5,7 @@ import { api, toast, modal, renderHeader, helpIcon, registerUnsavedCheck, balloo
 import { parseQuery, matchesBlock, describeTerms } from '/planning_search.js';
 import { attachCombobox } from '/combobox.js';
 import { openIdentityEditor } from '/identity_edit.js';
+import { capacityFor, balloonLimitText, quotaRows, isQuotaExceeded, quotaConfirmOptions } from '/capacity_rules.js';
 
 let state = {
   sheets: [],
@@ -62,6 +63,10 @@ function applyDayData(data) {
   setBalloonCodes(state.balloons);
   state.balloonLoad = data.balloon_load || {};
   state.capacity = data.capacity || 28;
+  state.capacities = data.capacities || {};
+  state.dailyMaxBalloons = Number(data.daily_max_balloons) || 0;
+  state.balloonsInUse = data.balloons_in_use;
+  state.agencyUsage = data.agency_usage || [];
   state.revision = data.workbook_revision || '';
   state.readiness = data.readiness || null;
 }
@@ -137,6 +142,7 @@ export async function render(container) {
           <div class="flex flex-col" id="sidebar-balloon-load-list">
             <!-- Dinamik olarak dolacak -->
           </div>
+          <div id="sidebar-agency-quota" style="display:none"></div>
         </div>
       </div>
 
@@ -675,9 +681,16 @@ window.__renderPlanning = renderBlocks;
 function renderBalloonLoad() {
   const el = document.getElementById('sidebar-balloon-load-list');
   if (!el) return;
-  const cap = state.capacity || 28;
   const codes = state.balloons || [];
-  el.innerHTML = codes.map(code => {
+  const limit = state.dailyMaxBalloons || 0;
+  const inUse = state.balloonsInUse ?? codes.filter(code => ((state.balloonLoad || {})[code] || 0) > 0).length;
+  const limitLine = limit ? `
+      <div class="flex items-center justify-between text-sm pb-2.5 mb-0.5 border-b border-line">
+        <span class="text-on-surface-variant">Günlük balon sınırı</span>
+        <span class="tnum font-semibold ${inUse > limit ? 'text-danger' : 'text-on-surface'}">${escHtml(balloonLimitText(inUse, limit))}</span>
+      </div>` : '';
+  el.innerHTML = limitLine + (codes.map(code => {
+    const cap = state.capacities?.[code] ?? state.capacity ?? 28;
     const used = (state.balloonLoad || {})[code] || 0;
     const over = used > cap;
     const pct = Math.min(100, Math.round((used / Math.max(1, cap)) * 100));
@@ -689,7 +702,28 @@ function renderBalloonLoad() {
         <span class="tnum font-semibold w-14 text-right ${over ? 'text-danger' : 'text-on-surface'}">${used}/${cap}</span>
       </div>
     `;
-  }).join('') || '<div class="text-sm text-on-surface-variant p-2">Kayıtlı balon yok. Listeler\'den balon kodu ekleyin.</div>';
+  }).join('') || '<div class="text-sm text-on-surface-variant p-2">Kayıtlı balon yok. Listeler\'den balon kodu ekleyin.</div>');
+  renderAgencyQuota();
+}
+
+// Acente kotaları: yalnız kotası tanımlı acenteler (quota > 0). Çubuk lapis; aşımda tuğla.
+function renderAgencyQuota() {
+  const el = document.getElementById('sidebar-agency-quota');
+  if (!el) return;
+  const rows = quotaRows(state.agencyUsage);
+  if (!rows.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
+  el.style.display = '';
+  el.innerHTML = `
+    <div class="text-label-md uppercase text-on-surface-variant mt-5 mb-1">Acente kotaları</div>
+    ${rows.map(r => {
+      const pct = Math.min(100, Math.round((r.used / Math.max(1, r.quota)) * 100));
+      return `
+      <div class="flex items-center gap-3 py-2 border-b border-line last:border-0 text-sm">
+        <span class="w-24 shrink-0 truncate ${r.over ? 'text-danger font-semibold' : 'text-on-surface'}" title="${escHtml(r.agency)}">${escHtml(r.agency)}</span>
+        <div class="seat-bar flex-1" style="--env: var(${r.over ? '--danger' : '--primary'})"><span style="width:${pct}%"></span></div>
+        <span class="tnum font-semibold w-14 text-right ${r.over ? 'text-danger' : 'text-on-surface'}">${r.used}/${r.quota}</span>
+      </div>`;
+    }).join('')}`;
 }
 
 window.__selectBlock = function(index) {
@@ -1138,7 +1172,11 @@ window.__submitReservation = async function() {
 
   try {
     body.expected_revision = state.revision;
-    const res = await api.post('/api/planning/create-block', body);
+    const res = await postCreateBlock(body);
+    if (!res) {   // kota aşımı onaylanmadı
+      toast.info('Rezervasyon eklenmedi', 'Acente kotası aşılmadı.');
+      return;
+    }
     modal.close();
     if (res.overflow) {
       toast.warning('Balon atandı (taşma)', res.message);
@@ -1158,14 +1196,33 @@ window.__submitReservation = async function() {
   }
 };
 
+// create-block isteği; 409 agency_quota_exceeded gelirse operatöre sorar ve
+// allow_quota_override ile yeniden dener. body yerinde güncellenir (sonraki kapasite
+// onayı da kota onayını taşısın). Vazgeçilirse null döner.
+async function postCreateBlock(body) {
+  try {
+    return await api.post('/api/planning/create-block', body);
+  } catch (err) {
+    if (!isQuotaExceeded(err) || body.allow_quota_override) throw err;
+    const ok = await modal.confirm(quotaConfirmOptions(err.detail, escHtml));
+    if (!ok) return null;
+    body.allow_quota_override = true;
+    return api.post('/api/planning/create-block', body);
+  }
+}
+
 function showCapacityChoice(body, detail) {
   window.__pendingOverflowBody = body;
+  const intro = detail.message
+    || 'Grup hiçbir balona kapasite içinde sığmıyor. Hedef balonu seçip kapasite aşımını açıkça onaylayın veya iptal edin.';
+  const limit = Number(detail.daily_max_balloons) || 0;
   modal.open('Balon Kapasitesi Doldu', `
-    <p class="text-on-surface-variant mb-4">Grup hiçbir balona kapasite içinde sığmıyor. Hedef balonu seçip kapasite aşımını açıkça onaylayın veya iptal edin.</p>
+    <p class="text-on-surface-variant mb-4">${escHtml(intro)}</p>
+    ${limit ? `<p class="text-sm text-on-surface-variant -mt-2 mb-4">Günlük en fazla ${limit} balon uçabilir.</p>` : ''}
     <div class="space-y-2">${(detail.balloon_codes || []).map(code => `
       <label class="flex items-center justify-between rounded-lg border border-line p-3 cursor-pointer">
         <span><input type="radio" name="overflow-balloon" value="${escHtml(code)}" class="mr-3" />${escHtml(code)}</span>
-        <strong>${detail.balloon_load?.[code] || 0}/${detail.capacity}</strong>
+        <strong class="tnum">${Number(detail.balloon_load?.[code] || 0)}/${capacityFor(detail, code)}</strong>
       </label>`).join('')}</div>
   `, `
     <button class="btn-secondary" onclick="window.__closeModal()">İptal</button>
@@ -1180,7 +1237,8 @@ window.__confirmOverflow = async function() {
   body.requested_balloon = selected;
   body.allow_overflow = true;
   try {
-    const res = await api.post('/api/planning/create-block', body);
+    const res = await postCreateBlock(body);
+    if (!res) { toast.info('Rezervasyon eklenmedi', 'Acente kotası aşılmadı.'); return; }
     modal.close();
     toast.warning('Kapasite aşımı onaylandı', `${res.balloon} balonuna atandı`);
     window.__loadDay();

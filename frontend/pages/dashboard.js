@@ -5,6 +5,7 @@
    biniş kartı. Veri: /api/planning/sheets, /api/planning/load, /api/weather/status.
    ═══════════════════════════════════════════════════════════════════ */
 import { api, toast, renderHeader, modal, balloonInk, envStripe, setBalloonCodes } from '/app.js';
+import { capacityFor, balloonLimitText } from '/capacity_rules.js';
 
 let renderId = 0;
 let state = { data: null, selected: null, changed: new Set() };
@@ -192,7 +193,6 @@ async function loadWeather(token = renderId) {
 
 // ─── Balon özeti ───
 function summarizeBalloons(data) {
-  const cap = data.capacity || 28;
   const codes = new Set([...(data.balloon_codes || []), ...Object.keys(data.balloon_load || {})]);
   const blocks = data.blocks || [];
   const issues = (data.readiness || {}).issues || [];
@@ -200,6 +200,7 @@ function summarizeBalloons(data) {
   const out = [];
   for (const code of codes) {
     if (!code) continue;
+    const cap = capacityFor(data, code);   // balona özel kapasite, yoksa varsayılan
     const own = blocks.filter((b) => b.balloon === code);
     const pilots = mostCommon(own.map((b) => b.pilot).filter(Boolean));
     const drivers = [...new Set(own.map((b) => b.driver).filter(Boolean))].sort();
@@ -249,6 +250,8 @@ function renderTodo(data, balloons) {
   if (c.missing_identity) push('warn', `${c.missing_identity} yolcunun kimlik bilgisi eksik`, 'planning', 'Tamamla');
   if (c.duplicate_document) push('danger', `${c.duplicate_document} belge numarası birden fazla satırda`, 'planning', 'Düzelt');
   balloons.filter((b) => b.overflow).forEach((b) => push('danger', `${b.code} kapasitesi aşıldı: ${b.used}/${b.cap}`, 'planning', 'Dağıt'));
+  (r.issues || []).filter((i) => i.code === 'daily_balloon_limit').slice(0, 1).forEach((i) => push('danger', i.message || 'Günlük balon sınırı aşıldı', 'planning', 'Dağıt'));
+  (r.issues || []).filter((i) => i.code === 'agency_quota_exceeded').forEach((i) => push('danger', i.message || `${i.agency} kotası aşıldı: ${i.used}/${i.quota}`, 'planning', 'İncele'));
   if (c.pax_mismatch) push('warn', `${c.pax_mismatch} rezervasyonda PAX ile yolcu sayısı tutmuyor`, 'planning', 'Düzenle');
   const opsMissing = [
     ['missing_pickup', 'pickup saati'], ['missing_driver', 'şoför'], ['missing_hotel', 'otel'],
@@ -283,17 +286,19 @@ function renderMetrics(data, balloons) {
   const seats = balloons.reduce((n, b) => n + b.cap, 0);
   const pax = balloons.reduce((n, b) => n + b.used, 0);
   const free = balloons.reduce((n, b) => n + b.free, 0);
+  const limit = Number(data.daily_max_balloons) || 0;
+  const inUse = data.balloons_in_use ?? balloons.filter((b) => b.used > 0).length;
   const metrics = [
-    ['Koltuk', seats, `${balloons.length} balon`],
+    ['Koltuk', seats, balloonLimitText(inUse, limit, balloons.length), limit && inUse > limit ? 'text-danger font-semibold' : ''],
     ['Yolcu', pax, `${data.total_blocks || 0} rezervasyon`],
     ['Boş', free, free ? 'satışa açık' : 'tam dolu'],
     ['Kontrol', r.issue_count || 0, r.ready ? 'eksik yok' : 'bekleyen uyarı'],
   ];
-  root.innerHTML = metrics.map(([label, value, sub], i) => `
+  root.innerHTML = metrics.map(([label, value, sub, subClass = ''], i) => `
     <div class="bg-panel px-5 py-4">
       <div class="text-label-md uppercase text-on-surface-variant">${label}</div>
       <div class="font-headline text-[40px] leading-[1.05] font-semibold tnum mt-1 ${label === 'Kontrol' && value ? 'text-warning' : 'text-on-surface'}">${value}</div>
-      <div class="text-[13px] text-on-surface-variant">${sub}</div>
+      <div class="text-[13px] ${subClass || 'text-on-surface-variant'}">${sub}</div>
     </div>`).join('');
 }
 

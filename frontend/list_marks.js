@@ -62,6 +62,30 @@ export function annotationMatches(rule, annotation) {
   return false;
 }
 
+// Python `_SPECIFIC_RULES`: eşitlikte bu sıra kazanır.
+const SPECIFIC_RULES = ['check', 'highlight', 'number', 'yes', 'letter_b'];
+
+/**
+ * Python `infer_rule`: işaret dağılımından listenin kuralını tahmin eder.
+ * Hiç işaret yoksa "all"; işaret var ama özel kurala uymuyorsa "any_mark";
+ * en çok satır eşleyen özel kural kazanır (eşitlikte SPECIFIC_RULES sırası).
+ * Dönüş: { rule, matched, total }.
+ */
+export function inferRule(annotations) {
+  const rows = Array.from(annotations || [], a => String(a || ''));
+  const total = rows.length;
+  const marked = rows.filter(a => annotationMatches('any_mark', a)).length;
+  if (total === 0 || marked === 0) return { rule: 'all', matched: total, total };
+  let bestRule = null;
+  let bestCount = 0;
+  for (const rule of SPECIFIC_RULES) {
+    const count = rows.filter(a => annotationMatches(rule, a)).length;
+    if (count > bestCount) { bestRule = rule; bestCount = count; }
+  }
+  if (bestRule === null) return { rule: 'any_mark', matched: marked, total };
+  return { rule: bestRule, matched: bestCount, total };
+}
+
 /** Rehber/kaptan satırı mı? (annotation içinde rol kelimesi) */
 export function isStaffAnnotation(annotation) {
   const a = fold(annotation);

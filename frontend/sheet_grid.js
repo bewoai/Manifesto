@@ -4,7 +4,7 @@
    düzenleme, değişiklikler "Kaydet" ile toplu yazılır (POST /api/planning/cells,
    tek yedek + revizyon çakışma kontrolü). Kaynak: GET /api/planning/view.
    ═══════════════════════════════════════════════════════════════════ */
-import { api, toast, balloonInk, escapeHtml as esc } from '/app.js';
+import { api, toast, modal, balloonInk, escapeHtml as esc } from '/app.js';
 
 const COL_LETTERS = (n) => {
   let s = '';
@@ -48,13 +48,26 @@ function render() {
   const balloonCol = data.columns?.balloon;
   const nameCol = data.columns?.name;
   const passportCol = data.columns?.passport;
+  const anchors = new Map();   // "r:c" → {rowspan, colspan}
+  const covered = new Set();
+  const visible = new Set(cols);
+  for (const m of data.merges || []) {
+    const spanCols = [];
+    for (let c = m.col; c < m.col + m.colspan; c++) if (visible.has(c)) spanCols.push(c);
+    if (!spanCols.length) continue;
+    anchors.set(`${m.row}:${spanCols[0]}`, { rowspan: m.rowspan, colspan: spanCols.length });
+    for (let r = m.row; r < m.row + m.rowspan; r++) {
+      for (const c of spanCols) if (!(r === m.row && c === spanCols[0])) covered.add(`${r}:${c}`);
+    }
+  }
+  const mergePlan = data.merge_plan || { blocks: 0 };
   const cellVal = (row, c) => {
     const key = `${row.row}:${c}`;
     return dirty.has(key) ? dirty.get(key) : (row.cells[c - 1] || '');
   };
   root.innerHTML = `
     <div class="flex flex-wrap items-center gap-3 mb-3">
-      <div class="text-sm text-on-surface-variant min-w-0 flex-1">
+      <div class="text-sm text-on-surface-variant min-w-0 basis-full xl:basis-0 xl:flex-1">
         <span class="font-semibold text-on-surface">${esc(data.file)}</span> · ${esc(data.sheet)} · ${data.rows.length} satır
         <span class="block text-xs">Hücreye çift tıklayın ya da seçip Enter'a basın. Değişiklikler "Kaydet" ile Excel'e yazılır, öncesinde yedek alınır.</span>
       </div>
@@ -63,6 +76,9 @@ function render() {
       <button class="btn-primary btn-sm" id="sg-save" onclick="window.__sgSave()" ${dirty.size ? '' : 'disabled'}>
         <span class="material-symbols-outlined text-[18px]">save</span> Kaydet
       </button>
+      ${mergePlan.blocks ? `<button class="btn-secondary btn-sm" onclick="window.__sgMergeBlocks()" title="Rezervasyonun ortak bilgilerini (PAX, irtibat, otel, pickup, rezerve yapan, acente, not) blok boyunca tek hücrede birleştirir">
+        <span class="material-symbols-outlined text-[18px]">table_rows</span> ${mergePlan.blocks} rezervasyonu birleştir
+      </button>` : ''}
       <button class="btn-ghost btn-sm" onclick="window.__sgOpenExcel()" title="Dosyayı Microsoft Excel'de aç. Excel açıkken uygulama dosyaya yazamaz.">
         <span class="material-symbols-outlined text-[18px]">open_in_new</span> Excel'de aç
       </button>
@@ -82,10 +98,14 @@ function render() {
             return `<tr data-row="${row.row}" class="${seat ? 'sg-seat' : ''} ${grid.focusRow === row.row ? 'sg-focus' : ''}">
               <th scope="row" class="sg-rownum">${row.row}</th>
               ${cols.map(c => {
+                const key = `${row.row}:${c}`;
+                if (covered.has(key)) return '';
+                const span = anchors.get(key);
+                const spanAttr = span ? ` rowspan="${span.rowspan}" colspan="${span.colspan}"` : '';
                 const v = cellVal(row, c);
                 const isDirty = dirty.has(`${row.row}:${c}`);
                 const ink = c === balloonCol && balloon ? ` style="${balloonInk(balloon)}"` : '';
-                return `<td tabindex="0" data-r="${row.row}" data-c="${c}" class="sg-cell ${isDirty ? 'sg-dirty' : ''} ${c === passportCol ? 'font-mono' : ''} ${c === balloonCol && balloon ? 'sg-balloon' : ''}"${ink}>${esc(v)}</td>`;
+                return `<td tabindex="0" data-r="${row.row}" data-c="${c}"${spanAttr} class="sg-cell ${span ? 'sg-merged' : ''} ${isDirty ? 'sg-dirty' : ''} ${c === passportCol ? 'font-mono' : ''} ${c === balloonCol && balloon ? 'sg-balloon' : ''}"${ink}>${esc(v)}</td>`;
               }).join('')}
             </tr>`;
           }).join('')}
@@ -118,9 +138,10 @@ function focusNeighbor(td, dr, dc) {
     if (sib && sib.matches('td.sg-cell')) sib.focus();
     return;
   }
-  const idx = [...tr.children].indexOf(td);
-  const next = dr > 0 ? tr.nextElementSibling : tr.previousElementSibling;
-  next?.children[idx]?.focus();
+  const col = td.dataset.c;
+  let next = dr > 0 ? tr.nextElementSibling : tr.previousElementSibling;
+  while (next && !next.querySelector(`td[data-c="${col}"]`)) next = dr > 0 ? next.nextElementSibling : next.previousElementSibling;
+  next?.querySelector(`td[data-c="${col}"]`)?.focus();
 }
 
 function beginEdit(td, firstChar) {
@@ -201,4 +222,29 @@ window.__sgOpenExcel = async function() {
     await api.post('/api/planning/open-excel', {});
     toast.info("Excel'de açıldı", 'Excel açıkken uygulama dosyaya yazamaz; işiniz bitince kaydedip kapatın.');
   } catch (err) { toast.error('Excel açılamadı', err.message); }
+};
+
+
+window.__sgMergeBlocks = async function() {
+  if (!grid) return;
+  if (grid.dirty.size) { toast.warning('Önce kaydedin', 'Kaydedilmemiş hücreler varken birleştirme yapılamaz.'); return; }
+  const n = grid.data.merge_plan?.blocks || 0;
+  const ok = await modal.confirm({
+    title: `${n} rezervasyon birleşik düzene getirilsin mi?`,
+    bodyHtml: `<p class="text-on-surface mb-2">Her rezervasyonun PAX, irtibat/oda, otel, pickup, rezerve yapan, acente ve not bilgisi, Excel'deki doğru örnekteki gibi tek hücrede birleştirilir. Tekrar eden kopyalar silinir, değer ilk satırda kalır.</p>
+      <p class="text-sm text-on-surface-variant">Satırlarında farklı değer olan kolonlara dokunulmaz. Önce yedek alınır.</p>`,
+    confirmLabel: 'Birleştir',
+  });
+  if (!ok) return;
+  try {
+    const res = await api.post('/api/planning/merge-blocks', { sheet: grid.sheet, expected_revision: grid.data.workbook_revision });
+    const skipped = (res.skipped || []).length;
+    toast.success(`${res.blocks} rezervasyon birleştirildi`, skipped ? `${skipped} kolon farklı değerler içerdiği için atlandı.` : `Yedek: ${res.backup}`);
+    const { root, sheet, onSaved } = grid;
+    await mountSheetGrid(root, { sheet, onSaved });
+    onSaved?.();
+  } catch (err) {
+    if (err.status === 409) toast.warning('Dosya bu arada değişti', 'Sayfayı yenileyip tekrar deneyin. Excel açıksa kapatın.');
+    else toast.error('Birleştirilemedi', err.message);
+  }
 };

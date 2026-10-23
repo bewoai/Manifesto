@@ -202,6 +202,8 @@ export async function render(container) {
             </select>
           </div>
           <div id="issue-filter-chip"></div>
+          <div id="balloon-chips" class="flex flex-wrap items-center gap-2 mb-3" role="group" aria-label="Balona göre süz"></div>
+          <div id="hotel-split" class="mb-3"></div>
           <div class="flex flex-col gap-3" id="blocks-list"></div>
           <div id="excel-view" style="display:none"></div>
         </div>
@@ -572,6 +574,8 @@ window.__submitNewDayDate = async function() {
 };
 
 function renderBlocks() {
+  renderBalloonChips();
+  renderHotelSplit();
   const section = document.getElementById('blocks-section');
   const list = document.getElementById('blocks-list');
   const count = document.getElementById('blocks-count');
@@ -617,8 +621,10 @@ function renderBlocks() {
     const dragAttrs = (isRowSort && !state.pendingReorder) ? `draggable="true" ondragstart="window.__onDragStart(event, ${i})" ondragend="window.__onDragEnd(event)" ondragover="window.__onDragOver(event)" ondragleave="window.__onDragLeave(event)" ondrop="window.__onDrop(event, ${i})"` : '';
     return `
     <div class="block-shell ${state.selectedBlock === i ? 'selected' : ''}" id="block-${i}" ${dragAttrs}>
-    <div class="block-item ${state.selectedBlock === i ? 'selected' : ''}"
+    <div class="block-item ${b.balloon ? 'has-env' : ''} ${state.selectedBlock === i ? 'selected' : ''}"
+         ${b.balloon ? `style="${balloonInk(b.balloon)}"` : ''}
          onclick="window.__selectBlock(${i})">
+      ${b.balloon ? envStripe(b.balloon) : '<span class="env-stripe env-none" aria-hidden="true"><i></i><i></i><i></i></span>'}
       <div class="block-seq-num">
         ${listSeq + 1}
       </div>
@@ -696,6 +702,80 @@ function filteredBlocks() {
 }
 
 window.__renderPlanning = renderBlocks;
+
+// ─── Balon renk filtresi ve aynı otel önerisi ───
+function foldName(v) {
+  return String(v || '').toLocaleUpperCase('tr-TR').replace(/[İIı]/g, 'I').replace(/Ş/g, 'S').replace(/Ğ/g, 'G')
+    .replace(/Ü/g, 'U').replace(/Ö/g, 'O').replace(/Ç/g, 'C').replace(/\s+/g, ' ').trim();
+}
+
+function blockSeats(b) {
+  return Number(b.pax) || (b.rows || []).length || (b.passengers || []).length || 0;
+}
+
+function renderBalloonChips() {
+  const root = document.getElementById('balloon-chips');
+  if (!root) return;
+  const current = document.getElementById('block-filter')?.value || '';
+  const codes = [...new Set([...(state.balloons || []), ...state.blocks.map(b => b.balloon).filter(Boolean)])];
+  if (!codes.length) { root.innerHTML = ''; return; }
+  const count = (code) => state.blocks.filter(b => b.balloon === code).length;
+  const chip = (value, label, n, style = '') => {
+    const on = current === value;
+    return `<button type="button" class="balloon-chip ${on ? 'is-on' : ''}" ${style} aria-pressed="${on}"
+      onclick="window.__filterBalloon('${value}')">${label}<span class="balloon-chip-n">${n}</span></button>`;
+  };
+  root.innerHTML = chip('', 'Tümü', state.blocks.length)
+    + codes.map(code => chip(`balloon_${escHtml(code)}`, `${envStripe(code)}<span>${escHtml(code)}</span>`, count(code), `style="${balloonInk(code)}"`)).join('');
+}
+
+window.__filterBalloon = function(value) {
+  const sel = document.getElementById('block-filter');
+  if (!sel) return;
+  if (value && !Array.from(sel.options).some(o => o.value === value)) return;
+  sel.value = sel.value === value ? '' : value;
+  renderBlocks();
+};
+
+function renderHotelSplit() {
+  const root = document.getElementById('hotel-split');
+  if (!root) return;
+  const byHotel = new Map();
+  for (const b of state.blocks) {
+    if (!b.hotel || !b.balloon) continue;
+    const key = foldName(b.hotel);
+    const e = byHotel.get(key) || { hotel: b.hotel, balloons: new Map(), seats: 0 };
+    e.balloons.set(b.balloon, (e.balloons.get(b.balloon) || 0) + blockSeats(b));
+    e.seats += blockSeats(b);
+    byHotel.set(key, e);
+  }
+  const split = [...byHotel.values()].filter(e => e.balloons.size > 1).sort((a, b) => b.seats - a.seats);
+  if (!split.length) { root.innerHTML = ''; return; }
+  root.innerHTML = `
+    <div class="rounded-lg border border-line bg-well px-4 py-3">
+      <div class="flex items-center gap-2 text-sm font-semibold text-on-surface mb-1.5">
+        <span class="material-symbols-outlined text-[18px] text-info">airport_shuttle</span>
+        Aynı otelden farklı balonlara dağılmış yolcular
+      </div>
+      <p class="text-xs text-on-surface-variant mb-2">Lojistik için aynı oteli tek balonda toplamak daha kolay. Otele tıklayınca o otelin rezervasyonları listelenir; balonu rezervasyonun düzenleme formundan değiştirebilirsiniz.</p>
+      <div class="flex flex-wrap gap-2">
+        ${split.slice(0, 8).map(e => `
+          <button type="button" class="btn-secondary btn-sm" onclick="window.__searchHotel(${JSON.stringify(e.hotel).replace(/"/g, '&quot;')})">
+            <span class="font-semibold">${escHtml(e.hotel)}</span>
+            <span class="text-on-surface-variant">· ${e.seats} kişi ·</span>
+            ${[...e.balloons].map(([code, n]) => `<span class="balloon-code" style="${balloonInk(code)}">${escHtml(code)} ${n}</span>`).join(' ')}
+          </button>`).join('')}
+      </div>
+    </div>`;
+}
+
+window.__searchHotel = function(hotel) {
+  const inp = document.getElementById('block-search');
+  if (!inp) return;
+  inp.value = `otel ${hotel}`;
+  renderBlocks();
+  inp.focus();
+};
 
 function renderBalloonLoad() {
   const el = document.getElementById('sidebar-balloon-load-list');
@@ -1419,7 +1499,7 @@ window.__planView = async function(mode) {
     const b = document.getElementById(id);
     if (b) { b.classList.toggle('is-on', on); b.setAttribute('aria-selected', String(on)); }
   }
-  for (const id of ['blocks-tools', 'blocks-list']) {
+  for (const id of ['blocks-tools', 'blocks-list', 'balloon-chips', 'hotel-split']) {
     const el = document.getElementById(id);
     if (el) el.style.display = excel ? 'none' : '';
   }

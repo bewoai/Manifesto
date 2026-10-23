@@ -62,7 +62,7 @@ BLOCK_WIDE_OPERATION_FIELDS = {"balloon", "pilot", "driver", "coming_place"}
 
 # Rezervasyon grubu boyunca dikey birleşik (tek değer gösterilen) lider kolonları —
 # planlama sayfasındaki görünümü korumak için create_reservation bunları yeniden birleştirir.
-LEAD_MERGE_COLS = (COL_PAX, COL_HOTEL, COL_PICKUP, COL_RESERVED_BY, COL_AGENCY, COL_NOTE)
+LEAD_MERGE_COLS = (COL_PAX, COL_ROOM, COL_HOTEL, COL_PICKUP, COL_RESERVED_BY, COL_AGENCY, COL_NOTE)
 
 # Manifesto sayfası — brief §3
 MANIFEST_SHEET = "MANİFESTO"

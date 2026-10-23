@@ -928,3 +928,19 @@ tr.sg-focus .sg-cell, tr.sg-focus .sg-rownum { background: rgb(var(--primary) / 
 .pv-tab { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 6px; font-size: 14px; font-weight: 600; color: rgb(var(--ink-2)); }
 .pv-tab:hover { color: rgb(var(--ink)); }
 .pv-tab.is-on { background: rgb(var(--primary)); color: rgb(var(--on-primary)); }
+
+/* ─── Rezervasyon kartı balonun zarf renginde ─── */
+.block-item.has-env { border-color: rgb(var(--env) / 0.45); background-color: rgb(var(--env) / 0.07); }
+.block-item.has-env:hover { border-color: rgb(var(--env) / 0.75); }
+.block-item.has-env.selected { border-color: rgb(var(--env)); box-shadow: 0 0 0 1px rgb(var(--env)); }
+.block-item.has-env .block-pax { background-color: rgb(var(--env) / 0.16); color: rgb(var(--env)); }
+.block-item .env-stripe { min-height: 44px; }
+.env-stripe.env-none > i { background-color: rgb(var(--line)); }
+.balloon-chip { --env: var(--outline); display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 8px; border: 1px solid rgb(var(--line)); background: rgb(var(--raised)); color: rgb(var(--ink)); font-size: 13.5px; font-weight: 600; }
+.balloon-chip .env-stripe { min-height: 16px; height: 16px; grid-template-columns: repeat(3, 3px); }
+.balloon-chip:hover { border-color: rgb(var(--env) / 0.7); }
+.balloon-chip.is-on { background: rgb(var(--env) / 0.14); border-color: rgb(var(--env)); color: rgb(var(--env)); }
+.balloon-chip:first-child.is-on { background: rgb(var(--primary)); border-color: rgb(var(--primary)); color: rgb(var(--on-primary)); }
+.balloon-chip-n { font-weight: 500; color: rgb(var(--ink-2)); font-variant-numeric: tabular-nums; }
+.balloon-chip:first-child.is-on .balloon-chip-n { color: rgb(var(--on-primary)); }
+.sg-cell.sg-merged { text-align: center; vertical-align: middle; background: rgb(var(--panel)); }

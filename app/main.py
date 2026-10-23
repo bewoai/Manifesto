@@ -937,13 +937,29 @@ def api_planning_view(sheet: str = Query(..., description="Gün sayfası, ör. 2
     values = grid[sheet]
     header_idx = config.PLANNING_HEADER_ROW - 1
     header = [_cell_text(v) for v in values[header_idx]] if len(values) > header_idx else []
-    rows = []
-    for i, row in enumerate(values[config.PLANNING_FIRST_DATA_ROW - 1:], start=config.PLANNING_FIRST_DATA_ROW):
-        cells = [_cell_text(v) for v in row]
-        if any(cells):
-            rows.append({"row": i, "cells": cells})
+    # İlk veri satırından son dolu satıra kadar HEPSİ (ara boşluklar dahil): birleşik
+    # alanların satır sayısı (rowspan) görünümde tutsun.
+    rows = [
+        {"row": i, "cells": [_cell_text(v) for v in row]}
+        for i, row in enumerate(values[config.PLANNING_FIRST_DATA_ROW - 1:], start=config.PLANNING_FIRST_DATA_ROW)
+    ]
+    while rows and not any(rows[-1]["cells"]):
+        rows.pop()
     title = " ".join(t for t in (_cell_text(v) for r in values[:header_idx] for v in r) if t)
+    from app.manifest.planning import _merged_ranges, preview_block_merges
+    merges = [
+        {"row": min_row, "col": min_col, "rowspan": max_row - min_row + 1, "colspan": max_col - min_col + 1}
+        for (min_col, min_row, max_col, max_row) in _merged_ranges(xlsx_path).get(sheet, [])
+        if min_row >= config.PLANNING_FIRST_DATA_ROW and min_col <= config.COL_PASSPORT_NO
+    ]
+    try:
+        plan = preview_block_merges(xlsx_path, sheet)
+        merge_plan = {"blocks": plan["blocks"], "cells": len(plan["actions"]), "skipped": len(plan["skipped"])}
+    except Exception:
+        merge_plan = {"blocks": 0, "cells": 0, "skipped": 0}
     return {
+        "merges": merges,
+        "merge_plan": merge_plan,
         "sheet": sheet,
         "file": xlsx_path.name,
         "workbook_revision": workbook_revision(xlsx_path),
@@ -1044,6 +1060,38 @@ def api_planning_write_cells(body: dict, request: Request) -> dict[str, Any]:
     )
     _sync_sqlite(sheet)
     return {"success": True, "count": count, "workbook_revision": revision, "backup": backup.name}
+
+
+@app.post("/api/planning/merge-blocks")
+def api_planning_merge_blocks(body: dict, request: Request) -> dict[str, Any]:
+    """Rezervasyonların ortak kolonlarını (PAX, irtibat, otel, pickup, rezerve, acente, not)
+    blok boyunca birleştirir. Yalnız tüm dolu değerler aynıysa; farklıysa o kolon atlanır."""
+    from app.manifest.planning import merge_reservation_blocks
+
+    sheet = str(body.get("sheet", "")).strip()
+    if not sheet:
+        raise HTTPException(status_code=422, detail="Gün seçimi gerekli.")
+    s = _load_settings()
+    xlsx_path = _resolve_planning_path(s)
+    if not xlsx_path.exists():
+        raise HTTPException(status_code=404, detail=f"Planlama dosyası bulunamadı: {xlsx_path}")
+    try:
+        result, revision, backup = atomic_update(
+            xlsx_path,
+            expected_revision=body.get("expected_revision"),
+            reason="merge_blocks",
+            mutator=lambda temp: merge_reservation_blocks(temp, sheet),
+        )
+    except (WorkbookConflictError, WorkbookLockedError) as e:
+        raise _atomic_error(e)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e).strip("'\""))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Birleştirilemedi: {e}")
+    audit_mod.record("blocks_merged", actor=_actor(request), sheet=sheet,
+                     detail={"blocks": result["blocks"], "cells": result["cells"], "skipped": len(result["skipped"])})
+    _sync_sqlite(sheet)
+    return {"success": True, **result, "workbook_revision": revision, "backup": backup.name}
 
 
 @app.post("/api/planning/open-excel")

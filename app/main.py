@@ -837,7 +837,12 @@ def api_planning_sheets() -> dict:
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Sayfalar okunamadı: {e}")
 
-    return {"sheets": sheets, "source": source}
+    # Yalnız gün sayfaları (GG.AA.YYYY), tarih sırasıyla. "Sayfa1" gibi özet/kapasite
+    # sayfaları gün seçicilerde görünmez; varsayılan olarak "son gün" yerine seçilmezler.
+    from app.manifest.planning import sheet_date
+    days = sorted((name for name in sheets if sheet_date(name)), key=sheet_date)
+    other = [name for name in sheets if not sheet_date(name)]
+    return {"sheets": days or sheets, "other_sheets": other if days else [], "source": source}
 
 
 @app.get("/api/planning/load")

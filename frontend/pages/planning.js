@@ -1222,6 +1222,11 @@ async function applyDeepLink(link) {
   await window.__loadDayDate(sheet);
   if (state.currentSheet !== sheet || !document.getElementById('blocks-list')) return;
   if (link.row != null && !link.issue) focusRow(link.row);
+  else if (link.issue) {
+    // Dar pencerede liste takvimin altında kalır; süzülmüş listeyi göster
+    const reduce = !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    document.getElementById('blocks-section')?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
+  }
 }
 
 function focusRow(row) {

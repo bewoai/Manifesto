@@ -474,7 +474,7 @@
   .btn-icon.danger { @apply text-danger hover:bg-danger/10; }
 
   /* ─── Uyarıdan derin bağlantı: hedef rezervasyon/yolcu kısa lapis halka, ~2 sn söner ─── */
-  .block-shell, .passenger-row { scroll-margin-top: 88px; scroll-margin-bottom: 24px; }
+  .block-shell, .passenger-row, #blocks-section { scroll-margin-top: 88px; scroll-margin-bottom: 24px; }
   .deep-link-flash { animation: deep-link-ring 2s ease-out forwards; }
   @keyframes deep-link-ring {
     0%, 30% { box-shadow: 0 0 0 3px rgb(var(--primary) / 0.55); }

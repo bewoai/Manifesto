@@ -554,6 +554,47 @@
     @apply bg-primary/15 text-primary;
   }
 
+  /* ─── Liste inceleme (passport.js: liste paneli + kompakt satırlar) ─── */
+  .form-input-sm {
+    @apply px-3 py-1.5 text-sm rounded-lg;
+  }
+
+  .btn-sm {
+    @apply px-3 py-1.5 text-xs;
+  }
+
+  .list-row {
+    @apply relative flex flex-wrap md:flex-nowrap items-center gap-2 pl-4 pr-2 py-2 rounded-2xl
+           bg-tertiary/[.04] border border-tertiary/[.08] hover:border-tertiary/20 transition-colors;
+  }
+
+  .list-row-edge {
+    @apply absolute left-0 top-1.5 bottom-1.5 w-1 rounded-full;
+  }
+
+  .list-row-deferred {
+    @apply opacity-60;
+  }
+
+  .src-chip {
+    @apply inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium
+           bg-info/10 text-info border border-info/20 whitespace-nowrap;
+  }
+
+  .mark-chip {
+    @apply inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold
+           bg-primary/15 text-primary border border-primary/25 whitespace-nowrap max-w-[140px] truncate;
+  }
+
+  .mark-chip-staff {
+    @apply bg-tertiary/10 text-on-surface-variant border-tertiary/20;
+  }
+
+  .flag-chip {
+    @apply inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium tracking-wide
+           bg-surface-light border border-white/5 text-on-surface-variant whitespace-nowrap;
+  }
+
   /* ─── Checkbox ─── */
   .checkbox-label {
     @apply flex items-center gap-2 text-sm text-on-surface-variant cursor-pointer;
@@ -1067,3 +1108,7 @@
     opacity: 1;
   }
 }
+
+/* Uyruk belge numarasından türetildi (kesin) / tahmin edildi (olası) — operatör değiştirmedikçe */
+.nat-derived { border-color: rgba(74, 222, 128, 0.55) !important; border-style: dashed !important; }
+.nat-inferred { border-color: #fbbf24 !important; border-style: dashed !important; background-color: rgba(251, 191, 36, 0.06) !important; }

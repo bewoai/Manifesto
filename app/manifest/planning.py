@@ -6,6 +6,8 @@ diğer her şey (PAX, otel, balon, pilot...) operasyon girişidir ve dokunulmaz.
 """
 from __future__ import annotations
 
+import re
+
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -35,6 +37,19 @@ class PlanningRow:
     driver: str
     coming_place: str
     passport_no: str             # col 20
+
+    @property
+    def is_seat(self) -> bool:
+        """Önceden balona atanmış boş koltuk: balon kodu var; isim, pasaport ve PAX yok.
+
+        Arkadaşın gerçek şablonu günün 112 satırını önceden balonlara dağıtır (balon başına
+        28 satırlık bant; firma/balon/pilot dolu, isim boş). Bu satırlar yolcu değildir.
+        """
+        return bool(self.balloon) and not self.name and not self.passport_no and self.pax is None
+
+
+# Koltuk şablonunda boş koltukta önceden dolu gelen, silme/küçültmede KORUNAN kolonlar
+SEAT_TEMPLATE_COLS = (config.COL_COMPANY, config.COL_BALLOON, config.COL_PILOT, config.COL_COMING_PLACE)
 
 
 @dataclass
@@ -82,45 +97,53 @@ def _cell(ws, row: int, col: int) -> str:
     return "" if v is None else str(v).strip()
 
 
+def _rows_from_ws(ws) -> list[PlanningRow]:
+    """Bir çalışma sayfasının veri satırlarını PlanningRow listesine çevirir (row 4+).
+
+    İsim, balon ve pasaport no'su olmayan satırlar atlanır. Boş koltuklar (balon dolu,
+    kimlik boş) listede kalır; `is_seat` ile ayırt edilir.
+    """
+    rows: list[PlanningRow] = []
+    for r in range(config.PLANNING_FIRST_DATA_ROW, ws.max_row + 1):
+        name = _cell(ws, r, config.COL_NAME)
+        balloon = _cell(ws, r, config.COL_BALLOON)
+        if not name and not balloon and not _cell(ws, r, config.COL_PASSPORT_NO):
+            continue
+        pax_raw = _cell(ws, r, config.COL_PAX)
+        try:
+            pax = int(float(pax_raw)) if pax_raw else None
+        except ValueError:
+            pax = None
+        rows.append(PlanningRow(
+            row=r,
+            pax=pax,
+            nationality=_cell(ws, r, config.COL_UYRUK),
+            sex=_cell(ws, r, config.COL_MF),
+            name=name,
+            room=_cell(ws, r, config.COL_ROOM),
+            hotel=_cell(ws, r, config.COL_HOTEL),
+            pickup=_cell(ws, r, config.COL_PICKUP),
+            reserved_by=_cell(ws, r, config.COL_RESERVED_BY),
+            agency=_cell(ws, r, config.COL_AGENCY),
+            company=_cell(ws, r, config.COL_COMPANY),
+            balloon=balloon.upper(),
+            pilot=_cell(ws, r, config.COL_PILOT),
+            note=_cell(ws, r, config.COL_NOTE),
+            driver=_cell(ws, r, config.COL_DRIVER),
+            coming_place=_cell(ws, r, config.COL_COMING_PLACE),
+            passport_no=_cell(ws, r, config.COL_PASSPORT_NO),
+        ))
+    return rows
+
+
 def read_rows(planning_xlsx: Path, sheet: str) -> list[PlanningRow]:
-    """Bir gün sayfasının tüm yolcu satırlarını okur (header row 3 sonrası)."""
+    """Bir gün sayfasının tüm satırlarını okur (header row 3 sonrası); boş koltuklar dahil."""
     def _read(path: Path, s: str) -> list[PlanningRow]:
         wb = openpyxl.load_workbook(path, data_only=True)
         if s not in wb.sheetnames:
             wb.close()
             raise KeyError(f"Planlama dosyasında '{s}' sayfası yok. Mevcut: {wb.sheetnames}")
-        ws = wb[s]
-        rows: list[PlanningRow] = []
-        for r in range(config.PLANNING_FIRST_DATA_ROW, ws.max_row + 1):
-            name = _cell(ws, r, config.COL_NAME)
-            balloon = _cell(ws, r, config.COL_BALLOON)
-            # tamamen boş satırları atla (isim ve balon yoksa veri yok say)
-            if not name and not balloon and not _cell(ws, r, config.COL_PASSPORT_NO):
-                continue
-            pax_raw = _cell(ws, r, config.COL_PAX)
-            try:
-                pax = int(float(pax_raw)) if pax_raw else None
-            except ValueError:
-                pax = None
-            rows.append(PlanningRow(
-                row=r,
-                pax=pax,
-                nationality=_cell(ws, r, config.COL_UYRUK),
-                sex=_cell(ws, r, config.COL_MF),
-                name=name,
-                room=_cell(ws, r, config.COL_ROOM),
-                hotel=_cell(ws, r, config.COL_HOTEL),
-                pickup=_cell(ws, r, config.COL_PICKUP),
-                reserved_by=_cell(ws, r, config.COL_RESERVED_BY),
-                agency=_cell(ws, r, config.COL_AGENCY),
-                company=_cell(ws, r, config.COL_COMPANY),
-                balloon=balloon.upper(),
-                pilot=_cell(ws, r, config.COL_PILOT),
-                note=_cell(ws, r, config.COL_NOTE),
-                driver=_cell(ws, r, config.COL_DRIVER),
-                coming_place=_cell(ws, r, config.COL_COMING_PLACE),
-                passport_no=_cell(ws, r, config.COL_PASSPORT_NO),
-            ))
+        rows = _rows_from_ws(wb[s])
         wb.close()
         return rows
 
@@ -128,11 +151,25 @@ def read_rows(planning_xlsx: Path, sheet: str) -> list[PlanningRow]:
 
 
 def group_blocks(rows: list[PlanningRow]) -> list[ReservationBlock]:
-    """Satırları rezervasyon bloklarına böler: PAX dolu satır yeni blok başlatır."""
+    """Satırları rezervasyon bloklarına böler: PAX dolu satır yeni blok başlatır.
+
+    Boş koltuk satırı (`is_seat`) bloğa ancak blok PAX'ı dolmadıysa ve aynı balondaysa
+    katılır (henüz kimliği gelmemiş yolcu yeri). Aksi hâlde serbest koltuktur, hiçbir
+    bloğa ait değildir ve açık bloğu kapatır.
+    """
     blocks: list[ReservationBlock] = []
     cur: Optional[ReservationBlock] = None
     for pr in rows:
         starts = pr.pax is not None
+        if not starts and pr.is_seat:
+            if (cur is not None and cur.pax is not None and len(cur.rows) < cur.pax
+                    and pr.balloon == cur.balloon):
+                cur.rows.append(pr.row)
+                cur.passengers.append(PassengerIdentity(
+                    row=pr.row, nationality="", sex="", name="", passport_no=""))
+            else:
+                cur = None   # serbest koltuk: bloğa ait değil
+            continue
         if starts or cur is None:
             cur = ReservationBlock(
                 lead_row=pr.row, rows=[pr.row], pax=pr.pax,
@@ -205,6 +242,79 @@ def assign_balloon(
     return least, True
 
 
+def free_seat_runs(rows: list[PlanningRow], blocks: Optional[list[ReservationBlock]] = None) -> dict[str, list[list[int]]]:
+    """Balon kodu → ardışık serbest koltuk satır dizileri (hiçbir bloğa ait olmayan boş koltuklar)."""
+    blocks = group_blocks(rows) if blocks is None else blocks
+    claimed = {r for b in blocks for r in b.rows}
+    runs: dict[str, list[list[int]]] = {}
+    prev: Optional[PlanningRow] = None
+    for pr in rows:
+        free = pr.is_seat and pr.row not in claimed
+        if free:
+            seq = runs.setdefault(pr.balloon, [])
+            if prev is not None and prev.balloon == pr.balloon and prev.row == pr.row - 1 and seq and seq[-1][-1] == prev.row:
+                seq[-1].append(pr.row)
+            else:
+                seq.append([pr.row])
+            prev = pr
+        else:
+            prev = None
+    return runs
+
+
+def free_seat_summary(rows: list[PlanningRow], blocks: Optional[list[ReservationBlock]] = None) -> dict[str, dict]:
+    """Balon → {"free": toplam serbest koltuk, "longest": en uzun ardışık dizi}."""
+    return {b: {"free": sum(len(r) for r in seqs), "longest": max(len(r) for r in seqs)}
+            for b, seqs in free_seat_runs(rows, blocks).items()}
+
+
+def choose_balloon(
+    rows: list[PlanningRow],
+    blocks: list[ReservationBlock],
+    pax: int,
+    codes: list[str],
+    capacity: int,
+    requested: str = "",
+) -> dict:
+    """Yeni `pax` kişilik grup için balon ve yazım biçimi seçer (grup bölünmez).
+
+    Koltuk şablonu (sayfada serbest koltuk var): `requested`, sonra `codes` sırası, sonra
+    sayfadaki diğer balonlar içinde ≥ pax ardışık serbest koltuğu olan ilk balon → "seat".
+    Hiçbirinde yer yoksa overflow (operatör onayıyla şablonun altına eklenir).
+    Ekleme şablonu (serbest koltuk yok): mevcut first-fit kapasite kuralı → "append".
+    """
+    runs = free_seat_runs(rows, blocks)
+    requested = (requested or "").strip().upper()
+    if runs:
+        order = [c for c in [requested, *codes, *runs.keys()] if c]
+        seen: set[str] = set()
+        for code in order:
+            if code in seen:
+                continue
+            seen.add(code)
+            if any(len(seq) >= pax for seq in runs.get(code, [])):
+                return {"balloon": code, "overflow": False, "mode": "seat"}
+        if is_seat_template(rows, runs, capacity):
+            least = requested if requested in codes else (codes[0] if codes else next(iter(runs)))
+            return {"balloon": least, "overflow": True, "mode": "seat"}
+        # Ekleme şablonunda silmeden kalan küçük boşluklar: grup sığmıyorsa sona ekle
+    balloon, overflow = assign_balloon(balloon_load(blocks), pax, codes, capacity)
+    return {"balloon": balloon, "overflow": overflow, "mode": "append"}
+
+
+def is_seat_template(rows: list[PlanningRow], runs: dict[str, list[list[int]]], capacity: int) -> bool:
+    """Sayfa, koltukları önceden balonlara dağıtan bir şablon mu?
+
+    Ölçüt: serbest koltuğu olan en az bir balonun sayfada (dolu + boş) en az `capacity`
+    satırı var. Arkadaşın şablonunda her balon 28 satırlık banttır; uygulamanın ekleme
+    şablonunda serbest koltuk yalnız silmeden kalır ve bant oluşturmaz.
+    """
+    from collections import Counter
+
+    per_balloon = Counter(r.balloon for r in rows if r.balloon)
+    return any(per_balloon[b] >= capacity for b in runs)
+
+
 def pilot_for_balloon(rows: list[PlanningRow], code: str) -> str:
     """Verilen balonun mevcut satırlarından pilot adını bul (yoksa boş)."""
     code = code.upper().strip()
@@ -238,11 +348,25 @@ def next_free_rows(ws, count: int) -> int:
         if all(_row_is_empty(ws, r + k) for k in range(count)):
             return r
         r += 1
-    return ws.max_row + 1
+    # Veri her zaman başlık satırlarının altından başlar (sayfada başlık olmasa bile)
+    return max(ws.max_row + 1, config.PLANNING_FIRST_DATA_ROW)
+
+
+def _clear_row(ws, r: int) -> None:
+    """Satırın planlama kolonlarını temizler; koltuk şablonu kolonları (firma/balon/pilot/
+    geleceği yer) korunur → satır, o balonun serbest koltuğu olarak kalır."""
+    for c in range(1, config.COL_PASSPORT_NO + 1):
+        if c in SEAT_TEMPLATE_COLS:
+            continue
+        ws.cell(r, c).value = None
+
+
+def _claimed_rows(ws) -> set[int]:
+    return {r for b in group_blocks(_rows_from_ws(ws)) for r in b.rows}
 
 
 def _is_block_boundary(ws, row: int) -> bool:
-    """Satır bir rezervasyon sınırı mı? (blok başı, boş satır veya verinin sonu)
+    """Satır bir rezervasyon sınırı mı? (blok başı, boş/serbest koltuk satırı veya verinin sonu)
 
     Bir bloğun ortasına taşıma, o bloğu ikiye böler ve PAX/otel gibi lider alanları
     yanlış satıra düşürür; bu yüzden reorder yalnız sınırlara izin verir.
@@ -251,7 +375,8 @@ def _is_block_boundary(ws, row: int) -> bool:
         return False
     if row == config.PLANNING_FIRST_DATA_ROW or row > ws.max_row:
         return True
-    if _row_is_empty(ws, row) or _row_is_empty(ws, row - 1):
+    claimed = _claimed_rows(ws)
+    if row not in claimed or (row - 1) not in claimed:
         return True
     return bool(_cell(ws, row, config.COL_PAX))  # PAX dolu = lider satır
 
@@ -317,8 +442,20 @@ def create_reservation(
     wb = openpyxl.load_workbook(planning_xlsx)
     ws = wb[sheet]
     pax_rows = max(1, int(pax))
-    # Hedef satırların TAMAMI boş olmalı; aksi hâlde sonraki bloğun üzerine yazılırdı.
-    lead = next_free_rows(ws, pax_rows)
+
+    # Koltuk şablonu: seçilen balonun ilk uygun ardışık serbest koltuklarına yaz.
+    # Yer yoksa (veya şablon ekleme tipindeyse) hiçbir dolu satırın üzerine yazmadan sona ekle.
+    seat_run = next(
+        (seq for seq in free_seat_runs(_rows_from_ws(ws)).get(str(balloon).strip().upper(), [])
+         if len(seq) >= pax_rows),
+        None,
+    )
+    mode = "seat" if seat_run else "append"
+    if seat_run:
+        lead = seat_run[0]
+    else:
+        # Hedef satırların TAMAMI boş olmalı; aksi hâlde sonraki bloğun üzerine yazılırdı.
+        lead = next_free_rows(ws, pax_rows)
     rows = list(range(lead, lead + pax_rows))
     last = rows[-1]
 
@@ -328,7 +465,7 @@ def create_reservation(
 
     from copy import copy
     ref_row = config.PLANNING_FIRST_DATA_ROW
-    for r in rows:
+    for r in (rows if mode == "append" else []):   # koltuklar zaten şablon biçiminde
         if r > ref_row:
             for c in range(1, ws.max_column + 1):
                 sc = ws.cell(row=ref_row, column=c)
@@ -358,7 +495,7 @@ def create_reservation(
     target = out_path or planning_xlsx
     wb.save(target)
     wb.close()
-    return {"lead_row": lead, "rows": rows, "balloon": balloon, "pilot": pilot}
+    return {"lead_row": lead, "rows": rows, "balloon": balloon, "pilot": pilot, "mode": mode}
 
 
 def list_sheets(planning_xlsx: Path) -> list[str]:
@@ -371,38 +508,153 @@ def list_sheets(planning_xlsx: Path) -> list[str]:
     return get_cached_excel_data(planning_xlsx, "list_sheets", _read)
 
 
-def create_day_sheet(planning_xlsx: Path, new_sheet: str, source_sheet: Optional[str] = None) -> Path:
-    """Yeni gün sekmesi oluşturur: kaynak günü kopyalar, veri satırlarını temizler."""
-    wb = openpyxl.load_workbook(planning_xlsx)
-    if new_sheet in wb.sheetnames:
-        wb.close()
-        raise ValueError(f"'{new_sheet}' sayfası zaten var.")
+def sheet_date(name: str):
+    """'GG.AA.YYYY' sayfa adını tarihe çevirir; gün sayfası değilse None."""
+    import datetime as _dt
+    m = re.fullmatch(r"\s*(\d{1,2})\.(\d{1,2})\.(\d{4})\s*", str(name or ""))
+    if not m:
+        return None
+    try:
+        return _dt.date(int(m.group(3)), int(m.group(2)), int(m.group(1)))
+    except ValueError:
+        return None
 
-    candidates = [s for s in wb.sheetnames if s.lower() not in ("sayfa2", "sheet2")]
+
+def nearest_source_sheet(sheetnames: list[str], new_sheet: str) -> Optional[str]:
+    """Yeni gün için kopyalanacak gün: tarihçe en yakın ÖNCEKİ gün, yoksa en yakın sonraki."""
+    target = sheet_date(new_sheet)
+    dated = [(sheet_date(s), s) for s in sheetnames if sheet_date(s) and s != new_sheet]
+    if not dated:
+        return None
+    if target is None:
+        return max(dated)[1]
+    before = [d for d in dated if d[0] < target]
+    return (max(before) if before else min(dated))[1]
+
+
+def is_seat_layout(ws, capacity: int = config.DEFAULT_BALLOON_CAPACITY) -> bool:
+    """Sayfa satırları balon bantlarına önceden dağıtılmış mı (arkadaşın şablonu)?
+
+    Ölçüt: en az 2 balon bandı kadar satırda balon kodu var ve her balon en çok 2
+    ardışık parça hâlinde (ekleme şablonunda balonlar bloklar arasında karışır).
+    """
+    from collections import Counter
+
+    cap = max(int(capacity or 28), 1)
+    rows = _rows_from_ws(ws)
+    with_balloon = [r for r in rows if r.balloon]
+    if len(with_balloon) < 2 * cap:
+        return False
+    runs: Counter = Counter()
+    prev = None
+    for r in with_balloon:
+        if prev is None or r.balloon != prev.balloon or r.row != prev.row + 1:
+            runs[r.balloon] += 1
+        prev = r
+    return max(runs.values()) <= 2
+
+
+def _prepare_blank_day(ws, new_sheet: str, *, keep_seats: bool) -> None:
+    """Kopyalanmış gün sayfasını boşaltır: rezervasyon birleşmeleri çözülür, veri temizlenir.
+
+    keep_seats=True: firma/balon/pilot/geleceği yer korunur → koltuk düzeni aynen kalır.
+    Başlıktaki tarih hücresi yeni güne güncellenir.
+    """
+    import datetime as _dt
+
+    for rng in list(ws.merged_cells.ranges):
+        if rng.min_row >= config.PLANNING_FIRST_DATA_ROW:
+            ws.unmerge_cells(str(rng))
+    for row in range(config.PLANNING_FIRST_DATA_ROW, ws.max_row + 1):
+        if keep_seats:
+            _clear_row(ws, row)
+        else:
+            for col in range(1, config.COL_PASSPORT_NO + 1):
+                ws.cell(row, col).value = None
+    new_date = sheet_date(new_sheet)
+    if new_date:
+        for r in range(1, config.PLANNING_FIRST_DATA_ROW - 1):
+            for c in range(1, ws.max_column + 1):
+                v = ws.cell(r, c).value
+                if isinstance(v, (_dt.datetime, _dt.date)):
+                    ws.cell(r, c).value = _dt.datetime(new_date.year, new_date.month, new_date.day)
+
+
+def _place_chronologically(wb, ws) -> None:
+    """Yeni gün sayfasını tarih sırasındaki yerine taşır (gün olmayan sayfalar sonda kalır)."""
+    target = sheet_date(ws.title)
+    if target is None:
+        return
+    names = wb.sheetnames
+    idx_now = names.index(ws.title)
+    dest = None
+    for i, n in enumerate(names):
+        d = sheet_date(n)
+        if n != ws.title and d and d > target:
+            dest = i
+            break
+    if dest is None:
+        # son gün sayfasının hemen arkası
+        dated_idx = [i for i, n in enumerate(names) if n != ws.title and sheet_date(n)]
+        dest = (max(dated_idx) + 1) if dated_idx else idx_now
+    if dest > idx_now:
+        dest -= 1
+    wb.move_sheet(ws, offset=dest - idx_now)
+
+
+def _create_day_in_wb(wb, new_sheet: str, source_sheet: Optional[str]) -> str:
+    if new_sheet in wb.sheetnames:
+        raise ValueError(f"'{new_sheet}' sayfası zaten var.")
     if source_sheet and source_sheet in wb.sheetnames:
         source_name = source_sheet
-    elif candidates:
-        source_name = candidates[-1]
     else:
-        wb.close()
+        source_name = nearest_source_sheet(wb.sheetnames, new_sheet)
+    if not source_name:
         raise ValueError("Kopyalanacak gün sayfası bulunamadı.")
-
-    ws = wb.copy_worksheet(wb[source_name])
+    src = wb[source_name]
+    keep_seats = is_seat_layout(src)
+    ws = wb.copy_worksheet(src)
     ws.title = new_sheet
-    for row in range(config.PLANNING_FIRST_DATA_ROW, ws.max_row + 1):
-        for col in range(1, config.COL_PASSPORT_NO + 1):
-            ws.cell(row, col).value = None
+    _prepare_blank_day(ws, new_sheet, keep_seats=keep_seats)
+    _place_chronologically(wb, ws)
+    return source_name
 
-    wb.save(planning_xlsx)
-    wb.close()
+
+def create_day_sheet(planning_xlsx: Path, new_sheet: str, source_sheet: Optional[str] = None) -> Path:
+    """Yeni gün sekmesi oluşturur: en yakın önceki günü (ya da verilen kaynağı) kopyalar,
+    rezervasyonları temizler. Kaynak koltuk düzenindeyse balon bantları/firma/pilot korunur."""
+    wb = openpyxl.load_workbook(planning_xlsx)
+    try:
+        _create_day_in_wb(wb, new_sheet, source_sheet)
+        wb.save(planning_xlsx)
+    finally:
+        wb.close()
     return planning_xlsx
+
+
+def create_missing_days(planning_xlsx: Path, days: list[str]) -> list[str]:
+    """Verilen günlerden dosyada olmayanları (tarih sırasıyla) boş gün olarak oluşturur."""
+    wb = openpyxl.load_workbook(planning_xlsx)
+    created: list[str] = []
+    try:
+        for day in sorted({d for d in days if sheet_date(d)}, key=sheet_date):
+            if day in wb.sheetnames:
+                continue
+            _create_day_in_wb(wb, day, None)
+            created.append(day)
+        if created:
+            wb.save(planning_xlsx)
+    finally:
+        wb.close()
+    return created
 
 
 def delete_reservation(planning_xlsx: Path, sheet: str, rows: list[int],
                        out_path: Optional[Path] = None) -> Path:
-    """Bir rezervasyon bloğunun satırlarını temizler (tüm kolonlar), birleşmeleri çözer.
+    """Bir rezervasyon bloğunun satırlarını temizler, birleşmeleri çözer.
 
-    Satırlar boşaldığı için sonraki `create_reservation` bunları tekrar kullanabilir.
+    Firma/balon/pilot/geleceği yer korunur: satırlar o balonun serbest koltuğu olur ve
+    sonraki `create_reservation` bunları tekrar kullanır (koltuk şablonu bozulmaz).
     """
     if not rows:
         return planning_xlsx
@@ -414,8 +666,7 @@ def delete_reservation(planning_xlsx: Path, sheet: str, rows: list[int],
         if not (rng.max_row < lo or rng.min_row > hi):
             ws.unmerge_cells(str(rng))
     for r in rows:
-        for c in range(1, config.COL_PASSPORT_NO + 1):
-            ws.cell(r, c).value = None
+        _clear_row(ws, r)
     target = out_path or planning_xlsx
     wb.save(target)
     wb.close()
@@ -515,8 +766,7 @@ def delete_passenger_from_reservation(
             ws.cell(destination_row, col).value = ws.cell(source_row, col).value
 
     clear_row = rows[-1]
-    for col in range(1, config.COL_PASSPORT_NO + 1):
-        ws.cell(clear_row, col).value = None
+    _clear_row(ws, clear_row)
 
     pax_raw = _cell(ws, lead_row, config.COL_PAX)
     try:
@@ -556,11 +806,19 @@ def resize_reservation(
     _unmerge_rows(ws, lead_row, max(old_last, new_last))
 
     if new_last > old_last:
+        lead_balloon = _cell(ws, lead_row, config.COL_BALLOON).upper()
+        sheet_rows = {pr.row: pr for pr in _rows_from_ws(ws)}
+        claimed = {r for b in group_blocks(list(sheet_rows.values())) for r in b.rows}
         for row in range(old_last + 1, new_last + 1):
-            if any(_cell(ws, row, col) for col in range(1, config.COL_PASSPORT_NO + 1)):
+            pr = sheet_rows.get(row)
+            empty = not any(_cell(ws, row, col) for col in range(1, config.COL_PASSPORT_NO + 1))
+            same_balloon_seat = (pr is not None and pr.is_seat and row not in claimed
+                                 and pr.balloon == lead_balloon)
+            if not (empty or same_balloon_seat):
                 wb.close()
                 raise ValueError(
-                    "PAX artırılamadı; rezervasyonun altındaki satırlar başka veri içeriyor."
+                    "PAX artırılamadı; rezervasyonun altındaki satırlar başka veri içeriyor "
+                    "ya da başka balonun koltuğu."
                 )
         
         from copy import copy
@@ -596,8 +854,7 @@ def resize_reservation(
                 "PAX azaltılacak satırlarda yolcu bilgisi var. Açık onay gerekli."
             )
         for row in removed_rows:
-            for col in range(1, config.COL_PASSPORT_NO + 1):
-                ws.cell(row, col).value = None
+            _clear_row(ws, row)
 
     ws.cell(lead_row, config.COL_PAX).value = new_pax
     _merge_lead_columns(ws, lead_row, new_last)

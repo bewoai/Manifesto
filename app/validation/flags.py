@@ -25,6 +25,7 @@ class Flag(str, Enum):
     MISSING_REQUIRED_FIELDS = "missing_required_fields"
     CONFLICTING_AI_OUTPUTS = "conflicting_ai_outputs"
     UNKNOWN_DOCUMENT_TYPE = "unknown_document_type"
+    NATIONALITY_INFERRED = "nationality_inferred"  # uyruk belge no biçiminden / listeden / model tahmininden
 
 
 @dataclass

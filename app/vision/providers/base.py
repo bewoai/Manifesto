@@ -114,6 +114,8 @@ class OcrRecordOut:
     selected: Optional[bool] = None
     group: dict = field(default_factory=dict)
     document_type: str = ""
+    nationality_source: str = ""     # mrz | stated | header | document | pattern | list | model
+    nationality_reason: str = ""
 
     def as_tuple(self):
         return (self.mrz, self.outcome, self.error, self.confidence_score, self.route, self.ai_model)
@@ -210,7 +212,8 @@ def _merge_local_into(mrz: MRZResult, local: MRZResult, *, server_document_no: s
 
 def _fields_to_mrz(fields: dict, *, kind: str, group: dict) -> MRZResult:
     """MRZ'siz okuma (liste, kimlik ön yüzü, mesaj): alanlardan checks={} ile MRZResult."""
-    nat = str(fields.get("nationality") or group.get("nationality_hint") or "").strip().upper()[:3]
+    from app.country.country_map import normalize_code
+    nat = normalize_code(str(fields.get("nationality") or group.get("nationality_hint") or ""))[:3]
     gender = str(fields.get("gender") or "").strip().upper()[:1]
     return MRZResult(
         format={"id_front": "ID_FRONT", "printed_list": "LIST", "handwritten_list": "LIST",
@@ -263,9 +266,19 @@ def _passenger_to_record(p: dict, *, kind: str, group: dict, route: str, ai_mode
         if level != "green":
             flags.append(Flag.LOW_CONFIDENCE)
 
+    stated_nat = str(fields.get("nationality") or "").strip()
+    if local is not None:
+        nat_source = "mrz"
+    elif stated_nat:
+        nat_source = "stated"
+    elif mrz.nationality:
+        nat_source = "header"        # _fields_to_mrz grup ipucunu uyguladı
+    else:
+        nat_source = ""
     return OcrRecordOut(
         mrz, ValidationOutcome(flags=flags), None, _CONFIDENCE_SCORE[level], route, ai_model,
         kind=kind, annotation=annotation, selected=selected, group=group, document_type=document_type,
+        nationality_source=nat_source,
     )
 
 

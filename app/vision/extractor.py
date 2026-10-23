@@ -23,6 +23,7 @@ from app.validation.flags import Flag, ValidationOutcome, validate_mrz
 from app.vision.providers.base import KIND_LABELS, OcrProvider, to_records
 from app.vision.providers.claude_direct import ClaudeDirectProvider
 from app.vision.providers.image_prep import prepare_image
+from app.country.doc_numbers import INFERRED_SOURCES, infer_nationalities
 from app.vision.providers.irtifa_server import IrtifaServerProvider
 
 # Claude'a hem MRZ hem de serbest metinden tüm yolcuları çıkarttırıyoruz.
@@ -121,6 +122,8 @@ class PassportRecord:
     selected: Optional[bool] = None  # liste kendisi açık evet/hayır kolonu taşıyorsa
     group: dict = field(default_factory=dict)   # date, hotel, agency, booking_code, pax, nationality_hint, note
     document_type: str = ""          # P | I | ""
+    nationality_source: str = ""     # mrz | stated | header | document | pattern | list | model
+    nationality_reason: str = ""
 
     @property
     def is_green(self) -> bool:
@@ -139,6 +142,8 @@ class PassportRecord:
             "selected": self.selected,
             "group": dict(self.group) if self.group else {},
             "document_type": self.document_type,
+            "nationality_source": self.nationality_source,
+            "nationality_reason": self.nationality_reason,
         }
         if self.mrz is None:
             return {"nationality": "", "sex": "", "name": "", "passport_no": "",
@@ -398,6 +403,12 @@ def process_image(
     result = ocr_provider.read(image_bytes, media_type)
     outs = to_records(result, provider_name=ocr_provider.name)
 
+    # Uyruk yazmayan listeler: belge no kontrol hanesi / biçimi, listedeki çoğunluk, model tahmini
+    infer_nationalities(outs, model_guess=str((result.group or {}).get("nationality_guess") or ""))
+    for out in outs:
+        if out.mrz is not None and out.nationality_source in INFERRED_SOURCES:
+            out.outcome.add(Flag.NATIONALITY_INFERRED)
+
     # Aynı görsel içindeki tekrarlar da yakalansın (liste satırları)
     seen_in_batch: set[str] = set(seen_document_numbers or ())
     records: list[PassportRecord] = []
@@ -433,6 +444,8 @@ def process_image(
             selected=out.selected,
             group=out.group,
             document_type=out.document_type,
+            nationality_source=out.nationality_source,
+            nationality_reason=out.nationality_reason,
         ))
     return records
 

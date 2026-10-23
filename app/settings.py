@@ -90,6 +90,7 @@ class Settings:
     google_credentials_json: str = ""
     google_spreadsheet_id: str = ""
     operation_options: dict[str, list[str]] = field(default_factory=dict)
+    list_mark_rules: dict[str, str] = field(default_factory=dict)   # {acente: kural} — bkz. app/list_marks.py
     delete_images_after_write: bool = True   # KVKK (brief §10)
     balloon_capacity: int = config.DEFAULT_BALLOON_CAPACITY   # balon başına max yolcu
     balloon_codes: list[str] = field(default_factory=lambda: list(config.DEFAULT_BALLOON_CODES))
@@ -191,6 +192,8 @@ class Settings:
                         seen.add(norm)
                 cleaned[key] = cleaned_values
         self.operation_options = cleaned
+        from app.list_marks import normalize_rules
+        self.list_mark_rules = normalize_rules(self.list_mark_rules)
         return self
 
 

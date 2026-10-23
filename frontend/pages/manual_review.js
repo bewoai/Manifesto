@@ -3,6 +3,7 @@
    ═══════════════════════════════════════════════════════════════════ */
 import { api, toast, renderHeader, modal } from '/app.js';
 import { attachCombobox } from '/combobox.js';
+import { KIND_LABELS } from '/list_marks.js';
 
 let state = {
   items: [],
@@ -117,12 +118,13 @@ function renderContent(container) {
           <!-- Sağ Form -->
           <div class="flex-1 flex flex-col justify-between">
             <div>
-              <div class="flex items-center gap-3 mb-4">
+              <div class="flex flex-wrap items-center gap-3 mb-4">
                 <span class="material-symbols-outlined text-warning">warning</span>
                 <h3 class="text-lg font-semibold text-on-surface">Kontrol Gerekli</h3>
                 <span class="text-sm px-2 py-1 bg-surface-light rounded-md border border-white/5 font-mono text-on-surface-variant">
                   ${esc(item.fallback_reason || 'Düşük Güven Skoru')}
                 </span>
+                ${sourceChipsHtml(item)}
                 <span class="text-sm px-2 py-1 bg-primary/20 text-primary rounded-md border border-primary/20 ml-auto font-medium">
                   Güven: ${Math.round(Number(item.confidence_score || 0) * 100)}%
                 </span>
@@ -187,6 +189,17 @@ function renderContent(container) {
     const el = document.getElementById(`nat-${item.id}`);
     if (el) attachCombobox(el, () => countryOptions);
   });
+}
+
+// Kaynak türü rozeti + listedeki ham işaret çipi (API: source_kind, annotation, document_type)
+function sourceChipsHtml(item) {
+  const chips = [];
+  const kind = item.source_kind_label || KIND_LABELS[item.source_kind] || '';
+  if (kind) chips.push(`<span class="src-chip" title="Kaynak türü">${esc(kind)}</span>`);
+  const doc = String(item.document_type || '').toUpperCase();
+  if (doc === 'P' || doc === 'I') chips.push(`<span class="src-chip" title="Belge türü">${doc === 'P' ? 'Pasaport' : 'Kimlik'}</span>`);
+  if (item.annotation) chips.push(`<span class="mark-chip" title="Listedeki ham işaret">${esc(item.annotation)}</span>`);
+  return chips.join('');
 }
 
 window.__openImageModal = function(url) {

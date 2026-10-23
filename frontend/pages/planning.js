@@ -3,6 +3,7 @@
    ═══════════════════════════════════════════════════════════════════ */
 import { api, toast, modal, renderHeader, helpIcon, registerUnsavedCheck } from '/app.js';
 import { attachCombobox } from '/combobox.js';
+import { openIdentityEditor } from '/identity_edit.js';
 
 let state = {
   sheets: [],
@@ -117,6 +118,7 @@ export async function render(container) {
             <button class="calendar-nav-btn" onclick="window.__prevMonth()">
               <span class="material-symbols-outlined text-[18px]">chevron_left</span>
             </button>
+            <button class="btn-ghost text-xs px-3 py-1" id="btn-create-remaining" style="display:none" onclick="window.__createRemainingDays()"></button>
             <button class="calendar-nav-btn" onclick="window.__nextMonth()">
               <span class="material-symbols-outlined text-[18px]">chevron_right</span>
             </button>
@@ -282,6 +284,13 @@ function renderCalendar() {
   }
 
   daysGridEl.innerHTML = html;
+
+  const remainBtn = document.getElementById('btn-create-remaining');
+  if (remainBtn) {
+    const n = state.sheets.length ? remainingMissingDays(calState.currentYear, calState.currentMonth).length : 0;
+    remainBtn.style.display = n ? '' : 'none';
+    remainBtn.textContent = `Kalan ${n} günü boş aç`;
+  }
 }
 
 async function loadSheets() {
@@ -399,11 +408,57 @@ window.__askCreateDay = async function(date) {
   }
   const ok = await modal.confirm({
     title: 'Uçuş günü yok',
-    bodyHtml: `<p class="text-on-surface"><strong>${escHtml(date)}</strong> için planlama sayfası yok. Bu tarihe yeni uçuş günü oluşturulsun mu?</p>`,
-    confirmLabel: 'Yeni gün oluştur',
+    bodyHtml: `<p class="text-on-surface"><strong>${escHtml(date)}</strong> için sayfa yok. En yakın önceki günün düzeniyle (balonlar, firma, pilot) boş bir gün açılsın mı?</p>`,
+    confirmLabel: 'Boş gün aç',
   });
-  if (ok) window.__createDayDate(date);
+  if (!ok || creatingDay) return;
+  creatingDay = true;
+  try {
+    await api.post('/api/planning/create-day', { new_sheet: date });
+    toast.success('Gün açıldı', `${date} boş şablonla oluşturuldu`);
+    await loadSheets();
+    window.__loadDayDate(date);
+  } catch (err) {
+    toast.error('Gün açılamadı', err.message);
+  } finally {
+    creatingDay = false;
+  }
 };
+
+window.__createRemainingDays = async function() {
+  if (creatingDay) return;
+  const y = calState.currentYear, m = calState.currentMonth;
+  const missing = remainingMissingDays(y, m);
+  if (!missing.length) { toast.info('Eksik gün yok', 'Bu ayın kalan günlerinin hepsi var.'); return; }
+  const ok = await modal.confirm({
+    title: 'Kalan günleri aç',
+    bodyHtml: `<p class="text-on-surface">${escHtml(monthsTR[m - 1])} ${y} için <strong>${missing.length}</strong> gün boş şablonla açılacak (${escHtml(missing[0])} – ${escHtml(missing[missing.length - 1])}). Her gün, kendinden önceki günün balon/pilot düzenini alır.</p>`,
+    confirmLabel: `${missing.length} günü aç`,
+  });
+  if (!ok) return;
+  creatingDay = true;
+  try {
+    const res = await api.post('/api/planning/create-missing-days', { year: y, month: m });
+    toast.success('Günler açıldı', `${(res.created || []).length} gün oluşturuldu`);
+    await loadSheets();
+    renderCalendar();
+  } catch (err) {
+    toast.error('Günler açılamadı', err.message);
+  } finally {
+    creatingDay = false;
+  }
+};
+
+function remainingMissingDays(year, month) {
+  const today = todayStart();
+  const out = [];
+  for (let d = 1; d <= getDaysInMonth(year, month); d++) {
+    const date = new Date(year, month - 1, d);
+    const name = formatCalendarDate(d, month, year);
+    if (date >= today && !state.sheets.includes(name)) out.push(name);
+  }
+  return out;
+}
 
 window.__createDayDate = function(date) {
   modal.open('Yeni Gün Oluştur', `
@@ -805,10 +860,16 @@ function renderBlockDetails(block, index) {
           <strong>${idx + 1}. ${escHtml(display)}</strong>
           <span>${escHtml(meta)}</span>
         </div>
-        <button class="btn-ghost btn-icon danger" title="Yolcuyu sil"
-                onclick="event.stopPropagation(); window.__deletePassenger(${index}, ${p.row})">
-          <span class="material-symbols-outlined">person_remove</span>
-        </button>
+        <div class="flex items-center gap-1 shrink-0">
+          <button class="btn-ghost btn-icon" title="Kimliği düzelt"
+                  onclick="event.stopPropagation(); window.__editPassenger(${index}, ${p.row})">
+            <span class="material-symbols-outlined">edit</span>
+          </button>
+          <button class="btn-ghost btn-icon danger" title="Yolcuyu sil"
+                  onclick="event.stopPropagation(); window.__deletePassenger(${index}, ${p.row})">
+            <span class="material-symbols-outlined">person_remove</span>
+          </button>
+        </div>
       </div>
     `;
   }).join('');
@@ -935,6 +996,19 @@ window.__deleteBlock = async function(index) {
   } catch (err) {
     toast.error('Silme hatası', err.message);
   }
+};
+
+window.__editPassenger = function(index, row) {
+  const block = state.blocks[index];
+  if (!block) return;
+  const p = (block.passengers || []).find(x => Number(x.row) === Number(row)) || { row };
+  openIdentityEditor({
+    sheet: state.currentSheet,
+    row,
+    values: p,
+    expectedRevision: state.revision,
+    onSaved: () => window.__loadDay(),
+  });
 };
 
 window.__deletePassenger = async function(index, row) {

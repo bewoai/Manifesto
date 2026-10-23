@@ -5,6 +5,7 @@ yükleme + ayarlar yönetimi + istatistik dashboard endpoint'leri.
 """
 from __future__ import annotations
 
+import json
 import tempfile
 import datetime as _dt
 import os
@@ -41,11 +42,14 @@ from app.manifest.planning import (
     read_rows,
     balloon_load as planning_balloon_load,
     assign_balloon as planning_assign_balloon,
+    choose_balloon as planning_choose_balloon,
+    free_seat_summary as planning_free_seat_summary,
     pilot_for_balloon as planning_pilot_for_balloon,
     create_reservation as planning_create_reservation,
     delete_reservation as planning_delete_reservation,
     list_sheets as planning_list_sheets,
     create_day_sheet as planning_create_day_sheet,
+    create_missing_days as planning_create_missing_days,
     reorder_reservation as planning_reorder_reservation,
     delete_passenger_from_reservation as planning_delete_passenger,
     resize_reservation as planning_resize_reservation,
@@ -72,6 +76,8 @@ from app.reports import (
 )
 from app.version import APP_VERSION
 from app import updater as updater_mod
+from app import list_marks
+from app.country.country_map import normalize_code as normalize_country_code
 
 app = FastAPI(title="İrtifa Uçuş Sistemi", version=APP_VERSION)
 
@@ -510,7 +516,39 @@ def _lists_payload(s: settings_mod.Settings) -> dict:
         "balloons": list(s.balloon_codes),
         "capacity": s.balloon_capacity,
         "options": {cat: list(s.operation_options.get(cat, [])) for cat in LIST_CATEGORIES},
+        "mark_rules": dict(s.list_mark_rules),
+        "available_mark_rules": [{"id": k, "label": v} for k, v in list_marks.MARK_RULES.items()],
     }
+
+
+@app.get("/api/lists/mark-rules")
+def api_lists_mark_rules() -> dict:
+    """Acenteye kayıtlı liste işaret kuralları + seçenekler (bkz. app/list_marks.py)."""
+    s = _load_settings()
+    return {
+        "rules": dict(s.list_mark_rules),
+        "available": [{"id": k, "label": v} for k, v in list_marks.MARK_RULES.items()],
+    }
+
+
+@app.post("/api/lists/mark-rule")
+def api_lists_set_mark_rule(body: dict) -> dict:
+    """Bir acente için 'listede uçanlar nasıl işaretli' kuralını kaydet (boş rule = sil)."""
+    agency = str(body.get("agency", "")).strip()
+    rule = str(body.get("rule", "")).strip()
+    if not agency:
+        raise HTTPException(status_code=422, detail="agency alanı boş olamaz.")
+    if rule and rule not in list_marks.MARK_RULES:
+        raise HTTPException(status_code=422, detail=f"Geçersiz kural: {rule}")
+    s = _load_settings()
+    key = list_marks.normalize_agency_key(agency)
+    if rule:
+        s.list_mark_rules[key] = rule
+    else:
+        s.list_mark_rules.pop(key, None)
+    s = s.normalized()
+    settings_mod.save(s)
+    return {"rules": dict(s.list_mark_rules)}
 
 
 def _remember_values(s: settings_mod.Settings, fields: dict) -> bool:
@@ -845,6 +883,10 @@ def api_planning_load(sheet: str = Query(..., description="Gün sayfa adı")) ->
         blocks,
         balloon_capacity=s.balloon_capacity,
     )
+    try:
+        free_seats = planning_free_seat_summary(read_rows(xlsx_path, sheet), blocks)
+    except Exception:
+        free_seats = {}
 
     return {
         "sheet": sheet,
@@ -855,6 +897,7 @@ def api_planning_load(sheet: str = Query(..., description="Gün sayfa adı")) ->
         "total_blocks": len(blocks),
         "workbook_revision": revision,
         "readiness": readiness,
+        "free_seats": free_seats,   # koltuk şablonu: balon → {free, longest}
     }
 
 
@@ -906,6 +949,60 @@ def api_planning_create_day(body: dict, request: Request) -> dict:
     }
 
 
+@app.post("/api/planning/create-missing-days")
+def api_planning_create_missing_days(body: dict, request: Request) -> dict:
+    """Bir ayın bugünden (ya da `from`) sonraki eksik günlerini boş gün olarak oluşturur.
+
+    Gövde: {"year": 2026, "month": 10} ya da {"days": ["25.10.2026", ...]}. Geçmiş günler
+    oluşturulmaz (uçuş olmayan günler boş kalır).
+    """
+    import calendar as _cal
+
+    s = _load_settings()
+    if s.uses_google_sheets():
+        raise HTTPException(status_code=400, detail="Toplu gün oluşturma yalnız Excel modunda.")
+    xlsx_path = s.planning_path()
+    if not xlsx_path.exists():
+        raise HTTPException(status_code=404, detail=f"Planlama dosyası bulunamadı: {xlsx_path}")
+
+    today = _dt.date.today()
+    days = [str(d) for d in (body.get("days") or [])]
+    if not days:
+        try:
+            year, month = int(body.get("year")), int(body.get("month"))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=422, detail="year/month ya da days gerekli.")
+        last = _cal.monthrange(year, month)[1]
+        days = [f"{d:02d}.{month:02d}.{year}" for d in range(1, last + 1)]
+    days = [d for d in days
+            if (dd := _parse_sheet_day(d)) is not None and dd >= today]
+
+    try:
+        created, revision, backup = atomic_update(
+            xlsx_path,
+            expected_revision=body.get("expected_revision"),
+            reason="create_missing_days",
+            mutator=lambda temp: planning_create_missing_days(temp, days),
+        )
+    except (WorkbookConflictError, WorkbookLockedError) as e:
+        raise _atomic_error(e)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Günler oluşturulamadı: {e}")
+
+    if created:
+        audit_mod.record("days_created", actor=_actor(request), detail={"days": created})
+    return {"success": True, "created": created, "workbook_revision": revision, "backup": backup.name}
+
+
+def _parse_sheet_day(name: str):
+    try:
+        return _dt.datetime.strptime(name.strip(), "%d.%m.%Y").date()
+    except ValueError:
+        return None
+
+
 @app.post("/api/planning/create-block")
 def api_planning_create_block(body: dict, request: Request) -> dict:
     """Yeni rezervasyon bloğu ekle; balonu PAX'a göre otomatik ata (first-fit).
@@ -949,21 +1046,16 @@ def api_planning_create_block(body: dict, request: Request) -> dict:
         raise HTTPException(status_code=500, detail=f"Sayfa okunamadı: {e}")
 
     load = planning_balloon_load(blocks)
-    balloon, overflow = planning_assign_balloon(load, pax, s.balloon_codes, s.balloon_capacity)
+    requested_balloon = str(body.get("requested_balloon", "")).strip().upper()
+    choice = planning_choose_balloon(rows, blocks, pax, s.balloon_codes, s.balloon_capacity)
+    balloon, overflow = choice["balloon"], choice["overflow"]
     if not balloon:
         raise HTTPException(status_code=409, detail="Tanımlı balon kodu yok (Settings).")
-    requested_balloon = str(body.get("requested_balloon", "")).strip().upper()
     allow_overflow = bool(body.get("allow_overflow"))
     if overflow and not (allow_overflow and requested_balloon in s.balloon_codes):
         raise HTTPException(
             status_code=409,
-            detail={
-                "code": "capacity_confirmation_required",
-                "message": "Hiçbir balonda grubun tamamına yer yok.",
-                "balloon_load": load,
-                "capacity": s.balloon_capacity,
-                "balloon_codes": s.balloon_codes,
-            },
+            detail=_capacity_detail(choice, rows, blocks, load, s, pax),
         )
     if overflow:
         balloon = requested_balloon
@@ -1178,7 +1270,7 @@ def api_planning_write_identity(body: dict, request: Request) -> dict:
     updates: dict[int, dict] = {}
     for key, val in raw_updates.items():
         try:
-            updates[int(key)] = val
+            updates[int(key)] = _normalize_identity_fields(val if isinstance(val, dict) else {})
         except (ValueError, TypeError):
             raise HTTPException(
                 status_code=422,
@@ -1324,13 +1416,33 @@ def api_planning_write_operation(body: dict, request: Request) -> dict:
     }
 
 
+_SEX_ALIASES = {"E": "M", "ERKEK": "M", "MALE": "M", "K": "F", "KADIN": "F", "KADİN": "F", "FEMALE": "F"}
+
+
+def _normalize_identity_fields(fields: dict) -> dict:
+    """Elle düzeltilen kimlik alanları: uyruk ISO'ya, cinsiyet M/F'ye, isim/pasaport büyük harfe.
+    Yalnız gelen anahtarlar döner (write_identity eksik alana dokunmaz)."""
+    out: dict = {}
+    if "nationality" in fields:
+        out["nationality"] = normalize_country_code(str(fields.get("nationality") or ""))
+    if "sex" in fields:
+        sex = str(fields.get("sex") or "").strip().upper()
+        out["sex"] = _SEX_ALIASES.get(sex, sex)[:1] if sex else ""
+    if "name" in fields:
+        out["name"] = " ".join(str(fields.get("name") or "").split()).upper()
+    if "passport_no" in fields:
+        out["passport_no"] = "".join(str(fields.get("passport_no") or "").split()).upper()
+    return out
+
+
 def _clean_identities(raw: list) -> list[dict]:
     identities: list[dict] = []
     for item in raw or []:
         if not isinstance(item, dict):
             continue
         identity = {
-            "nationality": str(item.get("nationality", "")).strip().upper(),
+            # ISO dışı yaygın kodlar ISO'ya çevrilir (IRE→IRL, UK→GBR, D→DEU …)
+            "nationality": normalize_country_code(str(item.get("nationality", ""))),
             "sex": str(item.get("sex", "")).strip().upper(),
             "name": str(item.get("name", "")).strip().upper(),
             "passport_no": str(item.get("passport_no", "")).strip().upper(),
@@ -1383,6 +1495,45 @@ def _validate_passport_upload(image_bytes: bytes, content_type: str) -> None:
         raise ValueError("Görsel en fazla 10 MB olabilir.")
 
 
+def _insert_extraction(conn, staged_path, record, field_data: dict) -> int:
+    """PassportRecord'u passport_extraction'a yazar; kaynak türü/işaret/grup meta dahil."""
+    group = field_data.get("group") or {}
+    selected = field_data.get("selected")
+    cursor = conn.execute(
+        """
+        INSERT INTO passport_extraction(
+            source_media_id, mrz_format, nationality, sex, name,
+            document_number, birth_date, expiry_date, checks_ok, flags, status,
+            confidence_score, processing_route, ai_model_used, fallback_reason, requires_manual_review,
+            source_kind, annotation, selected, group_json, document_type
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            str(staged_path),
+            record.mrz.format if record.mrz else None,
+            field_data.get("nationality"),
+            field_data.get("sex"),
+            field_data.get("name"),
+            field_data.get("passport_no"),
+            field_data.get("birth_date"),
+            field_data.get("expiry_date"),
+            int(bool(record.is_green)),
+            ",".join(field_data.get("flags", [])),
+            field_data.get("confidence_score", 1.0),
+            field_data.get("processing_route", "irtifa_server"),
+            field_data.get("ai_model_used"),
+            field_data.get("fallback_reason"),
+            int(field_data.get("requires_manual_review", False)),
+            field_data.get("source_kind") or None,
+            field_data.get("annotation") or None,
+            (None if selected is None else int(bool(selected))),
+            json.dumps(group, ensure_ascii=False) if group else None,
+            field_data.get("document_type") or None,
+        ),
+    )
+    return cursor.lastrowid
+
+
 def _mark_extractions_approved(identities: list[dict], sheet: str, rows: list[int]) -> int:
     """Yazılan kimliklerin çıkarım kayıtlarını onaylı işaretler.
 
@@ -1424,6 +1575,26 @@ def _mark_extractions_approved(identities: list[dict], sheet: str, rows: list[in
     return removed
 
 
+def _capacity_detail(choice: dict, rows, blocks, load: dict, s, pax: int) -> dict:
+    """409 kapasite onayı gövdesi; koltuk şablonunda serbest koltuk özeti eklenir."""
+    detail = {
+        "code": "capacity_confirmation_required",
+        "message": "Hiçbir balonda grubun tamamına yer yok.",
+        "balloon_load": load,
+        "capacity": s.balloon_capacity,
+        "balloon_codes": s.balloon_codes,
+    }
+    if choice.get("mode") == "seat":
+        seats = planning_free_seat_summary(rows, blocks)
+        free_txt = ", ".join(f"{b} {v['free']} (en uzun {v['longest']})" for b, v in sorted(seats.items())) or "yok"
+        detail["message"] = (
+            f"Hiçbir balonda {pax} ardışık boş koltuk yok. Boş koltuklar: {free_txt}. "
+            "Onaylarsanız rezervasyon şablonun altına eklenir."
+        )
+        detail["free_seats"] = seats
+    return detail
+
+
 @app.post("/api/planning/create-with-identities")
 def api_create_with_identities(body: dict, request: Request) -> dict:
     """Atomically create a reservation and write its approved identities."""
@@ -1448,22 +1619,16 @@ def api_create_with_identities(body: dict, request: Request) -> dict:
         if body.get(key) not in (None, "")
     }
 
+    current_rows = read_rows(path, sheet)
     current_blocks = read_blocks(path, sheet)
     current_load = planning_balloon_load(current_blocks)
-    suggested, overflow = planning_assign_balloon(
-        current_load, pax, s.balloon_codes, s.balloon_capacity
-    )
+    choice = planning_choose_balloon(current_rows, current_blocks, pax, s.balloon_codes, s.balloon_capacity)
+    suggested, overflow = choice["balloon"], choice["overflow"]
     requested = str(body.get("requested_balloon", "")).strip().upper()
     if overflow and not (body.get("allow_overflow") and requested in s.balloon_codes):
         raise HTTPException(
             status_code=409,
-            detail={
-                "code": "capacity_confirmation_required",
-                "message": "Hiçbir balonda grubun tamamına yer yok.",
-                "balloon_load": current_load,
-                "capacity": s.balloon_capacity,
-                "balloon_codes": s.balloon_codes,
-            },
+            detail=_capacity_detail(choice, current_rows, current_blocks, current_load, s, pax),
         )
     balloon = requested if overflow else suggested
 
@@ -1657,34 +1822,8 @@ async def api_passport_upload(
                 if not _is_operational_ocr_error(field_data.get("error")):
                     conn = connect()
                     try:
-                        cursor = conn.execute(
-                            """
-                            INSERT INTO passport_extraction(
-                                source_media_id, mrz_format, nationality, sex, name,
-                                document_number, birth_date, expiry_date, checks_ok, flags, status,
-                                confidence_score, processing_route, ai_model_used, fallback_reason, requires_manual_review
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)
-                            """,
-                            (
-                                str(staged_path),
-                                record.mrz.format if record.mrz else None,
-                                field_data.get("nationality"),
-                                field_data.get("sex"),
-                                field_data.get("name"),
-                                field_data.get("passport_no"),
-                                field_data.get("birth_date"),
-                                field_data.get("expiry_date"),
-                                int(bool(record.is_green)),
-                                ",".join(field_data.get("flags", [])),
-                                field_data.get("confidence_score", 1.0),
-                                field_data.get("processing_route", "irtifa_server"),
-                                field_data.get("ai_model_used"),
-                                field_data.get("fallback_reason"),
-                                int(field_data.get("requires_manual_review", False)),
-                            ),
-                        )
+                        field_data["extraction_id"] = _insert_extraction(conn, staged_path, record, field_data)
                         conn.commit()
-                        field_data["extraction_id"] = cursor.lastrowid
                     finally:
                         conn.close()
                 else:
@@ -1750,34 +1889,8 @@ async def api_passport_retry_ocr(
         raise HTTPException(status_code=503, detail=fields["error"])
     conn = connect()
     try:
-        cursor = conn.execute(
-            """
-            INSERT INTO passport_extraction(
-                source_media_id, mrz_format, nationality, sex, name,
-                document_number, birth_date, expiry_date, checks_ok, flags, status,
-                confidence_score, processing_route, ai_model_used, fallback_reason, requires_manual_review
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)
-            """,
-            (
-                str(staged_path),
-                record.mrz.format if record.mrz else None,
-                fields.get("nationality"),
-                fields.get("sex"),
-                fields.get("name"),
-                fields.get("passport_no"),
-                fields.get("birth_date"),
-                fields.get("expiry_date"),
-                int(bool(record.is_green)),
-                ",".join(fields.get("flags", [])),
-                fields.get("confidence_score", 1.0),
-                fields.get("processing_route", "google_vision"),
-                fields.get("ai_model_used"),
-                fields.get("fallback_reason"),
-                int(fields.get("requires_manual_review", False)),
-            ),
-        )
+        fields["extraction_id"] = _insert_extraction(conn, staged_path, record, fields)
         conn.commit()
-        fields["extraction_id"] = cursor.lastrowid
     finally:
         conn.close()
     return fields
@@ -1791,7 +1904,8 @@ def api_passport_manual_review() -> dict:
             """
             SELECT id, created_at, source_media_id, mrz_format, nationality, sex, name,
                    document_number, flags, status, confidence_score, processing_route,
-                   ai_model_used, fallback_reason, manual_review_reason
+                   ai_model_used, fallback_reason, manual_review_reason,
+                   source_kind, annotation, selected, group_json, document_type
             FROM passport_extraction
             WHERE requires_manual_review = 1 AND status = 'pending'
             ORDER BY created_at ASC
@@ -2053,6 +2167,7 @@ def api_manifest_export(
         path,
         filename=path.name,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=_output_dir_header(out_dir),
     )
 
 
@@ -2106,7 +2221,8 @@ def api_driver_report_export(request: Request, body: dict) -> FileResponse:
         sheet=sheet,
         detail={"driver": driver or "all"},
     )
-    return FileResponse(zip_path, filename=zip_path.name, media_type="application/zip")
+    return FileResponse(zip_path, filename=zip_path.name, media_type="application/zip",
+                        headers=_output_dir_header(out_dir.parent))
 
 
 def _safe_output_name(value: str) -> str:
@@ -2156,7 +2272,31 @@ def api_all_outputs(request: Request, body: dict) -> FileResponse:
         sheet=sheet,
         detail={"override_reason": reason or None, "files": len(outputs)},
     )
-    return FileResponse(zip_path, filename=zip_path.name, media_type="application/zip")
+    return FileResponse(zip_path, filename=zip_path.name, media_type="application/zip",
+                        headers=_output_dir_header(out_dir))
+
+
+def _output_dir_header(out_dir: Path) -> dict[str, str]:
+    """Çıktıların diskte kaydedildiği klasör (yüzde-kodlu; başlıklar ASCII olmalı)."""
+    from urllib.parse import quote
+    return {"X-Output-Dir": quote(str(out_dir)), "Access-Control-Expose-Headers": "X-Output-Dir"}
+
+
+@app.post("/api/outputs/open-folder")
+def api_open_output_folder(body: dict) -> dict[str, Any]:
+    """Seçili günün çıktı klasörünü Gezgin'de açar. Yalnız çıktı klasörünün altı açılabilir."""
+    sheet = str(body.get("sheet", "")).strip()
+    base = _load_settings().output_path().resolve()
+    target = (base / _safe_output_name(sheet)).resolve() if sheet else base
+    if target != base and base not in target.parents:
+        raise HTTPException(status_code=422, detail="Geçersiz klasör.")
+    if not target.exists():
+        target = base
+    if not target.exists():
+        raise HTTPException(status_code=404, detail="Çıktı klasörü henüz oluşturulmadı.")
+    if os.name == "nt":
+        os.startfile(str(target))  # noqa: S606 — yerel masaüstü uygulaması
+    return {"path": str(target)}
 
 
 @app.get("/api/admin/backups")

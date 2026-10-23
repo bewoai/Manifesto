@@ -55,6 +55,10 @@ SYSTEM_PROMPT = (
     "(ISO), hotel, agency or tour operator, booking/tour code, declared passenger count (pax), "
     "a nationality stated for the whole group (nationality_hint, alpha-3), and a short note "
     "for anything else relevant (room requests, phone numbers). Empty strings when absent.\n"
+    "6b. `group.nationality_guess`: only when the nationality is NOT printed for the rows or in "
+    "the header, give your best single guess for the group (alpha-3) from the list's language, "
+    "the names, the document number formats and the header; empty if there is no reasonable "
+    "guess. This is a separate, clearly-labelled guess — never copy it into `fields.nationality`.\n"
     "7. `confidence` per passenger: 0-1, how legible that row was. Give an overall "
     "`confidence` for the image too.\n"
     "Output only the requested JSON."
@@ -102,9 +106,11 @@ OUTPUT_SCHEMA = {
                 "booking_code": {"type": "string"},
                 "pax": {"type": "integer"},
                 "nationality_hint": {"type": "string"},
+                "nationality_guess": {"type": "string"},
                 "note": {"type": "string"},
             },
-            "required": ["date", "hotel", "agency", "booking_code", "pax", "nationality_hint", "note"],
+            "required": ["date", "hotel", "agency", "booking_code", "pax", "nationality_hint",
+                         "nationality_guess", "note"],
             "additionalProperties": False,
         },
         "passengers": {"type": "array", "items": PASSENGER_SCHEMA},
@@ -233,8 +239,10 @@ class ClaudeDirectProvider:
             kind = "other"
         group_raw = data.get("group") if isinstance(data.get("group"), dict) else {}
         group = {k: (group_raw.get(k) if k == "pax" else str(group_raw.get(k) or "").strip())
-                 for k in ("date", "hotel", "agency", "booking_code", "pax", "nationality_hint", "note")}
+                 for k in ("date", "hotel", "agency", "booking_code", "pax", "nationality_hint",
+                           "nationality_guess", "note")}
         group["nationality_hint"] = str(group["nationality_hint"] or "").upper()[:3]
+        group["nationality_guess"] = str(group["nationality_guess"] or "").upper()[:3]
         if not isinstance(group.get("pax"), int):
             group["pax"] = None
         passengers = [_clean_passenger(p) for p in (data.get("passengers") or []) if isinstance(p, dict)]

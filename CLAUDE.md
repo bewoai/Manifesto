@@ -296,3 +296,19 @@ Hatalı-eksik), acente bazlı eksik görünümü, kapasite (Sayfa2) entegrasyonu
   kayıt yapar, MRZ varsa checksum (yeşil mümkün), yoksa alanlar + FREE_TEXT_UNVERIFIED (sarı). İşaretler
   yorumlanmaz, `annotation` olarak taşınır; kural seçimi UI'da (liste bazında, acenteye kaydedilir) — sıradaki.
   Görsel ön işleme `providers/image_prep.py` (EXIF yön + 2000 px). Benchmark seti: `%USERPROFILE%\Irtifa-benchmark\`.
+
+### Koltuk şablonu (2026-10-23, gerçek Ekim planlaması sonrası)
+- Arkadaşın gerçek gün sayfası 112 satırı önceden balonlara dağıtır: balon başına 28 satırlık ardışık
+  bant, boş koltukta firma/balon/pilot (bazen geleceği yer/şoför) dolu, isim/pasaport/PAX boş.
+- `PlanningRow.is_seat` = balon var, isim/pasaport/PAX yok. `group_blocks` boş koltuğu bloğa yalnız PAX
+  dolmadıysa ve aynı balondaysa katar; aksi hâlde serbest koltuktur. Manifesto (`writer.build_rows`)
+  yalnız isim ya da pasaport no'su olan satırları yazar.
+- `free_seat_runs` / `free_seat_summary`: balon → ardışık serbest koltuk dizileri; `/api/planning/load`
+  `free_seats` döner. `choose_balloon`: önce istenen, sonra `balloon_codes` sırası, ≥ PAX ardışık koltuğu
+  olan ilk balon ("seat"); koltuk şablonunda yer yoksa overflow (onayla şablonun altına eklenir);
+  ekleme şablonunda eski first-fit ("append"). `is_seat_template`: serbest koltuğu olan bir balonun
+  sayfada ≥ kapasite satırı var.
+- Silme/küçültme/yolcu silme `_clear_row` ile firma/balon/pilot/geleceği yer'i KORUR → satır o balonun
+  serbest koltuğu olarak kalır (başka balonun grubu oraya yazılmaz).
+- Test: `tests/fixtures/seat_template_ekim.xlsx` gerçek dosyanın PII'siz kopyası (21/22/23 Ekim; isim,
+  pasaport, otel, acente, pilot, oda, not maskeli). Gerçek planlama dosyaları repoya konmaz.

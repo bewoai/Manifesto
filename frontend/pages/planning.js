@@ -2,6 +2,7 @@
    Planlama — Gün seçimi, rezervasyon blokları, operasyon formu
    ═══════════════════════════════════════════════════════════════════ */
 import { api, toast, modal, renderHeader, helpIcon, registerUnsavedCheck, balloonInk, envStripe, setBalloonCodes } from '/app.js';
+import { parseQuery, matchesBlock, describeTerms } from '/planning_search.js';
 import { attachCombobox } from '/combobox.js';
 import { openIdentityEditor } from '/identity_edit.js';
 
@@ -162,7 +163,11 @@ export async function render(container) {
             </div>
           </div>
           <div class="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
-            <input class="form-input md:col-span-2" id="block-search" placeholder="İsim, otel, acente, balon veya şoför ara" oninput="window.__renderPlanningDebounced()" />
+            <div class="md:col-span-2">
+              <input class="form-input" id="block-search" type="search" autocomplete="off" aria-describedby="block-search-hint"
+                     placeholder="Ara: pax 5 · isim ahmet · otel argos · şoför 2" oninput="window.__renderPlanningDebounced()" />
+              <div class="form-help" id="block-search-hint">Alan adıyla arayın: pax, isim, otel, acente, balon, pilot, şoför, pasaport, uyruk, oda, saat, not. Örn. <span class="font-mono">pax 3-5</span>, <span class="font-mono">pax &gt;4</span>.</div>
+            </div>
             <select class="form-select" id="block-filter" onchange="window.__renderPlanning()">
               <option value="">Tüm rezervasyonlar</option>
               <option value="missing">Pasaportu eksik</option>
@@ -634,16 +639,12 @@ function renderBlocks() {
 }
 
 function filteredBlocks() {
-  const query = (document.getElementById('block-search')?.value || '').trim().toLocaleUpperCase('tr-TR');
+  const rawQuery = (document.getElementById('block-search')?.value || '').trim();
+  const terms = parseQuery(rawQuery);
   const filter = document.getElementById('block-filter')?.value || '';
   const sort = document.getElementById('block-sort')?.value || 'row';
   let rows = state.blocks.map((block, index) => ({ block, index }));
-  if (query) {
-    rows = rows.filter(({ block }) => [
-      block.lead_name, block.hotel, block.agency, block.balloon, block.driver,
-      ...(block.passengers || []).map(p => p.name),
-    ].join(' ').toLocaleUpperCase('tr-TR').includes(query));
-  }
+  if (terms.length) rows = rows.filter(({ block }) => matchesBlock(block, terms));
   if (filter) {
     rows = rows.filter(({ block }) => {
       if (filter.startsWith('balloon_')) {
@@ -652,6 +653,13 @@ function filteredBlocks() {
       const missing = (block.passengers || []).some(p => !p.name || !p.passport_no || !p.nationality || !p.sex);
       return filter === 'missing' ? missing : !missing;
     });
+  }
+  const hint = document.getElementById('block-search-hint');
+  if (hint) {
+    if (!hint.dataset.default) hint.dataset.default = hint.innerHTML;
+    hint.innerHTML = terms.length
+      ? `<span class="text-on-surface font-semibold">${rows.length}</span> rezervasyon · ${escHtml(describeTerms(terms))}`
+      : hint.dataset.default;
   }
   rows.sort((a, b) => {
     if (sort === 'pickup') return String(a.block.pickup || '99:99').localeCompare(String(b.block.pickup || '99:99'));

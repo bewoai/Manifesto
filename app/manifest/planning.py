@@ -103,13 +103,28 @@ def _rows_from_ws(ws) -> list[PlanningRow]:
     İsim, balon ve pasaport no'su olmayan satırlar atlanır. Boş koltuklar (balon dolu,
     kimlik boş) listede kalır; `is_seat` ile ayırt edilir.
     """
+    return _parse_rows(lambda r, c: _cell(ws, r, c), ws.max_row)
+
+
+def _rows_from_grid(grid: list[tuple]) -> list[PlanningRow]:
+    """Salt-okunur ızgaradan (satır değer demetleri, 1 tabanlı satır = indeks+1) aynı ayrıştırma."""
+    def get(r: int, c: int) -> str:
+        if r - 1 >= len(grid):
+            return ""
+        row = grid[r - 1]
+        v = row[c - 1] if c - 1 < len(row) else None
+        return "" if v is None else str(v).strip()
+    return _parse_rows(get, len(grid))
+
+
+def _parse_rows(get, max_row: int) -> list[PlanningRow]:
     rows: list[PlanningRow] = []
-    for r in range(config.PLANNING_FIRST_DATA_ROW, ws.max_row + 1):
-        name = _cell(ws, r, config.COL_NAME)
-        balloon = _cell(ws, r, config.COL_BALLOON)
-        if not name and not balloon and not _cell(ws, r, config.COL_PASSPORT_NO):
+    for r in range(config.PLANNING_FIRST_DATA_ROW, max_row + 1):
+        name = get(r, config.COL_NAME)
+        balloon = get(r, config.COL_BALLOON)
+        if not name and not balloon and not get(r, config.COL_PASSPORT_NO):
             continue
-        pax_raw = _cell(ws, r, config.COL_PAX)
+        pax_raw = get(r, config.COL_PAX)
         try:
             pax = int(float(pax_raw)) if pax_raw else None
         except ValueError:
@@ -117,35 +132,96 @@ def _rows_from_ws(ws) -> list[PlanningRow]:
         rows.append(PlanningRow(
             row=r,
             pax=pax,
-            nationality=_cell(ws, r, config.COL_UYRUK),
-            sex=_cell(ws, r, config.COL_MF),
+            nationality=get(r, config.COL_UYRUK),
+            sex=get(r, config.COL_MF),
             name=name,
-            room=_cell(ws, r, config.COL_ROOM),
-            hotel=_cell(ws, r, config.COL_HOTEL),
-            pickup=_cell(ws, r, config.COL_PICKUP),
-            reserved_by=_cell(ws, r, config.COL_RESERVED_BY),
-            agency=_cell(ws, r, config.COL_AGENCY),
-            company=_cell(ws, r, config.COL_COMPANY),
+            room=get(r, config.COL_ROOM),
+            hotel=get(r, config.COL_HOTEL),
+            pickup=get(r, config.COL_PICKUP),
+            reserved_by=get(r, config.COL_RESERVED_BY),
+            agency=get(r, config.COL_AGENCY),
+            company=get(r, config.COL_COMPANY),
             balloon=balloon.upper(),
-            pilot=_cell(ws, r, config.COL_PILOT),
-            note=_cell(ws, r, config.COL_NOTE),
-            driver=_cell(ws, r, config.COL_DRIVER),
-            coming_place=_cell(ws, r, config.COL_COMING_PLACE),
-            passport_no=_cell(ws, r, config.COL_PASSPORT_NO),
+            pilot=get(r, config.COL_PILOT),
+            note=get(r, config.COL_NOTE),
+            driver=get(r, config.COL_DRIVER),
+            coming_place=get(r, config.COL_COMING_PLACE),
+            passport_no=get(r, config.COL_PASSPORT_NO),
         ))
     return rows
+
+
+def _read_workbook_grid(path: Path) -> dict[str, list[tuple]]:
+    """Kitabın tüm sayfalarını salt-okunur modda tek geçişte okur (yalnız değerler, A..T).
+
+    Tam (biçimli) yükleme 17 sayfalık gerçek dosyada ~2,2 sn sürüyordu; bu yol ~0,25 sn'de
+    bütün sayfaları verir. Birleşik hücrelerin sol üstü dışındaki hücreler None gelir (tam
+    yüklemedeki MergedCell ile aynı).
+    """
+    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    try:
+        grid: dict[str, list[tuple]] = {}
+        for ws in wb.worksheets:
+            ws.reset_dimensions()   # bozuk <dimension> etiketi satırları kesmesin
+            grid[ws.title] = [list(r) for r in ws.iter_rows(values_only=True, max_col=config.COL_PASSPORT_NO)]
+    finally:
+        wb.close()
+    # Salt-okunur mod birleşik alanların altında kalmış eski değerleri de döndürür; tam
+    # yüklemede bunlar None'dur (MergedCell). Aynı sonucu vermek için sol üst dışını boşalt.
+    for title, ranges in _merged_ranges(path).items():
+        rows = grid.get(title)
+        if not rows:
+            continue
+        for min_col, min_row, max_col, max_row in ranges:
+            for r in range(min_row, min(max_row, len(rows)) + 1):
+                row = rows[r - 1]
+                for c in range(min_col, min(max_col, len(row)) + 1):
+                    if (r, c) != (min_row, min_col):
+                        row[c - 1] = None
+    return {title: [tuple(r) for r in rows] for title, rows in grid.items()}
+
+
+def _merged_ranges(path: Path) -> dict[str, list[tuple[int, int, int, int]]]:
+    """Sayfa adı → birleşik alanlar (min_col, min_row, max_col, max_row); xlsx XML'inden okunur."""
+    import posixpath
+    import zipfile
+    import xml.etree.ElementTree as ET
+    from openpyxl.utils.cell import range_boundaries
+
+    ns_main = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+    ns_rel = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
+    out: dict[str, list[tuple[int, int, int, int]]] = {}
+    with zipfile.ZipFile(path) as z:
+        rels = ET.fromstring(z.read("xl/_rels/workbook.xml.rels"))
+        targets = {r.get("Id"): r.get("Target") for r in rels}
+        wbx = ET.fromstring(z.read("xl/workbook.xml"))
+        for sh in wbx.iter(f"{ns_main}sheet"):
+            target = targets.get(sh.get(f"{ns_rel}id"))
+            if not target:
+                continue
+            part = target.lstrip("/") if target.startswith("/") else posixpath.normpath(posixpath.join("xl", target))
+            try:
+                xml = z.read(part)
+            except KeyError:
+                continue
+            refs = re.findall(rb'<(?:\w+:)?mergeCell\s+ref="([A-Z]+[0-9]+:[A-Z]+[0-9]+)"', xml)
+            if refs:
+                out[sh.get("name")] = [range_boundaries(ref.decode()) for ref in refs]
+    return out
+
+
+def workbook_grid(planning_xlsx: Path) -> dict[str, list[tuple]]:
+    """Önbellekli ızgara: dosyanın mtime+boyutu değişene kadar tek okuma paylaşılır."""
+    return get_cached_excel_data(planning_xlsx, "workbook_grid", _read_workbook_grid)
 
 
 def read_rows(planning_xlsx: Path, sheet: str) -> list[PlanningRow]:
     """Bir gün sayfasının tüm satırlarını okur (header row 3 sonrası); boş koltuklar dahil."""
     def _read(path: Path, s: str) -> list[PlanningRow]:
-        wb = openpyxl.load_workbook(path, data_only=True)
-        if s not in wb.sheetnames:
-            wb.close()
-            raise KeyError(f"Planlama dosyasında '{s}' sayfası yok. Mevcut: {wb.sheetnames}")
-        rows = _rows_from_ws(wb[s])
-        wb.close()
-        return rows
+        grid = workbook_grid(path)
+        if s not in grid:
+            raise KeyError(f"Planlama dosyasında '{s}' sayfası yok. Mevcut: {list(grid)}")
+        return _rows_from_grid(grid[s])
 
     return get_cached_excel_data(planning_xlsx, "read_rows", _read, sheet)
 
@@ -528,13 +604,16 @@ def day_seat_load(ws, *, capacity: int, codes: list[str]) -> dict:
     Ekleme şablonunda satır yalnız yolcu için açıldığından toplam = kapasite × balon sayısı
     (Ayarlar'daki kodlar + sayfada görülenler).
     """
-    rows = _rows_from_ws(ws)
+    return _day_seat_load_rows(_rows_from_ws(ws), capacity=capacity, codes=codes)
+
+
+def _day_seat_load_rows(rows: list[PlanningRow], *, capacity: int, codes: list[str]) -> dict:
     blocks = group_blocks(rows)
     load = balloon_load(blocks)
     free = free_seat_summary(rows, blocks)
     used = sum(load.values())
     free_total = sum(v["free"] for v in free.values())
-    if is_seat_layout(ws, capacity):
+    if _is_seat_layout_rows(rows, capacity):
         total = used + free_total
     else:
         balloons = {c for c in codes if c} | set(load) | set(free)
@@ -545,22 +624,19 @@ def day_seat_load(ws, *, capacity: int, codes: list[str]) -> dict:
 def month_load(planning_xlsx: Path, year: int, month: int, *, capacity: int, codes: list[str]) -> dict[str, dict]:
     """Ayın her gün sayfası için `day_seat_load`. Anahtar 'GG.AA.YYYY'.
 
-    Çalışma kitabı bir kez açılır; okunamayan sayfa atlanır (takvim yine çizilir).
+    Ortak salt-okunur ızgarayı kullanır (gün okumalarıyla aynı tek okuma); okunamayan
+    sayfa atlanır (takvim yine çizilir).
     """
-    wb = openpyxl.load_workbook(planning_xlsx, data_only=True)
-    try:
-        out: dict[str, dict] = {}
-        for name in wb.sheetnames:
-            d = sheet_date(name)
-            if d is None or d.year != year or d.month != month:
-                continue
-            try:
-                out[d.strftime("%d.%m.%Y")] = day_seat_load(wb[name], capacity=capacity, codes=codes)
-            except Exception:
-                continue
-        return out
-    finally:
-        wb.close()
+    out: dict[str, dict] = {}
+    for name, grid in workbook_grid(planning_xlsx).items():
+        d = sheet_date(name)
+        if d is None or d.year != year or d.month != month:
+            continue
+        try:
+            out[d.strftime("%d.%m.%Y")] = _day_seat_load_rows(_rows_from_grid(grid), capacity=capacity, codes=codes)
+        except Exception:
+            continue
+    return out
 
 
 def nearest_source_sheet(sheetnames: list[str], new_sheet: str) -> Optional[str]:
@@ -581,10 +657,13 @@ def is_seat_layout(ws, capacity: int = config.DEFAULT_BALLOON_CAPACITY) -> bool:
     Ölçüt: en az 2 balon bandı kadar satırda balon kodu var ve her balon en çok 2
     ardışık parça hâlinde (ekleme şablonunda balonlar bloklar arasında karışır).
     """
+    return _is_seat_layout_rows(_rows_from_ws(ws), capacity)
+
+
+def _is_seat_layout_rows(rows: list[PlanningRow], capacity: int = config.DEFAULT_BALLOON_CAPACITY) -> bool:
     from collections import Counter
 
     cap = max(int(capacity or 28), 1)
-    rows = _rows_from_ws(ws)
     with_balloon = [r for r in rows if r.balloon]
     if len(with_balloon) < 2 * cap:
         return False

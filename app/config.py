@@ -79,6 +79,7 @@ SEX_TR = {"M": "Erkek", "F": "Kadın"}
 DEFAULT_BALLOON_CODES = []
 DEFAULT_BALLOON_CAPACITY = 28   # balon başına maksimum yolcu (Sayfa2 KAPASİTE 112 = ~4×28)
 MAX_PAX = 28                    # tek rezervasyonun en fazla yolcu sayısı
+MAX_BALLOON_CAPACITY = 60       # Ayarlar'da tek balona girilebilecek en büyük kapasite
 VEHICLE_CAPACITY = 16          # araç (ALIŞ ŞÖFÖR/kaptan) başına maksimum yolcu
 
 def get_resource_path(relative_path: str) -> Path:

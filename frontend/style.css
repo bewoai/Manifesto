@@ -291,7 +291,7 @@
   }
 
   .card-header {
-    @apply flex justify-between items-center gap-3 mb-5;
+    @apply flex flex-wrap justify-between items-center gap-3 mb-5;
   }
 
   .card-title {
@@ -925,3 +925,6 @@
 tr.sg-seat .sg-cell { color: rgb(var(--ink-2)); }
 tr.sg-focus .sg-cell, tr.sg-focus .sg-rownum { background: rgb(var(--primary) / 0.14); }
 .sg-input { width: 100%; min-width: 120px; padding: 2px 4px; border: 0; outline: 2px solid rgb(var(--primary)); border-radius: 2px; background: rgb(var(--raised)); color: rgb(var(--ink)); font: inherit; }
+.pv-tab { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 6px; font-size: 14px; font-weight: 600; color: rgb(var(--ink-2)); }
+.pv-tab:hover { color: rgb(var(--ink)); }
+.pv-tab.is-on { background: rgb(var(--primary)); color: rgb(var(--on-primary)); }

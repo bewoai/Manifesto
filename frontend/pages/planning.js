@@ -3,6 +3,7 @@
    ═══════════════════════════════════════════════════════════════════ */
 import { api, toast, modal, renderHeader, helpIcon, registerUnsavedCheck, balloonInk, envStripe, setBalloonCodes, routeParams } from '/app.js';
 import { parseQuery, matchesBlock, describeTerms } from '/planning_search.js';
+import { mountSheetGrid, sheetGridDirty } from '/sheet_grid.js';
 import { attachCombobox } from '/combobox.js';
 import { openIdentityEditor } from '/identity_edit.js';
 import { capacityFor, balloonLimitText, quotaRows, isQuotaExceeded, quotaConfirmOptions } from '/capacity_rules.js';
@@ -79,6 +80,7 @@ const OPERATION_KEYS = ['pax','room','hotel','pickup','reserved_by','agency','co
 // pencere yenileme/kapama onay ister.
 registerUnsavedCheck('planning', () => {
   if (state.pendingReorder) return true;
+  if (sheetGridDirty()) return true;
   if (!document.getElementById('op-pax')) return false; // form bu ekranda açık değil
   const block = state.selectedBlock !== null ? state.blocks[state.selectedBlock] : null;
   if (!block) return false;
@@ -95,6 +97,7 @@ function todayStart() {
 
 export async function render(container) {
   loadToken++; // önceki sayfa ziyaretinden kalan yanıtlar uygulanmasın
+  state.view = 'blocks'; excelMountedFor = '';
   renderHeader('Planlama', 'Uçuş günü yönetimi ve rezervasyon blokları');
   const deepLink = readDeepLink();
   state.issueFilter = null;
@@ -165,14 +168,22 @@ export async function render(container) {
               <span class="material-symbols-outlined mr-2">group</span> Rezervasyon Blokları
               <span id="reorder-status" style="display: none;"></span>
             </div>
-            <div class="flex items-center gap-3">
+            <div class="flex flex-wrap items-center gap-3">
+              <div class="inline-flex rounded-lg border border-line bg-raised p-0.5" role="tablist" aria-label="Görünüm">
+                <button role="tab" id="pv-blocks" aria-selected="true" class="pv-tab is-on" onclick="window.__planView('blocks')">
+                  <span class="material-symbols-outlined text-[18px]">view_agenda</span> Rezervasyonlar
+                </button>
+                <button role="tab" id="pv-excel" aria-selected="false" class="pv-tab" onclick="window.__planView('excel')" title="Günün Excel sayfasını uygulama içinde göster ve düzenle">
+                  <span class="material-symbols-outlined text-[18px]">table_view</span> Excel
+                </button>
+              </div>
               <span class="text-sm text-on-surface-variant" id="blocks-count"></span>
               <button class="btn-primary flex items-center gap-2" onclick="window.__newReservation()">
                 <span class="material-symbols-outlined text-sm">add</span> Yeni Rezervasyon
               </button>
             </div>
           </div>
-          <div class="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4" id="blocks-tools">
             <div class="md:col-span-2">
               <input class="form-input" id="block-search" type="search" autocomplete="off" aria-describedby="block-search-hint"
                      placeholder="Ara: pax 5 · isim ahmet · otel argos · şoför 2" oninput="window.__renderPlanningDebounced()" />
@@ -192,6 +203,7 @@ export async function render(container) {
           </div>
           <div id="issue-filter-chip"></div>
           <div class="flex flex-col gap-3" id="blocks-list"></div>
+          <div id="excel-view" style="display:none"></div>
         </div>
       </div>
     </div>
@@ -431,6 +443,7 @@ window.__loadDayDate = async function(sheet) {
 
     renderBlocks();
     renderBalloonLoad();
+    refreshExcelView();
     // Başarılı yüklemede toast yok: takvimde seçili gün ve liste zaten geri bildirim.
   } catch (err) {
     if (token !== loadToken) return;
@@ -1375,3 +1388,42 @@ window.__renderPlanningDebounced = debounce(() => {
     window.__renderPlanning();
   }
 }, 200);
+
+
+// ─── Uygulama içi Excel görünümü (frontend/sheet_grid.js) ───
+let excelMountedFor = '';
+
+function refreshExcelView(force = false) {
+  if (state.view !== 'excel' || !state.currentSheet) return;
+  if (!force && excelMountedFor === state.currentSheet) return;
+  excelMountedFor = state.currentSheet;
+  mountSheetGrid(document.getElementById('excel-view'), {
+    sheet: state.currentSheet,
+    // Kaydedince rezervasyon listesi ve doluluk da tazelensin (Excel görünümü zaten yenilendi)
+    onSaved: () => window.__loadDayDate(state.currentSheet),
+  });
+}
+
+window.__planView = async function(mode) {
+  if (state.view === 'excel' && mode !== 'excel' && sheetGridDirty()) {
+    const ok = await modal.confirm({
+      title: 'Kaydedilmemiş hücreler var',
+      bodyHtml: '<p class="text-on-surface-variant">Excel görünümünde kaydetmediğiniz değişiklikler kaybolacak.</p>',
+      confirmLabel: 'Kaydetmeden çık', tone: 'danger',
+    });
+    if (!ok) return;
+  }
+  state.view = mode === 'excel' ? 'excel' : 'blocks';
+  const excel = state.view === 'excel';
+  for (const [id, on] of [['pv-blocks', !excel], ['pv-excel', excel]]) {
+    const b = document.getElementById(id);
+    if (b) { b.classList.toggle('is-on', on); b.setAttribute('aria-selected', String(on)); }
+  }
+  for (const id of ['blocks-tools', 'blocks-list']) {
+    const el = document.getElementById(id);
+    if (el) el.style.display = excel ? 'none' : '';
+  }
+  const view = document.getElementById('excel-view');
+  if (view) view.style.display = excel ? '' : 'none';
+  if (excel) refreshExcelView(true);
+};

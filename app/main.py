@@ -2075,6 +2075,64 @@ def api_passport_manual_review_resolve(req: ResolveManualReviewRequest, request:
     return {"success": True, "record": result}
 
 
+@app.post("/api/passport/manual-review/dismiss")
+def api_passport_manual_review_dismiss(request: Request, body: dict) -> dict:
+    """Bekleyen manuel kontrol kayıtlarını toplu kaldırır (reddedildi sayılır; Excel'e dokunmaz).
+
+    body: {"ids": [1, 2, ...]} ya da {"all": true}. Başka bir canlı kaydın kullanmadığı
+    kaynak görseller diskten silinir (KVKK, yer açar). Bir liste görselinden birden çok
+    yolcu çıkabildiği için görsel ancak son kullanan kayıt da kaldırılınca silinir.
+    """
+    dismiss_all = bool(body.get("all"))
+    raw_ids = body.get("ids") or []
+    if not dismiss_all:
+        if not isinstance(raw_ids, list) or not raw_ids:
+            raise HTTPException(status_code=422, detail="Kaldırılacak kayıt seçilmedi.")
+        try:
+            ids = sorted({int(i) for i in raw_ids})
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=422, detail="Kayıt kimlikleri sayı olmalı.")
+
+    pending = "requires_manual_review = 1 AND status = 'pending'"
+    conn = connect()
+    try:
+        if dismiss_all:
+            rows = conn.execute(f"SELECT id, source_media_id FROM passport_extraction WHERE {pending}").fetchall()
+        else:
+            marks = ",".join("?" * len(ids))
+            rows = conn.execute(
+                f"SELECT id, source_media_id FROM passport_extraction WHERE {pending} AND id IN ({marks})",
+                ids,
+            ).fetchall()
+        target_ids = [r["id"] for r in rows]
+        if target_ids:
+            marks = ",".join("?" * len(target_ids))
+            conn.execute(
+                f"UPDATE passport_extraction SET status = 'rejected', requires_manual_review = 0, "
+                f"manual_review_reason = 'operator_dismissed' WHERE id IN ({marks})",
+                target_ids,
+            )
+        sources = sorted({r["source_media_id"] for r in rows if r["source_media_id"]})
+        orphaned = [
+            src for src in sources
+            if not conn.execute(
+                "SELECT 1 FROM passport_extraction WHERE source_media_id = ? AND status != 'rejected' LIMIT 1",
+                (src,),
+            ).fetchone()
+        ]
+        conn.commit()
+    finally:
+        conn.close()
+
+    removed_files = sum(1 for src in orphaned if delete_passport_image(src))
+    audit_mod.record(
+        "manual_review_dismissed",
+        actor=_actor(request),
+        detail={"count": len(target_ids), "all": dismiss_all, "removed_files": removed_files},
+    )
+    return {"success": True, "dismissed": len(target_ids), "removed_files": removed_files}
+
+
 @app.post("/api/passport/cleanup")
 def api_passport_cleanup(request: Request, body: dict) -> dict:
     requested_day = str(body.get("day") or "").strip()

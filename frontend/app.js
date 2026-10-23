@@ -456,12 +456,19 @@ async function navigateTo(route) {
 
   try {
     const page = await loadPage(pageName);
+    try { sessionStorage.removeItem('irtifa-chunk-reload'); } catch (e) { /* yoksay */ }
     if (page && page.render) {
       pageBody.innerHTML = '';
       await page.render(pageBody);
     }
   } catch (err) {
     console.error('Page load error:', err);
+    // Uygulama güncellendikten sonra açık pencere eski parça adlarını ister → bir kez yenile
+    if (/dynamically imported module|Importing a module script failed/i.test(String(err?.message))) {
+      let reloaded = false;
+      try { reloaded = sessionStorage.getItem('irtifa-chunk-reload') === '1'; sessionStorage.setItem('irtifa-chunk-reload', '1'); } catch (e) { /* yoksay */ }
+      if (!reloaded) { window.__allowReload?.(); location.reload(); return; }
+    }
     pageBody.innerHTML = `
       <div class="empty-state">
         <div class="empty-icon material-symbols-outlined">error</div>

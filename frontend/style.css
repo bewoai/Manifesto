@@ -883,3 +883,19 @@
 /* Uyruk belge numarasından türetildi (kesin) / tahmin edildi (olası) — operatör değiştirmedikçe */
 .nat-derived { border-color: rgb(var(--success) / 0.6) !important; border-style: dashed !important; }
 .nat-inferred { border-color: rgb(var(--warning) / 0.7) !important; border-style: dashed !important; background-color: rgb(var(--warning) / 0.06) !important; }
+
+/* ─── Uygulama içi Excel görünümü (sheet_grid.js) ─── */
+.sg-table { border-collapse: separate; border-spacing: 0; font-size: 13px; }
+.sg-table th, .sg-table td { border-right: 1px solid rgb(var(--line)); border-bottom: 1px solid rgb(var(--line)); padding: 4px 8px; white-space: nowrap; max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+.sg-table thead th { position: sticky; top: 0; z-index: 2; background: rgb(var(--panel)); text-align: left; vertical-align: bottom; }
+.sg-corner, .sg-rownum { position: sticky; left: 0; z-index: 1; background: rgb(var(--panel)); color: rgb(var(--ink-2)); font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; min-width: 44px; }
+.sg-table thead .sg-corner { z-index: 3; }
+.sg-letter { display: block; font-size: 11px; font-weight: 700; color: rgb(var(--ink-2)); letter-spacing: .04em; }
+.sg-head { display: block; font-size: 11.5px; font-weight: 600; color: rgb(var(--ink)); text-transform: uppercase; letter-spacing: .03em; }
+.sg-cell { color: rgb(var(--ink)); cursor: cell; min-width: 64px; }
+.sg-cell:focus { outline: 2px solid rgb(var(--primary)); outline-offset: -2px; }
+.sg-cell.sg-dirty { background: rgb(var(--primary) / 0.12); }
+.sg-cell.sg-balloon { color: rgb(var(--env)); font-weight: 700; }
+tr.sg-seat .sg-cell { color: rgb(var(--ink-2)); }
+tr.sg-focus .sg-cell, tr.sg-focus .sg-rownum { background: rgb(var(--primary) / 0.14); }
+.sg-input { width: 100%; min-width: 120px; padding: 2px 4px; border: 0; outline: 2px solid rgb(var(--primary)); border-radius: 2px; background: rgb(var(--raised)); color: rgb(var(--ink)); font: inherit; }

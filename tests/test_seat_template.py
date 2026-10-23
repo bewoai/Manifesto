@@ -80,7 +80,8 @@ def test_readiness_does_not_count_empty_seats(wb_path):
 
 def test_choose_balloon_uses_contiguous_free_seats(wb_path):
     rows, blocks = _fresh(wb_path, PARTIAL)
-    assert choose_balloon(rows, blocks, 5, CODES, 28) == {"balloon": "BYF", "overflow": False, "mode": "seat"}
+    assert choose_balloon(rows, blocks, 5, CODES, 28) == {"balloon": "BYF", "overflow": False, "mode": "seat",
+        "hotel_match": False}
     assert choose_balloon(rows, blocks, 5, CODES, 28, requested="BZR")["balloon"] == "BZR"     # 6 boş
     assert choose_balloon(rows, blocks, 7, CODES, 28, requested="BZR")["balloon"] == "BYF"     # BZR'ye sığmaz
     # BYF bandını doldur → 7 kişilik grup hiçbir yere sığmaz
@@ -225,4 +226,4 @@ def test_append_template_gap_does_not_force_overflow(tmp_path):
     delete_reservation(p, "02.11.2026", a["rows"])           # satır 4 BYF koltuğu olarak kaldı
     rows, blocks = _fresh(p, "02.11.2026")
     res = choose_balloon(rows, blocks, 3, CODES, 28)
-    assert res == {"balloon": "BYF", "overflow": False, "mode": "append"}
+    assert res == {"balloon": "BYF", "overflow": False, "mode": "append", "hotel_match": False}

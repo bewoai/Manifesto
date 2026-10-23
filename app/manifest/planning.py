@@ -16,6 +16,7 @@ import openpyxl
 
 from app import config
 from app.manifest.excel_cache import get_cached_excel_data, clear_excel_cache
+from app.textfold import fold_name
 
 
 @dataclass
@@ -322,24 +323,71 @@ def _candidates(codes: list[str], allowed: Optional[Iterable[str]]) -> list[str]
     return out
 
 
+def hotel_seats_by_balloon(blocks: list[ReservationBlock], hotel: str) -> dict[str, int]:
+    """Bu otelin yolcularını taşıyan balonlar → o otelden koltuk sayısı; çoktan aza.
+
+    Otel adları `fold_name` ile karşılaştırılır ("Argos" = "ARGOS", "Kapadokya  Otel" =
+    "KAPADOKYA OTEL"). Eşit koltukta sayfada önce görülen balon önce gelir.
+    """
+    key = fold_name(hotel)
+    if not key:
+        return {}
+    seats: dict[str, int] = {}
+    for b in blocks:
+        if b.balloon and fold_name(b.hotel) == key:
+            seats[b.balloon] = seats.get(b.balloon, 0) + block_seats(b)
+    return dict(sorted(seats.items(), key=lambda kv: -kv[1]))
+
+
+def hotel_split(blocks: list[ReservationBlock]) -> list[dict]:
+    """Aynı gün 2+ balona dağılmış oteller (pickup kolaylığı için birleştirme önerisi).
+
+    Dönüş: [{"hotel", "balloons": [kod, ...], "seats": toplam koltuk}], koltuk çoktan aza.
+    `balloons` o otelden en çok koltuk taşıyandan aza sıralıdır. Görünen ad, sayfada ilk
+    görülen yazımdır. Bilgi amaçlıdır; readiness uyarısı değildir (çıktıyı engellemez).
+    """
+    groups: dict[str, dict] = {}
+    for b in blocks:
+        key = fold_name(b.hotel)
+        if not key or not b.balloon:
+            continue
+        g = groups.setdefault(key, {"hotel": b.hotel.strip(), "per": {}, "seats": 0})
+        seats = block_seats(b)
+        g["per"][b.balloon] = g["per"].get(b.balloon, 0) + seats
+        g["seats"] += seats
+    out = [
+        {"hotel": g["hotel"],
+         "balloons": [code for code, _ in sorted(g["per"].items(), key=lambda kv: -kv[1])],
+         "seats": g["seats"]}
+        for g in groups.values() if len(g["per"]) >= 2
+    ]
+    out.sort(key=lambda item: (-item["seats"], fold_name(item["hotel"])))
+    return out
+
+
 def assign_balloon(
     load: dict[str, int],
     pax: int,
     codes: list[str],
     capacity: Capacity,
     allowed: Optional[Iterable[str]] = None,
+    hotel: str = "",
+    blocks: Optional[list[ReservationBlock]] = None,
 ) -> tuple[str, bool]:
     """Yeni bir `pax` kişilik grup için balon seç (grup bölünmez).
 
     First-fit: `codes` sırasında kalan kapasitesi ≥ pax olan ilk balonu döndürür.
     Hiçbiri sığmazsa en az dolu balonu döndürür ve overflow=True işaretler.
     `allowed` verilirse yalnız bu balonlar aday olur (günlük balon sınırı).
+    `hotel` ve `blocks` verilirse bu otelin yolcularını taşıyan aday balonlar (çok
+    koltuktan aza) `codes` sırasından önce denenir; hiçbirine sığmazsa davranış aynıdır.
     """
     cap = capacity_fn(capacity)
     candidates = _candidates(codes, allowed)
     if not candidates:
         return (codes[0] if codes else ""), True
-    for code in candidates:
+    preferred = [c for c in hotel_seats_by_balloon(blocks or [], hotel) if c in candidates]
+    for code in [*preferred, *candidates]:
         if cap(code) - load.get(code, 0) >= pax:
             return code, False
     # Hiçbiri tüm grubu alamıyor → en boş balon + overflow uyarısı
@@ -381,25 +429,37 @@ def choose_balloon(
     capacity: Capacity,
     requested: str = "",
     allowed: Optional[Iterable[str]] = None,
+    hotel: str = "",
 ) -> dict:
     """Yeni `pax` kişilik grup için balon ve yazım biçimi seçer (grup bölünmez).
 
-    Koltuk şablonu (sayfada serbest koltuk var): `requested`, sonra `codes` sırası, sonra
-    sayfadaki diğer balonlar içinde ≥ pax ardışık serbest koltuğu olan ve balon kapasitesini
-    aşmayan ilk balon → "seat". Hiçbirinde yer yoksa overflow (operatör onayıyla şablonun
-    altına eklenir). Ekleme şablonu (serbest koltuk yok): first-fit kapasite kuralı → "append".
+    Koltuk şablonu (sayfada serbest koltuk var): `requested`, sonra aynı otelin balonları,
+    sonra `codes` sırası, sonra sayfadaki diğer balonlar içinde ≥ pax ardışık serbest koltuğu
+    olan ve balon kapasitesini aşmayan ilk balon → "seat". Hiçbirinde yer yoksa overflow
+    (operatör onayıyla şablonun altına eklenir). Ekleme şablonu (serbest koltuk yok):
+    first-fit kapasite kuralı → "append".
 
     `capacity`: tek int ya da `kod → kapasite` fonksiyonu (balon başına kapasite).
     `allowed`: verilirse yalnız bu balonlar aday olur (günlük balon sınırı dolduğunda
     uçan balonlar); iki modda da geçerlidir.
+    `hotel`: verilirse bu otelin yolcularını zaten taşıyan balonlar (o otelden çok koltuk
+    taşıyandan aza) normal sıradan önce denenir — pickup kolaylığı. Kapasite, günlük sınır
+    ve ardışık koltuk kuralları aynen geçerlidir; hiçbirine sığmazsa davranış değişmez.
+    Dönüşteki `hotel_match`: seçilen balon bu oteli zaten taşıyor mu.
     """
     cap = capacity_fn(capacity)
     allowed_set = None if allowed is None else {str(c).strip().upper() for c in allowed if c}
     load = balloon_load(blocks)
     runs = free_seat_runs(rows, blocks)
     requested = (requested or "").strip().upper()
+    hotel_codes = list(hotel_seats_by_balloon(blocks, hotel))
+
+    def result(code: str, overflow: bool, mode: str) -> dict:
+        return {"balloon": code, "overflow": overflow, "mode": mode,
+                "hotel_match": bool(code) and code in hotel_codes}
+
     if runs:
-        order = [c for c in [requested, *codes, *runs.keys()] if c]
+        order = [c for c in [requested, *hotel_codes, *codes, *runs.keys()] if c]
         seen: set[str] = set()
         for code in order:
             if code in seen:
@@ -410,17 +470,18 @@ def choose_balloon(
             if load.get(code, 0) + pax > cap(code):
                 continue
             if any(len(seq) >= pax for seq in runs.get(code, [])):
-                return {"balloon": code, "overflow": False, "mode": "seat"}
+                return result(code, False, "seat")
         if is_seat_template(rows, runs, cap):
             pool = _candidates(codes, allowed_set)
             if requested in codes and (allowed_set is None or requested in allowed_set):
                 least = requested
             else:
                 least = pool[0] if pool else (codes[0] if codes else next(iter(runs)))
-            return {"balloon": least, "overflow": True, "mode": "seat"}
+            return result(least, True, "seat")
         # Ekleme şablonunda silmeden kalan küçük boşluklar: grup sığmıyorsa sona ekle
-    balloon, overflow = assign_balloon(load, pax, codes, cap, allowed=allowed_set)
-    return {"balloon": balloon, "overflow": overflow, "mode": "append"}
+    balloon, overflow = assign_balloon(load, pax, codes, cap, allowed=allowed_set,
+                                       hotel=hotel, blocks=blocks)
+    return result(balloon, overflow, "append")
 
 
 def is_seat_template(rows: list[PlanningRow], runs: dict[str, list[list[int]]], capacity: Capacity) -> bool:

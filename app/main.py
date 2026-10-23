@@ -2232,7 +2232,7 @@ def api_manifest_export(
     """Balon için manifesto xlsx dosyasını üret ve indir."""
     balloon = _balloon_param(balloon)
     s = _load_settings()
-    out_dir = s.output_path()
+    out_dir = s.output_path() / _safe_output_name(sheet) / "Manifestolar"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     try:
@@ -2398,6 +2398,110 @@ def api_open_output_folder(body: dict) -> dict[str, Any]:
         target = base
     if not target.exists():
         raise HTTPException(status_code=404, detail="Çıktı klasörü henüz oluşturulmadı.")
+    if os.name == "nt":
+        os.startfile(str(target))  # noqa: S606 — yerel masaüstü uygulaması
+    return {"path": str(target)}
+
+
+_OUTPUT_FILE_KINDS = {".xlsx": "excel", ".pdf": "pdf", ".zip": "zip", ".txt": "text"}
+
+
+def _day_output_dir(sheet: str) -> Path:
+    if not sheet:
+        raise HTTPException(status_code=422, detail="Gün seçimi gerekli.")
+    return (_load_settings().output_path() / _safe_output_name(sheet)).resolve()
+
+
+def _output_file(sheet: str, rel: str) -> Path:
+    """Gün klasörü altındaki bir çıktı dosyası; klasör dışına çıkan yol reddedilir."""
+    base = _day_output_dir(sheet)
+    target = (base / str(rel or "")).resolve()
+    if base not in target.parents:
+        raise HTTPException(status_code=422, detail="Geçersiz dosya yolu.")
+    if target.suffix.lower() not in _OUTPUT_FILE_KINDS:
+        raise HTTPException(status_code=422, detail="Bu dosya türü açılamaz.")
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail="Dosya bulunamadı.")
+    return target
+
+
+@app.get("/api/outputs/files")
+def api_output_files(sheet: str = Query(...)) -> dict[str, Any]:
+    """Seçili günün çıktı klasöründeki dosyalar (manifestolar, şoför listeleri, ZIP)."""
+    base = _day_output_dir(sheet)
+    files: list[dict[str, Any]] = []
+    if base.is_dir():
+        for path in sorted(base.rglob("*")):
+            kind = _OUTPUT_FILE_KINDS.get(path.suffix.lower())
+            if not kind or not path.is_file() or path.name.startswith("~$"):
+                continue
+            st = path.stat()
+            rel = path.relative_to(base).as_posix()
+            files.append({
+                "path": rel,
+                "name": path.name,
+                "group": "Manifestolar" if rel.startswith("Manifestolar/") else
+                         "Şoför listeleri" if rel.startswith("Sofor_Listeleri/") else "Arşiv",
+                "kind": kind,
+                "size": st.st_size,
+                "modified": _dt.datetime.fromtimestamp(st.st_mtime).isoformat(timespec="minutes"),
+            })
+    return {"sheet": sheet, "dir": str(base), "files": files}
+
+
+def _cell_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, _dt.datetime):
+        return value.strftime("%d.%m.%Y %H:%M") if (value.hour or value.minute) else value.strftime("%d.%m.%Y")
+    if isinstance(value, _dt.date):
+        return value.strftime("%d.%m.%Y")
+    if isinstance(value, _dt.time):
+        return value.strftime("%H:%M")
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
+
+
+@app.get("/api/outputs/xlsx")
+def api_output_xlsx(sheet: str = Query(...), path: str = Query(...)) -> dict[str, Any]:
+    """Bir çıktı Excel'ini uygulama içinde göstermek için sayfa sayfa hücre değerleri."""
+    import openpyxl
+
+    target = _output_file(sheet, path)
+    if target.suffix.lower() != ".xlsx":
+        raise HTTPException(status_code=422, detail="Yalnız Excel dosyaları görüntülenebilir.")
+    max_rows, max_cols = 1000, 40
+    try:
+        wb = openpyxl.load_workbook(target, read_only=True, data_only=True)
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"Excel açılamadı: {e}")
+    sheets: list[dict[str, Any]] = []
+    try:
+        for ws in wb.worksheets:
+            ws.reset_dimensions()
+            rows: list[list[str]] = []
+            truncated = False
+            for i, values in enumerate(ws.iter_rows(values_only=True, max_col=max_cols)):
+                if i >= max_rows:
+                    truncated = True
+                    break
+                rows.append([_cell_text(v) for v in values])
+            while rows and not any(rows[-1]):
+                rows.pop()
+            width = max((max((j + 1 for j, v in enumerate(r) if v), default=0) for r in rows), default=0)
+            sheets.append({"name": ws.title, "rows": [r[:width] for r in rows], "truncated": truncated})
+    finally:
+        wb.close()
+    # Manifestoda asıl sayfa önce gelsin
+    sheets.sort(key=lambda sh: 0 if sh["name"] == config.MANIFEST_SHEET else 1)
+    return {"name": target.name, "path": path, "sheets": sheets}
+
+
+@app.post("/api/outputs/open-file")
+def api_output_open_file(body: dict) -> dict[str, Any]:
+    """Çıktı dosyasını varsayılan programla (Excel, PDF okuyucu) açar."""
+    target = _output_file(str(body.get("sheet", "")).strip(), str(body.get("path", "")))
     if os.name == "nt":
         os.startfile(str(target))  # noqa: S606 — yerel masaüstü uygulaması
     return {"path": str(target)}

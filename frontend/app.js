@@ -104,13 +104,13 @@ const modal = {
     this._resolve = null;
     if (resolve) resolve(value);
   },
-  open(title, contentHtml, footerHtml = '') {
+  open(title, contentHtml, footerHtml = '', opts = {}) {
     // Açık bir onay penceresi başka bir modalla değiştirilirse "vazgeç" sayılır.
     this._settle(false);
     const root = document.getElementById('modal-root');
     root.innerHTML = `
       <div class="modal-overlay" id="modal-overlay">
-        <div class="modal">
+        <div class="modal ${opts.wide ? 'max-w-6xl' : ''}">
           <div class="modal-header">
             <h3>${title}</h3>
             <button class="btn-ghost btn-icon" onclick="window.__closeModal()">

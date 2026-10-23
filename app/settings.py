@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Optional
 
 from app import config
+from app.textfold import fold_name
 
 
 def _config_dir() -> Path:
@@ -76,16 +77,13 @@ def _clamp_int(value, lo: int, hi: int) -> int:
     return min(max(n, lo), hi)
 
 
-_TR_FOLD = str.maketrans({"Ş": "S", "Ğ": "G", "Ü": "U", "Ö": "O", "Ç": "C", "Â": "A", "Î": "I", "Û": "U"})
-
-
 def fold_agency(name) -> str:
     """Acente adı eşleştirme anahtarı: Türkçe harf ve büyük/küçük harf duyarsız, tek boşluk.
 
     "Bedel Turizm", "BEDEL TURİZM" ve "bedel  turizm" aynı acentedir → "BEDEL TURIZM".
+    Kural `app.textfold.fold_name` ile ortaktır (otel gruplaması da onu kullanır).
     """
-    text = str(name or "").replace("İ", "I").replace("ı", "I").upper().translate(_TR_FOLD)
-    return " ".join(text.split())
+    return fold_name(name)
 
 
 def _int_map(value, *, upper: bool, lo: int, hi: int, key_fn=None) -> dict[str, int]:

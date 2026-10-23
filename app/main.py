@@ -44,6 +44,8 @@ from app.manifest.planning import (
     assign_balloon as planning_assign_balloon,
     choose_balloon as planning_choose_balloon,
     free_seat_summary as planning_free_seat_summary,
+    hotel_seats_by_balloon as planning_hotel_seats_by_balloon,
+    hotel_split as planning_hotel_split,
     pilot_for_balloon as planning_pilot_for_balloon,
     create_reservation as planning_create_reservation,
     delete_reservation as planning_delete_reservation,
@@ -905,6 +907,8 @@ def api_planning_load(sheet: str = Query(..., description="Gün sayfa adı")) ->
         "workbook_revision": revision,
         "readiness": readiness,
         "free_seats": free_seats,   # koltuk şablonu: balon → {free, longest}
+        # 2+ balona dağılmış oteller: birleştirme önerisi (readiness değil, çıktıyı engellemez)
+        "hotel_split": planning_hotel_split(blocks),
     }
 
 
@@ -1247,7 +1251,9 @@ def api_planning_create_block(body: dict, request: Request) -> dict:
     load = planning_balloon_load(blocks)
     requested_balloon = str(body.get("requested_balloon", "")).strip().upper()
     allowed = _daily_allowed_balloons(s, load)
-    choice = planning_choose_balloon(rows, blocks, pax, s.balloon_codes, s.capacity_for, allowed=allowed)
+    lead_hotel = lead_fields.get("hotel", "")
+    choice = planning_choose_balloon(rows, blocks, pax, s.balloon_codes, s.capacity_for, allowed=allowed,
+                                     hotel=lead_hotel)
     balloon, overflow = choice["balloon"], choice["overflow"]
     if not balloon:
         raise HTTPException(status_code=409, detail="Tanımlı balon kodu yok (Settings).")
@@ -1259,6 +1265,7 @@ def api_planning_create_block(body: dict, request: Request) -> dict:
         )
     if overflow:
         balloon = requested_balloon
+    hotel_match = _hotel_match(blocks, lead_hotel, balloon)
     pilot = planning_pilot_for_balloon(rows, balloon)
 
     try:
@@ -1287,7 +1294,7 @@ def api_planning_create_block(body: dict, request: Request) -> dict:
         sheet=sheet,
         reservation_row=result["lead_row"],
         detail={"pax": pax, "balloon": balloon, "overflow": overflow,
-                "quota_override": quota_override},
+                "quota_override": quota_override, "hotel_match": hotel_match},
     )
     _sync_sqlite(sheet)
     return {
@@ -1295,6 +1302,7 @@ def api_planning_create_block(body: dict, request: Request) -> dict:
         "balloon": balloon,
         "pilot": pilot,
         "overflow": overflow,
+        "hotel_match": hotel_match,
         "lead_row": result["lead_row"],
         "rows": result["rows"],
         "capacity": s.balloon_capacity,
@@ -1304,6 +1312,7 @@ def api_planning_create_block(body: dict, request: Request) -> dict:
             f"{pax} kişilik rezervasyon {balloon} balonuna atandı "
             f"({new_load[balloon]}/{s.capacity_for(balloon)})."
             + (" ⚠ Tüm balonlar dolu, en boş balona yerleştirildi." if overflow else "")
+            + _hotel_note(lead_hotel, balloon, hotel_match)
         ),
         "workbook_revision": revision,
         "backup": backup.name,
@@ -1797,6 +1806,18 @@ def _capacities(s: settings_mod.Settings, codes) -> dict[str, int]:
     return out
 
 
+def _hotel_match(blocks, hotel: str, balloon: str) -> bool:
+    """Seçilen balon bu otelin yolcularını zaten taşıyor mu (Türkçe harf/büyük-küçük duyarsız)."""
+    return bool(balloon) and balloon in planning_hotel_seats_by_balloon(blocks, hotel)
+
+
+def _hotel_note(hotel: str, balloon: str, matched: bool) -> str:
+    """Başarı mesajına otel gruplaması notu (gruplama olmadıysa boş)."""
+    if not matched:
+        return ""
+    return f" {hotel.strip()} otelinin diğer yolcularıyla aynı balona ({balloon}) atandı."
+
+
 def _daily_allowed_balloons(s: settings_mod.Settings, load: dict) -> Optional[set[str]]:
     """Günlük balon sınırı dolduysa yeni rezervasyonun gidebileceği (uçan) balonlar; yoksa None."""
     limit = int(s.daily_max_balloons or 0)
@@ -1897,8 +1918,9 @@ def api_create_with_identities(body: dict, request: Request) -> dict:
     quota_override = _check_agency_quota(s, current_blocks, fields.get("agency", ""), pax, body)
     current_load = planning_balloon_load(current_blocks)
     allowed = _daily_allowed_balloons(s, current_load)
+    lead_hotel = fields.get("hotel", "")
     choice = planning_choose_balloon(current_rows, current_blocks, pax, s.balloon_codes, s.capacity_for,
-                                     allowed=allowed)
+                                     allowed=allowed, hotel=lead_hotel)
     suggested, overflow = choice["balloon"], choice["overflow"]
     requested = str(body.get("requested_balloon", "")).strip().upper()
     if overflow and not (body.get("allow_overflow") and requested in s.balloon_codes):
@@ -1908,6 +1930,7 @@ def api_create_with_identities(body: dict, request: Request) -> dict:
                                     allowed=allowed),
         )
     balloon = requested if overflow else suggested
+    hotel_match = _hotel_match(current_blocks, lead_hotel, balloon)
 
     def mutate(temp: Path) -> dict:
         rows = read_rows(temp, sheet)
@@ -1943,7 +1966,7 @@ def api_create_with_identities(body: dict, request: Request) -> dict:
         sheet=sheet,
         reservation_row=result["lead_row"],
         detail={"pax": pax, "identity_count": len(identities), "balloon": balloon,
-                "quota_override": quota_override},
+                "quota_override": quota_override, "hotel_match": hotel_match},
     )
     if not s.uses_google_sheets():
         _sync_sqlite(sheet)
@@ -1951,6 +1974,8 @@ def api_create_with_identities(body: dict, request: Request) -> dict:
         "success": True,
         **result,
         "overflow": overflow,
+        "hotel_match": hotel_match,
+        "message": f"{pax} kişilik rezervasyon {balloon} balonuna atandı." + _hotel_note(lead_hotel, balloon, hotel_match),
         "capacity": s.balloon_capacity,
         "balloon_capacity": s.capacity_for(balloon),
         "workbook_revision": revision,

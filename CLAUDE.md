@@ -361,3 +361,15 @@ Hatalı-eksik), acente bazlı eksik görünümü, kapasite (Sayfa2) entegrasyonu
 - Readiness: `lead_row` taşıyan her uyarıda `lead_name`; mesajlar "Satır 83 · AD SOYAD: …".
   `/api/planning/load` → `capacities`, `daily_max_balloons`, `balloons_in_use`, `agency_usage`.
   Test: `tests/test_capacity_rules.py`.
+
+### Otel gruplaması (2026-10-24, backend)
+- Aynı otelin yolcuları aynı balona (pickup kolaylığı). `choose_balloon(..., hotel=)` ve
+  `assign_balloon(..., hotel=, blocks=)`: otelin yolcularını zaten taşıyan balonlar (o otelden çok
+  koltuktan aza, `hotel_seats_by_balloon`) `requested`'tan sonra, `codes` sırasından önce denenir.
+  Kapasite (balon başına), günlük balon sınırı (`allowed`) ve koltuk modunda ≥ PAX ardışık koltuk
+  kuralları aynen geçerli; sığmazsa eski davranış. Dönüşte `hotel_match`.
+- Ad karşılaştırması ortak `app/textfold.fold_name` (acente kotası `fold_agency` de onu kullanır).
+- create-block / create-with-identities lider otelini geçirir; yanıtta `hotel_match`, mesajda
+  "… X otelinin diğer yolcularıyla aynı balona (KOD) atandı." (create-with-identities artık `message` döner).
+- `/api/planning/load` → `hotel_split` [{hotel, balloons, seats}]: 2+ balona dağılmış oteller, öneri;
+  readiness uyarısı DEĞİL (çıktıyı engellemez). Test: `tests/test_hotel_grouping.py`.

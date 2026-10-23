@@ -119,13 +119,15 @@ def test_choose_balloon_seat_mode_respects_per_balloon_capacity(wb_path):
     assert choose_balloon(rows, blocks, 4, CODES, 28, allowed=flying)["balloon"] == "BYJ"
     # BYJ kapasitesi 26 → 24 + 4 aşar → sonraki uygun balon BZR (22 + 4 ≤ 28, 6 ardışık koltuk)
     res = choose_balloon(rows, blocks, 4, CODES, _caps({"BYJ": 26}), allowed=flying)
-    assert res == {"balloon": "BZR", "overflow": False, "mode": "seat"}
+    assert res == {"balloon": "BZR", "overflow": False, "mode": "seat",
+                   "hotel_match": False}
 
 
 def test_choose_balloon_append_mode_per_balloon_capacity(append_wb):
     rows, blocks = _fresh(append_wb, APPEND_DAY)
     # 9 kişi: varsayılan 28'de uçan balonların hiçbirinde yer yok → boş BZV
-    assert choose_balloon(rows, blocks, 9, CODES, 28) == {"balloon": "BZV", "overflow": False, "mode": "append"}
+    assert choose_balloon(rows, blocks, 9, CODES, 28) == {"balloon": "BZV", "overflow": False, "mode": "append",
+        "hotel_match": False}
     # BTK kapasitesi 30 → 20 + 9 sığar
     assert choose_balloon(rows, blocks, 9, CODES, _caps({"BTK": 30}))["balloon"] == "BTK"
 
@@ -137,7 +139,7 @@ def test_daily_limit_blocks_fifth_balloon_and_allows_in_use(append_wb):
     flying = {"BYF", "BTK", "BYJ", "BZR"}
     # 5 kişi uçan bir balona sığar → BTK
     assert choose_balloon(rows, blocks, 5, CODES, 28, allowed=flying) == {
-        "balloon": "BTK", "overflow": False, "mode": "append"}
+        "balloon": "BTK", "overflow": False, "mode": "append", "hotel_match": False}
     # 9 kişi: uçan balonlarda yer yok; 5. balon (BZV) yasak → overflow
     res = choose_balloon(rows, blocks, 9, CODES, 28, allowed=flying)
     assert res["overflow"] is True and res["balloon"] in flying

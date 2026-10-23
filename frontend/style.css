@@ -1108,3 +1108,7 @@
     opacity: 1;
   }
 }
+
+/* Uyruk belge numarasından türetildi (kesin) / tahmin edildi (olası) — operatör değiştirmedikçe */
+.nat-derived { border-color: rgba(74, 222, 128, 0.55) !important; border-style: dashed !important; }
+.nat-inferred { border-color: #fbbf24 !important; border-style: dashed !important; background-color: rgba(251, 191, 36, 0.06) !important; }

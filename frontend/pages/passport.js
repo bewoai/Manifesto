@@ -818,7 +818,7 @@ function renderFullCard(rec, i) {
         <div class="flex-1 grid grid-cols-2 md:grid-cols-4 gap-4">
           <div class="flex flex-col gap-1">
             <label class="text-xs font-medium text-on-surface-variant ml-1">Uyruk (kod)</label>
-            <input class="form-input font-mono text-sm uppercase" id="pc-nat-${i}" value="${esc(rec.nationality || '')}" placeholder="TUR, ITA..." ${dis} />
+            ${(() => { const h = natHint(rec); return `<input class="form-input font-mono text-sm uppercase ${h.cls}" id="pc-nat-${i}" value="${esc(rec.nationality || '')}" placeholder="TUR, ITA..." title="${esc(h.title)}" ${dis} />`; })()}
           </div>
           <div class="flex flex-col gap-1">
             <label class="text-xs font-medium text-on-surface-variant ml-1">Cinsiyet</label>
@@ -979,7 +979,7 @@ function ensurePanel(seg) {
     agency,
     agencyFromGroup: !!agency,
     onlySelected: false,
-    bulkNat: String(group.nationality_hint || '').trim().toUpperCase(),
+    bulkNat: String(group.nationality_hint || group.nationality_guess || '').trim().toUpperCase(),
     bulkSex: '',
   };
   listPanels.set(seg.file, panel);
@@ -1073,7 +1073,7 @@ function renderListPanel(seg, s) {
     : '';
   const info = [
     ['Acente', group.agency], ['Otel', group.hotel], ['Tarih', dateText],
-    ['Kod', group.booking_code], ['PAX', group.pax], ['Uyruk', group.nationality_hint], ['Not', group.note],
+    ['Kod', group.booking_code], ['PAX', group.pax], ['Uyruk', group.nationality_hint], ['Uyruk tahmini', !group.nationality_hint ? group.nationality_guess : ''], ['Not', group.note],
   ].filter(([, v]) => hasValue(v));
 
   const options = [`<option value="">Seçim yapılmadı</option>`]
@@ -1174,7 +1174,7 @@ function renderListRow(rec, i) {
         ? `<a href="#/manual_review" class="w-5 h-5 flex items-center justify-center text-on-surface-variant hover:text-info" title="Manuel Kontrol'de bekliyor — oraya git"><span class="material-symbols-outlined text-[20px]">pending_actions</span></a>`
         : `<input type="checkbox" class="w-5 h-5 rounded shrink-0" id="pc-approve-${i}" ${rec._approved ? 'checked' : ''} title="Onayla ve Ekle" aria-label="Onayla ve Ekle" />`}
       <input class="form-input form-input-sm uppercase flex-1 min-w-[180px]" id="pc-name-${i}" value="${esc(rec.name || '')}" placeholder="AD SOYAD" aria-label="İsim" ${dis} />
-      <input class="form-input form-input-sm font-mono uppercase w-24" id="pc-nat-${i}" value="${esc(rec.nationality || '')}" placeholder="Uyruk" aria-label="Uyruk" ${dis} />
+      ${(() => { const h = natHint(rec); return `<input class="form-input form-input-sm font-mono uppercase w-24 ${h.cls}" id="pc-nat-${i}" value="${esc(rec.nationality || '')}" placeholder="Uyruk" aria-label="Uyruk" title="${esc(h.title)}" ${dis} />`; })()}
       <select class="form-select form-input-sm w-28" id="pc-sex-${i}" aria-label="Cinsiyet" ${dis}>
         <option value="" ${!rec.sex ? 'selected' : ''}>—</option>
         <option value="M" ${rec.sex === 'M' ? 'selected' : ''}>Erkek</option>
@@ -1784,8 +1784,27 @@ window.__confirmPassportOverflow = async function() {
 
 // Bayrak kodları İngilizce sabit etiket: sayfa lang="tr" olduğu için CSS `uppercase` ve
 // toUpperCase() 'i'yi 'İ' yapıyordu ("LOW_CONFİDENCE"). Locale sabit en-US.
+const FLAG_LABELS_TR = { nationality_inferred: 'UYRUK TAHMİNİ' };
 function flagLabel(flag) {
-  return String(flag || '').toLocaleUpperCase('en-US');
+  return FLAG_LABELS_TR[flag] || String(flag || '').toLocaleUpperCase('en-US');
+}
+
+// Uyruk belge numarasından / listeden / model tahmininden geldiyse ve operatör değiştirmediyse
+// alanı işaretle; gerekçe ipucu olarak gösterilir.
+const NAT_DERIVED = ['document', 'pattern', 'list', 'model'];
+const NAT_SOURCE_TR = {
+  document: 'Belge no kontrol hanesinden (kesin)',
+  pattern: 'Belge no biçiminden (olası)',
+  list: 'Listedeki diğer satırlardan (olası)',
+  model: 'Model tahmini — kontrol edin',
+};
+function natHint(rec) {
+  if (rec._natAuto === undefined) rec._natAuto = rec.nationality || '';
+  const derived = NAT_DERIVED.includes(rec.nationality_source) && rec.nationality && rec.nationality === rec._natAuto;
+  if (!derived) return { cls: '', title: '' };
+  const strong = rec.nationality_source === 'document';
+  const title = `${NAT_SOURCE_TR[rec.nationality_source]}${rec.nationality_reason ? ' — ' + rec.nationality_reason : ''}`;
+  return { cls: strong ? 'nat-derived' : 'nat-inferred', title };
 }
 
 function esc(s) {

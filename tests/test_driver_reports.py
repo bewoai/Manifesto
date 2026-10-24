@@ -116,12 +116,12 @@ def test_xlsx_merges_reservation_fields(tmp_path):
     assert ws.cell(3, 1).fill.fgColor.rgb.endswith(LAPIS)
 
     # Satır 4: tek kişilik rezervasyon; 5-7: üç kişilik rezervasyon.
-    assert ws["B4"].value == "ŞÜKRÜ GÜL" and ws["F4"].value == "04:50"
+    assert ws["B4"].value == "ŞÜKRÜ GÜL" and ws["G4"].value == "04:50"
     assert [ws.cell(r, 2).value for r in (5, 6, 7)] == ["ALİ VELİ", "AYŞE VELİ", "ÖZGE VELİ"]
     assert [ws.cell(r, 1).value for r in (4, 5, 6, 7)] == [1, 2, 3, 4]
-    assert ws["F5"].value == "05:20"
+    assert ws["G5"].value == "05:20"
     assert ws["C5"].value == 3
-    assert ws["J5"].value == NOTE
+    assert ws["K5"].value == NOTE
 
     merged = {str(rng) for rng in ws.merged_cells.ranges}
     for col in range(3, len(HEADERS) + 1):       # PAX .. NOT
@@ -129,7 +129,7 @@ def test_xlsx_merges_reservation_fields(tmp_path):
         assert f"{letter}5:{letter}7" in merged
         assert ws.cell(5, col).alignment.vertical == "center"
     # Yolcu başına kolonlar ve tek kişilik rezervasyon birleştirilmez.
-    assert not any(r.startswith(("A5", "B5")) or r.startswith(("C4", "J4")) for r in merged)
+    assert not any(r.startswith(("A5", "B5")) or r.startswith(("C4", "K4")) for r in merged)
     # Rezervasyonlar arası kalın çizgi.
     assert ws["B5"].border.top.style == "medium"
     assert ws["B6"].border.top.style == "thin"
@@ -143,11 +143,11 @@ def test_pdf_rowspans_and_note(tmp_path):
     assert [p.text for p in data[0]] == HEADERS
     assert len(data) == 1 + 4
     spans = {(cmd[1], cmd[2]) for cmd in style if cmd[0] == "SPAN"}
-    # Tablo satırı 2-4: üç kişilik rezervasyon; kolon 2..9 (PAX..NOT) birleşik.
+    # Tablo satırı 2-4: üç kişilik rezervasyon; kolon 2..10 (PAX..NOT) birleşik.
     assert spans == {((c, 2), (c, 4)) for c in range(2, len(HEADERS))}
     assert any(cmd[0] == "LINEABOVE" and cmd[1] == (0, 2) for cmd in style)
     assert data[2][-1].text == "Bebek koltuğu, çıkışta arayın"
-    assert data[2][5].text == "05:20"
+    assert data[2][6].text == "05:20"
     assert data[3][-1] == "" and data[3][1].text == "AYŞE VELİ"
 
     outputs = export_driver_reports(path, SHEET, tmp_path / "out")
@@ -179,3 +179,18 @@ def test_pdf_large_group_is_chunked_and_builds(tmp_path):
 def test_pdf_font_supports_turkish():
     regular, bold = _register_pdf_fonts()
     assert regular != "Helvetica" and bold != "Helvetica-Bold"
+
+
+def test_hotel_card_name_region_and_meeting_point(tmp_path):
+    from app.hotels import merge_names, resolver, upsert_card
+
+    path = _planning(tmp_path / "planning.xlsx")
+    catalog = tmp_path / "hotels.json"
+    card = merge_names(["ARGOS"], name="ARGOS IN CAPPADOCIA", region="uçhisar", path=catalog)
+    upsert_card({"id": card.id, "name": card.name, "meeting_point": "Kapı önü"}, path=catalog)
+    groups = driver_groups(read_blocks(path, SHEET), resolver(catalog))["2"]
+    argos = [g for g in groups if g["hotel"] == "ARGOS IN CAPPADOCIA"]
+    assert argos and all(g["region"] == "Uçhisar" for g in argos)
+    assert argos[0]["note"].startswith("Buluşma: Kapı önü")
+    other = [g for g in groups if g["hotel"] != "ARGOS IN CAPPADOCIA"]
+    assert all(g["region"] == "" for g in other)

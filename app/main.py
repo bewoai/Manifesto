@@ -70,6 +70,7 @@ from app.passport_store import (
     save_image,
 )
 from app.readiness import check_blocks, check_workbook
+from app import hotels as hotels_mod
 from app.reports import (
     driver_rows,
     driver_summary,
@@ -754,6 +755,95 @@ def api_lists_delete(body: dict) -> dict:
     return _lists_payload(s)
 
 
+# ─── Otel kartları ───────────────────────────────────────────────────────
+
+def _planning_hotel_counts(s: settings_mod.Settings) -> dict[str, int]:
+    """Planlama dosyasının gün sayfalarındaki otel yazımları → rezervasyon sayısı."""
+    from collections import Counter
+
+    counts: Counter[str] = Counter()
+    if s.uses_google_sheets():
+        return {}
+    xlsx_path = s.planning_path()
+    if not xlsx_path.exists():
+        return {}
+    for sheet in planning_list_sheets(xlsx_path):
+        try:
+            blocks = read_blocks(xlsx_path, sheet)
+        except Exception:
+            continue
+        for block in blocks:
+            if block.hotel.strip():
+                counts[block.hotel.strip()] += 1
+    return dict(counts)
+
+
+def _hotels_payload(s: settings_mod.Settings) -> dict:
+    counts = _planning_hotel_counts(s)
+    cards = hotels_mod.load_catalog()
+    res = hotels_mod.HotelResolver(cards)
+    per_card: dict[str, int] = {}
+    for name, n in counts.items():
+        card = res.resolve(name)
+        if card:
+            per_card[card.id] = per_card.get(card.id, 0) + n
+    total = sum(counts.values())
+    matched = sum(per_card.values())
+    return {
+        "regions": list(hotels_mod.REGIONS),
+        "cards": [{**asdict(c), "count": per_card.get(c.id, 0)} for c in cards],
+        "unmatched": hotels_mod.unmatched_groups(counts, cards),
+        "stats": {"reservations": total, "matched": matched, "cards": len(cards),
+                  "with_region": sum(1 for c in cards if c.region)},
+    }
+
+
+@app.get("/api/hotels")
+def api_hotels() -> dict:
+    """Otel kartları + planlamada karta bağlanmamış yazımlar (benzerliğe göre öbekli)."""
+    return _hotels_payload(_load_settings())
+
+
+@app.post("/api/hotels/card")
+def api_hotels_card(body: dict, request: Request) -> dict:
+    """Kart oluştur/güncelle: id?, name, aliases?, region, meeting_point, map_url."""
+    try:
+        card = hotels_mod.upsert_card(body)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    audit_mod.record("hotel_card_saved", actor=_actor(request), detail={"id": card.id, "name": card.name})
+    return {"success": True, "card": asdict(card)}
+
+
+@app.post("/api/hotels/merge")
+def api_hotels_merge(body: dict, request: Request) -> dict:
+    """Yazımları tek otel kartına bağlar (card_id varsa o karta, yoksa name ile yeni kart)."""
+    names = body.get("names") or []
+    if not isinstance(names, list):
+        raise HTTPException(status_code=422, detail="names liste olmalı.")
+    try:
+        card = hotels_mod.merge_names(
+            [str(n) for n in names], card_id=str(body.get("card_id") or ""),
+            name=str(body.get("name") or ""), region=str(body.get("region") or ""),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e).strip("'\""))
+    audit_mod.record("hotel_names_merged", actor=_actor(request),
+                     detail={"id": card.id, "name": card.name, "names": names[:50]})
+    return {"success": True, "card": asdict(card)}
+
+
+@app.post("/api/hotels/delete")
+def api_hotels_delete(body: dict, request: Request) -> dict:
+    card_id = str(body.get("id") or "")
+    if not hotels_mod.delete_card(card_id):
+        raise HTTPException(status_code=404, detail="Otel kartı bulunamadı.")
+    audit_mod.record("hotel_card_deleted", actor=_actor(request), detail={"id": card_id})
+    return {"success": True}
+
+
 @app.post("/api/lists/scan")
 def api_lists_scan() -> dict:
     """Planlama Excel'indeki geçmiş günleri tarayıp öneri listelerini doldur."""
@@ -908,7 +998,7 @@ def api_planning_load(sheet: str = Query(..., description="Gün sayfa adı")) ->
         "readiness": readiness,
         "free_seats": free_seats,   # koltuk şablonu: balon → {free, longest}
         # 2+ balona dağılmış oteller: birleştirme önerisi (readiness değil, çıktıyı engellemez)
-        "hotel_split": planning_hotel_split(blocks),
+        "hotel_split": planning_hotel_split(blocks, _hotel_key()),
     }
 
 
@@ -1264,7 +1354,7 @@ def api_planning_create_block(body: dict, request: Request) -> dict:
     lead_hotel = lead_fields.get("hotel", "")
     lead_pickup = lead_fields.get("pickup", "")
     choice = planning_choose_balloon(rows, blocks, pax, s.balloon_codes, s.capacity_for, allowed=allowed,
-                                     hotel=lead_hotel, pickup=lead_pickup)
+                                     hotel=lead_hotel, pickup=lead_pickup, hotel_key=_hotel_key())
     balloon, overflow = choice["balloon"], choice["overflow"]
     if not balloon:
         raise HTTPException(status_code=409, detail="Tanımlı balon kodu yok (Settings).")
@@ -1835,9 +1925,14 @@ def _capacities(s: settings_mod.Settings, codes) -> dict[str, int]:
     return out
 
 
+def _hotel_key():
+    """Otel gruplama anahtarı: kartlı otelin bütün yazımları tek otel sayılır."""
+    return hotels_mod.resolver().key
+
+
 def _hotel_match(blocks, hotel: str, balloon: str, pickup: str = "") -> bool:
     """Seçilen balon bu otelin (aynı pickup saatindeki) yolcularını zaten taşıyor mu."""
-    return bool(balloon) and balloon in planning_hotel_seats_by_balloon(blocks, hotel, pickup)
+    return bool(balloon) and balloon in planning_hotel_seats_by_balloon(blocks, hotel, pickup, _hotel_key())
 
 
 def _hotel_note(hotel: str, balloon: str, matched: bool) -> str:
@@ -1924,7 +2019,8 @@ def api_create_with_identities(body: dict, request: Request) -> dict:
     lead_hotel = fields.get("hotel", "")
     lead_pickup = fields.get("pickup", "")
     choice = planning_choose_balloon(current_rows, current_blocks, pax, s.balloon_codes, s.capacity_for,
-                                     allowed=allowed, hotel=lead_hotel, pickup=lead_pickup)
+                                     allowed=allowed, hotel=lead_hotel, pickup=lead_pickup,
+                                     hotel_key=_hotel_key())
     suggested, overflow = choice["balloon"], choice["overflow"]
     requested = str(body.get("requested_balloon", "")).strip().upper()
     if overflow and not (body.get("allow_overflow") and requested in s.balloon_codes):
@@ -2549,7 +2645,7 @@ def api_driver_report_preview(sheet: str) -> dict:
     s = _load_settings()
     path = _resolve_planning_path(s)
     blocks = read_blocks(path, sheet)
-    grouped = driver_rows(blocks)
+    grouped = driver_rows(blocks, hotels_mod.resolver())
     return {
         "drivers": [
             {"driver": driver, "count": len(rows), "rows": rows}
@@ -2568,7 +2664,7 @@ def api_driver_report_export(request: Request, body: dict) -> FileResponse:
     s = _load_settings()
     path = _resolve_planning_path(s)
     out_dir = s.output_path() / _safe_output_name(sheet) / "Sofor_Listeleri"
-    paths = export_driver_reports(path, sheet, out_dir, selected_driver=driver)
+    paths = export_driver_reports(path, sheet, out_dir, selected_driver=driver, hotels=hotels_mod.resolver())
     if not paths:
         raise HTTPException(status_code=404, detail="Şoför listesi oluşturulamadı.")
     summary_paths = export_summary(
@@ -2617,7 +2713,7 @@ def api_all_outputs(request: Request, body: dict) -> FileResponse:
         )
     out_dir = s.output_path() / _safe_output_name(sheet)
     out_dir.mkdir(parents=True, exist_ok=True)
-    outputs = export_driver_reports(planning_path, sheet, out_dir / "Sofor_Listeleri")
+    outputs = export_driver_reports(planning_path, sheet, out_dir / "Sofor_Listeleri", hotels=hotels_mod.resolver())
     outputs += export_summary(
         planning_path,
         sheet,

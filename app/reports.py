@@ -26,14 +26,14 @@ from app.manifest.planning import ReservationBlock, read_blocks
 
 
 HEADERS = [
-    "SIRA", "YOLCU ADI", "PAX", "OTEL", "ODA / İRTİBAT",
+    "SIRA", "YOLCU ADI", "PAX", "OTEL", "BÖLGE", "ODA / İRTİBAT",
     "PICKUP", "ACENTE", "BALON", "GELECEĞİ YER", "NOT",
 ]
 
 # Rezervasyon başına bir kez yazılan (yolcu satırlarına yayılan, birleşik) alanlar,
 # HEADERS'taki sırayla. SIRA ve YOLCU ADI yolcu başınadır.
 GROUP_FIELDS = (
-    "pax", "hotel", "room", "pickup", "agency", "balloon", "coming_place", "note",
+    "pax", "hotel", "region", "room", "pickup", "agency", "balloon", "coming_place", "note",
 )
 GROUP_COLS = tuple(range(2, len(HEADERS)))   # 0-tabanlı kolon indexleri
 
@@ -87,41 +87,57 @@ def format_pickup(value) -> str:
     return text
 
 
-def driver_groups(blocks: list[ReservationBlock]) -> dict[str, list[dict]]:
-    """Şoför -> rezervasyon grupları (pickup, otel, satır sırasıyla).
+def _note_with_meeting_point(note: str, meeting_point: str) -> str:
+    parts = [f"Buluşma: {meeting_point}" if meeting_point else "", note or ""]
+    return " · ".join(p for p in parts if p)
+
+
+def driver_groups(blocks: list[ReservationBlock], hotels=None) -> dict[str, list[dict]]:
+    """Şoför -> rezervasyon grupları (pickup, bölge, otel, satır sırasıyla).
 
     Her grup: `GROUP_FIELDS` ortak alanları bir kez + `passengers` (yolcu adları).
+    `hotels` (`app.hotels.HotelResolver`) verilirse otel kart adıyla yazılır, bölge ve
+    buluşma noktası notu eklenir; kartı olmayan otel sayfadaki yazımıyla kalır.
     """
+    def card(block):
+        return hotels.resolve(block.hotel) if hotels is not None and block.hotel else None
+
     grouped_blocks: dict[str, list[ReservationBlock]] = defaultdict(list)
     for block in blocks:
         grouped_blocks[block.driver or "ATANMAMIŞ"].append(block)
     grouped: dict[str, list[dict]] = {}
     for driver, driver_blocks in grouped_blocks.items():
+        cards = {block.lead_row: card(block) for block in driver_blocks}
         driver_blocks.sort(key=lambda block: (
-            format_pickup(block.pickup) or "99:99", block.hotel, block.lead_row
+            format_pickup(block.pickup) or "99:99",
+            cards[block.lead_row].region if cards[block.lead_row] else "~",
+            cards[block.lead_row].name if cards[block.lead_row] else block.hotel,
+            block.lead_row,
         ))
         groups = []
         for block in driver_blocks:
             passengers = [p.name or "(kimlik eksik)" for p in block.passengers]
+            hotel_card = cards[block.lead_row]
             groups.append({
                 "pax": block.pax if block.pax is not None else "",
-                "hotel": block.hotel,
+                "hotel": hotel_card.name if hotel_card else block.hotel,
+                "region": hotel_card.region if hotel_card else "",
                 "room": block.room,
                 "pickup": format_pickup(block.pickup),
                 "agency": block.agency,
                 "balloon": block.balloon,
                 "coming_place": block.coming_place,
-                "note": block.note,
+                "note": _note_with_meeting_point(block.note, hotel_card.meeting_point if hotel_card else ""),
                 "passengers": passengers or ["(kimlik eksik)"],
             })
         grouped[driver] = groups
     return dict(sorted(grouped.items(), key=lambda item: item[0]))
 
 
-def driver_rows(blocks: list[ReservationBlock]) -> dict[str, list[dict]]:
+def driver_rows(blocks: list[ReservationBlock], hotels=None) -> dict[str, list[dict]]:
     """Önizleme için düz yolcu listesi (PAX yalnız rezervasyonun ilk satırında)."""
     grouped: dict[str, list[dict]] = {}
-    for driver, groups in driver_groups(blocks).items():
+    for driver, groups in driver_groups(blocks, hotels).items():
         rows: list[dict] = []
         for group_index, group in enumerate(groups):
             for index, name in enumerate(group["passengers"]):
@@ -157,7 +173,7 @@ def _group_values(group: dict) -> list:
     return [group[key] for key in GROUP_FIELDS]
 
 
-XLSX_WIDTHS = [7, 28, 7, 22, 16, 9, 20, 9, 18, 40]
+XLSX_WIDTHS = [7, 28, 7, 22, 12, 16, 9, 20, 9, 18, 40]
 _XLSX_LINE_HEIGHT = 15.0
 
 
@@ -182,7 +198,7 @@ def _excel_report(path: Path, sheet: str, driver: str, groups: list[dict]) -> Pa
     ws.row_dimensions[3].height = 20
 
     zebra = PatternFill("solid", fgColor=ZEBRA)
-    centred = {1, 3, 6, 8}          # SIRA, PAX, PICKUP, BALON (1-tabanlı)
+    centred = {1, 3, 7, 9}          # SIRA, PAX, PICKUP, BALON (1-tabanlı)
     row = 4
     seq = 0
     for group_index, group in enumerate(groups):
@@ -282,7 +298,7 @@ def _register_pdf_fonts() -> tuple[str, str]:
     return "Helvetica", "Helvetica-Bold"
 
 
-PDF_COL_WIDTHS_MM = [9, 44, 10, 30, 24, 15, 28, 14, 28, 75]   # 277 = A4 yatay - kenarlar
+PDF_COL_WIDTHS_MM = [9, 40, 10, 28, 20, 22, 13, 26, 13, 26, 70]   # 277 = A4 yatay - kenarlar
 
 
 def _pdf_chunks(groups: list[dict]) -> list[tuple[dict, list[str], int]]:
@@ -308,7 +324,7 @@ def _pdf_table_parts(
         "head", fontName=bold, fontSize=8, leading=9.6, alignment=TA_CENTER,
         textColor=colors.HexColor(f"#{ON_LAPIS}"),
     )
-    centred = {0, 2, 5, 7}          # SIRA, PAX, PICKUP, BALON (0-tabanlı)
+    centred = {0, 2, 6, 8}          # SIRA, PAX, PICKUP, BALON (0-tabanlı)
 
     def para(value, col):
         text = escape(str(value if value is not None else ""))
@@ -388,8 +404,9 @@ def export_driver_reports(
     out_dir: Path,
     *,
     selected_driver: str = "",
+    hotels=None,
 ) -> list[Path]:
-    grouped = driver_groups(read_blocks(planning_xlsx, sheet))
+    grouped = driver_groups(read_blocks(planning_xlsx, sheet), hotels)
     out_dir.mkdir(parents=True, exist_ok=True)
     outputs: list[Path] = []
     for driver, groups in grouped.items():

@@ -339,26 +339,28 @@ def _same_pickup(a: str, b: str) -> bool:
     return not a or not b or a == b
 
 
-def hotel_seats_by_balloon(blocks: list[ReservationBlock], hotel: str, pickup: str = "") -> dict[str, int]:
+def hotel_seats_by_balloon(blocks: list[ReservationBlock], hotel: str, pickup: str = "",
+                           hotel_key: Callable[[str], str] = fold_name) -> dict[str, int]:
     """Bu otelin (ve aynı pickup saatinin) yolcularını taşıyan balonlar → koltuk; çoktan aza.
 
-    Otel adları `fold_name` ile karşılaştırılır ("Argos" = "ARGOS", "Kapadokya  Otel" =
-    "KAPADOKYA OTEL"). Aynı otel farklı saatte alınıyorsa ayrı araç/ayrı kalkış demektir,
+    Otel adları `hotel_key` ile karşılaştırılır; varsayılan `fold_name` ("Argos" = "ARGOS",
+    "Kapadokya  Otel" = "KAPADOKYA OTEL"), otel kartı varsa `HotelResolver.key` aynı otelin
+    farklı yazımlarını birleştirir. Aynı otel farklı saatte alınıyorsa ayrı araç/ayrı kalkış demektir,
     gruplanmaz; saati girilmemiş rezervasyon her saatle eşleşir. Eşit koltukta sayfada önce
     görülen balon önce gelir.
     """
-    key = fold_name(hotel)
-    if not key:
+    if not fold_name(hotel):
         return {}
+    key = hotel_key(hotel)
     want = pickup_key(pickup)
     seats: dict[str, int] = {}
     for b in blocks:
-        if b.balloon and fold_name(b.hotel) == key and _same_pickup(want, pickup_key(b.pickup)):
+        if b.balloon and fold_name(b.hotel) and hotel_key(b.hotel) == key and _same_pickup(want, pickup_key(b.pickup)):
             seats[b.balloon] = seats.get(b.balloon, 0) + block_seats(b)
     return dict(sorted(seats.items(), key=lambda kv: -kv[1]))
 
 
-def hotel_split(blocks: list[ReservationBlock]) -> list[dict]:
+def hotel_split(blocks: list[ReservationBlock], hotel_key: Callable[[str], str] = fold_name) -> list[dict]:
     """Aynı gün, aynı pickup saatinde 2+ balona dağılmış oteller (birleştirme önerisi).
 
     Aynı otel farklı saatlerde alınıyorsa dağınık sayılmaz (ayrı kalkış). Saati girilmemiş
@@ -369,9 +371,9 @@ def hotel_split(blocks: list[ReservationBlock]) -> list[dict]:
     """
     groups: dict[str, dict] = {}
     for b in blocks:
-        name = fold_name(b.hotel)
-        if not name or not b.balloon:
+        if not fold_name(b.hotel) or not b.balloon:
             continue
+        name = hotel_key(b.hotel)
         key = f"{name}|{pickup_key(b.pickup)}"
         g = groups.setdefault(key, {"hotel": b.hotel.strip(), "pickup": pickup_key(b.pickup), "per": {}, "seats": 0})
         seats = block_seats(b)
@@ -396,6 +398,7 @@ def assign_balloon(
     hotel: str = "",
     pickup: str = "",
     blocks: Optional[list[ReservationBlock]] = None,
+    hotel_key: Callable[[str], str] = fold_name,
 ) -> tuple[str, bool]:
     """Yeni bir `pax` kişilik grup için balon seç (grup bölünmez).
 
@@ -409,7 +412,7 @@ def assign_balloon(
     candidates = _candidates(codes, allowed)
     if not candidates:
         return (codes[0] if codes else ""), True
-    preferred = [c for c in hotel_seats_by_balloon(blocks or [], hotel, pickup) if c in candidates]
+    preferred = [c for c in hotel_seats_by_balloon(blocks or [], hotel, pickup, hotel_key) if c in candidates]
     for code in [*preferred, *candidates]:
         if cap(code) - load.get(code, 0) >= pax:
             return code, False
@@ -454,6 +457,7 @@ def choose_balloon(
     allowed: Optional[Iterable[str]] = None,
     hotel: str = "",
     pickup: str = "",
+    hotel_key: Callable[[str], str] = fold_name,
 ) -> dict:
     """Yeni `pax` kişilik grup için balon ve yazım biçimi seçer (grup bölünmez).
 
@@ -476,7 +480,7 @@ def choose_balloon(
     load = balloon_load(blocks)
     runs = free_seat_runs(rows, blocks)
     requested = (requested or "").strip().upper()
-    hotel_codes = list(hotel_seats_by_balloon(blocks, hotel, pickup))
+    hotel_codes = list(hotel_seats_by_balloon(blocks, hotel, pickup, hotel_key))
 
     def result(code: str, overflow: bool, mode: str) -> dict:
         return {"balloon": code, "overflow": overflow, "mode": mode,
@@ -504,7 +508,7 @@ def choose_balloon(
             return result(least, True, "seat")
         # Ekleme şablonunda silmeden kalan küçük boşluklar: grup sığmıyorsa sona ekle
     balloon, overflow = assign_balloon(load, pax, codes, cap, allowed=allowed_set,
-                                       hotel=hotel, pickup=pickup, blocks=blocks)
+                                       hotel=hotel, pickup=pickup, blocks=blocks, hotel_key=hotel_key)
     return result(balloon, overflow, "append")
 
 

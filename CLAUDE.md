@@ -383,3 +383,15 @@ Hatalı-eksik), acente bazlı eksik görünümü, kapasite (Sayfa2) entegrasyonu
   rezervasyon 409 `daily_capacity_exceeded` → operatör onayıyla `allow_daily_capacity_override`;
   readiness `daily_capacity_exceeded`. Ana sayfa koltuk/boş hesabı `daySeats`: günlük balon sınırı
   doluysa uçmayan balonlar sayılmaz ("Uçmuyor"), toplam günlük kapasiteyle sınırlanır.
+
+### Otel kartları (2026-10-25)
+- Ekim planlamasında 433 rezervasyonda 262 farklı otel yazımı vardı (çoğu aynı otelin farklı yazımı).
+  `app/hotels.py`: kart = ad + yazımlar (aliases) + bölge (`REGIONS`) + buluşma noktası + harita linki
+  (yalnız http/https). Kayıt ayarlarla aynı klasörde `hotels.json`; Excel'deki yazımlar DEĞİŞMEZ.
+- Eşleşme yalnız karta açıkça bağlanmış yazımla (`fold_name`). `match_key`/`similar` yalnız öneri:
+  genel sözcükler ve yer adları atılır, öbeğin öncüsü en sık yazım (zincirleme benzerlik yok).
+  Bir yazım tek karta ait; başka karta bağlanınca eskisinden düşer.
+- Kullanım: otel gruplaması (`hotel_seats_by_balloon`/`hotel_split`/`choose_balloon` `hotel_key`
+  alır; main `HotelResolver.key` geçirir), şoför listeleri (kart adı, yeni BÖLGE kolonu, NOT'a
+  "Buluşma: …", sıra pickup → bölge → otel). API: `GET /api/hotels`, `POST /api/hotels/card|merge|delete`.
+  Ön yüz: `pages/hotels.js` (menüde "Oteller"). Test: `tests/test_hotels.py`.

@@ -248,7 +248,7 @@ function envStripe(code) {
 // ─── Menü rayı ───
 const NAV_ICONS = {
   dashboard: 'home', weather: 'partly_cloudy_day', planning: 'calendar_month', passport: 'badge',
-  manual_review: 'fact_check', manifest: 'assignment', lists: 'format_list_bulleted',
+  manual_review: 'fact_check', manifest: 'assignment', lists: 'format_list_bulleted', hotels: 'hotel',
   admin: 'admin_panel_settings', settings: 'settings',
 };
 
@@ -283,6 +283,7 @@ function renderSidebar(activeRoute) {
     { id: 'manual_review', label: 'Manuel Kontrol', route: 'manual_review' },
     { id: 'planning',  label: 'Planlama', route: 'planning' },
     { id: 'manifest',  label: 'Manifesto', route: 'manifest' },
+    { id: 'hotels',    label: 'Oteller', route: 'hotels' },
     { id: 'lists',     label: 'Listeler', route: 'lists' },
     { id: 'weather',   label: 'Hava Durumu', route: 'weather' },
   ];

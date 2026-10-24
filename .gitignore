@@ -45,3 +45,8 @@ ocr_debug.txt
 /.review-runtime/
 # PII'siz test kopyaları (maskelenmiş; gerçek veri buraya konmaz)
 !tests/fixtures/*.xlsx
+
+# Impeccable tasarım turu: görseller ve ekran görüntüleri (büyük, yerel)
+.impeccable/mocks/
+.impeccable/review/
+.impeccable/questions/

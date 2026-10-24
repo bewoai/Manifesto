@@ -312,3 +312,86 @@ Hatalı-eksik), acente bazlı eksik görünümü, kapasite (Sayfa2) entegrasyonu
   serbest koltuğu olarak kalır (başka balonun grubu oraya yazılmaz).
 - Test: `tests/fixtures/seat_template_ekim.xlsx` gerçek dosyanın PII'siz kopyası (21/22/23 Ekim; isim,
   pasaport, otel, acente, pilot, oda, not maskeli). Gerçek planlama dosyaları repoya konmaz.
+
+### Arayüz yeniden tasarımı (2026-10-24) — "Kısık Tüf"
+- Kullanıcı: gündüz ofiste bilgisayarda; turuncu ve cam/parlama istemiyor; bembeyaz zemin göz yoruyor;
+  Kapadokya "belirgin ama sakin". Ürün bilgisi `PRODUCT.md`te.
+- **İki tema, aynı bileşenler:** `:root` = Kısık Tüf (taş grisi #d9d4cc zemin, #e4e0d9 panel, kömür #2e2b28
+  metin, tek vurgu soluk lapis #3d5a8a; saf beyaz yok), `[data-theme="graphite"]` = Yumuşak Grafit.
+  Seçim bilgisayar başına `localStorage('irtifa-theme')` (pywebview kalıcı depolama); Ayarlar > Görünüm ve
+  menüdeki yarım daire düğmesi. `index.html` ilk boyamadan önce uygular.
+- **Token sistemi:** `tailwind.config.js` renkleri `rgb(var(--x) / <alpha-value>)`; değerler `style.css`
+  başında. Eski token adları (surface, on-surface, primary, tertiary…) korunur → sayfalar otomatik uyar.
+- **Biçim dili (kullanıcının beğendiği üç yönün birleşimi):** balon başına sabit zarf mürekkebi
+  (`env-1…env-8`; `app.js` `balloonInk/balloonBadge/envStripe`, sıra Ayarlar'daki balon kodlarından),
+  kapı panosu tablosu (`.board`, dar ekranda kolonlar önceliğe göre düşer), segmentli biniş kartı (`.pass`),
+  sabah uçuş bayrağı (`.flag-strip`; hava tavsiyesidir, resmî izin değildir).
+- Ana sayfa (`pages/dashboard.js`) baştan yazıldı: bayrak · gün başlığı · bugün yapılacaklar + 4 metrik ·
+  balon panosu (değişen satır `localStorage` anlık görüntüsüyle işaretli) · seçili balonun kartı.
+- Yazı tipleri yerel: Source Serif 4 (başlık), Source Sans 3 (metin), JetBrains Mono (kod/belge no).
+  Plus Jakarta / Bricolage ve 3D ikon seti (`icons.js`) kaldırıldı; menü Material Symbols çizgi ikonları.
+- Hata düzeltmesi: `index.html` `app.js?v=N` yüklüyordu, sayfalar `/app.js` → derlemede iki modül kopyası
+  (kullanıcı/sürüm bilgisi kayboluyordu). Artık sorgu eki yok.
+- Dar ekranda menü üstten açılır (`__toggleNav`). Tasarım kararları ve tasarım sistemi: `DESIGN.md`.
+
+### Takvim doluluğu (2026-10-24)
+- `GET /api/planning/month-load?month=YYYY-AA` → gün (`GG.AA.YYYY`) → `{used, free, total}`; hesap
+  `planning.month_load/day_seat_load` (`balloon_load` + `free_seat_summary`, kitap bir kez açılır).
+  Toplam: koltuk şablonunda sayfadaki koltuklar (dolu + serbest); ekleme şablonunda kapasite ×
+  (Ayarlar kodları ∪ sayfadaki balonlar).
+- Önbellek `main._MONTH_LOAD_CACHE`, anahtar (dosya, ay, `workbook_revision`, kapasite, kodlar); Excel
+  değişince revizyon değişir, kaynak yine Excel. Yanıtta `cached`. Google Sheets modunda her indirme
+  yeni mtime → önbellek isabet etmez (bilinen sınır).
+- Takvim (`pages/planning.js`): plan günlerinin altında `.seat-bar.day-load` (lapis; aşımda tuğla;
+  zarf mürekkebi değil — Envelope Rule). İstemci, ay verisini `state.revision` değişene dek yeniden istemez.
+  Bugün lapis çerçeveli.
+
+### Kapasite kuralları (2026-10-24, backend)
+- **Balon başına kapasite:** planlama fonksiyonları `capacity: int | Callable[[kod], int]` alır
+  (`planning.capacity_fn`); main `Settings.capacity_for` geçirir. Koltuk modunda da balon yükü + PAX
+  kapasiteyi aşamaz. Bant tespiti (`_is_seat_layout_rows`) varsayılan kapasiteyle kalır.
+- **Günlük balon sınırı:** `daily_max_balloons > 0` ve yolcu taşıyan balon sayısı sınıra ulaştıysa
+  `choose_balloon(allowed=uçan balonlar)`; sığmazsa 409 `capacity_confirmation_required` + "Günlük balon
+  sınırı (N) dolu…" mesajı. `allow_overflow`+`requested_balloon` yeni balona izin verir; readiness
+  `daily_balloon_limit` ile işaretler.
+- **Acente kotası:** create-block / create-with-identities, kapasiteden ÖNCE; aşımda 409
+  `agency_quota_exceeded` (`allow_quota_override` ile geçilir). Acente adları `settings.fold_agency`
+  ile katlanır (İ/ı→I, Ş→S, Ğ→G, Ü→U, Ö→O, Ç→C, büyük harf, tek boşluk); `agency_quotas` anahtarları
+  katlanmış saklanır.
+- Readiness: `lead_row` taşıyan her uyarıda `lead_name`; mesajlar "Satır 83 · AD SOYAD: …".
+  `/api/planning/load` → `capacities`, `daily_max_balloons`, `balloons_in_use`, `agency_usage`.
+  Test: `tests/test_capacity_rules.py`.
+
+### Otel gruplaması (2026-10-24, backend)
+- Aynı otelin yolcuları aynı balona (pickup kolaylığı). `choose_balloon(..., hotel=)` ve
+  `assign_balloon(..., hotel=, blocks=)`: otelin yolcularını zaten taşıyan balonlar (o otelden çok
+  koltuktan aza, `hotel_seats_by_balloon`) `requested`'tan sonra, `codes` sırasından önce denenir.
+  Kapasite (balon başına), günlük balon sınırı (`allowed`) ve koltuk modunda ≥ PAX ardışık koltuk
+  kuralları aynen geçerli; sığmazsa eski davranış. Dönüşte `hotel_match`.
+- Ad karşılaştırması ortak `app/textfold.fold_name` (acente kotası `fold_agency` de onu kullanır).
+- create-block / create-with-identities lider otelini geçirir; yanıtta `hotel_match`, mesajda
+  "… X otelinin diğer yolcularıyla aynı balona (KOD) atandı." (create-with-identities artık `message` döner).
+- `/api/planning/load` → `hotel_split` [{hotel, balloons, seats}]: 2+ balona dağılmış oteller, öneri;
+  readiness uyarısı DEĞİL (çıktıyı engellemez). Test: `tests/test_hotel_grouping.py`.
+
+### Birleşim ve günlük kapasite (2026-10-24)
+- **"Rezervasyonları birleştir" tuşu kaldırıldı** (24.10'da irtibat/not kolonlarını gereksiz birleştirdi).
+  Yeni rezervasyon yalnız A/F/G/H/I'yı (PAX, otel, pickup, rezerve, acente) birleştirir
+  (`config.LEAD_MERGE_COLS`); E (irtibat/oda) ve M (not) yolcu başına. Taşıma/büyütme/yolcu silme
+  bloğun **kendi** birleşimlerini korur (`_block_merged_cols`). 24.10 Downloads orijinaline göre onarıldı.
+- **Günlük toplam kapasite** `Settings.daily_capacity` (arkadaşın acentesi 112; 0 = sınırsız). Aşan
+  rezervasyon 409 `daily_capacity_exceeded` → operatör onayıyla `allow_daily_capacity_override`;
+  readiness `daily_capacity_exceeded`. Ana sayfa koltuk/boş hesabı `daySeats`: günlük balon sınırı
+  doluysa uçmayan balonlar sayılmaz ("Uçmuyor"), toplam günlük kapasiteyle sınırlanır.
+
+### Otel kartları (2026-10-25)
+- Ekim planlamasında 433 rezervasyonda 262 farklı otel yazımı vardı (çoğu aynı otelin farklı yazımı).
+  `app/hotels.py`: kart = ad + yazımlar (aliases) + bölge (`REGIONS`) + buluşma noktası + harita linki
+  (yalnız http/https). Kayıt ayarlarla aynı klasörde `hotels.json`; Excel'deki yazımlar DEĞİŞMEZ.
+- Eşleşme yalnız karta açıkça bağlanmış yazımla (`fold_name`). `match_key`/`similar` yalnız öneri:
+  genel sözcükler ve yer adları atılır, öbeğin öncüsü en sık yazım (zincirleme benzerlik yok).
+  Bir yazım tek karta ait; başka karta bağlanınca eskisinden düşer.
+- Kullanım: otel gruplaması (`hotel_seats_by_balloon`/`hotel_split`/`choose_balloon` `hotel_key`
+  alır; main `HotelResolver.key` geçirir), şoför listeleri (kart adı, yeni BÖLGE kolonu, NOT'a
+  "Buluşma: …", sıra pickup → bölge → otel). API: `GET /api/hotels`, `POST /api/hotels/card|merge|delete`.
+  Ön yüz: `pages/hotels.js` (menüde "Oteller"). Test: `tests/test_hotels.py`.

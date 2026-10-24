@@ -10,12 +10,13 @@ import re
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Iterable, Optional, Union
 
 import openpyxl
 
 from app import config
 from app.manifest.excel_cache import get_cached_excel_data, clear_excel_cache
+from app.textfold import fold_name
 
 
 @dataclass
@@ -103,13 +104,28 @@ def _rows_from_ws(ws) -> list[PlanningRow]:
     İsim, balon ve pasaport no'su olmayan satırlar atlanır. Boş koltuklar (balon dolu,
     kimlik boş) listede kalır; `is_seat` ile ayırt edilir.
     """
+    return _parse_rows(lambda r, c: _cell(ws, r, c), ws.max_row)
+
+
+def _rows_from_grid(grid: list[tuple]) -> list[PlanningRow]:
+    """Salt-okunur ızgaradan (satır değer demetleri, 1 tabanlı satır = indeks+1) aynı ayrıştırma."""
+    def get(r: int, c: int) -> str:
+        if r - 1 >= len(grid):
+            return ""
+        row = grid[r - 1]
+        v = row[c - 1] if c - 1 < len(row) else None
+        return "" if v is None else str(v).strip()
+    return _parse_rows(get, len(grid))
+
+
+def _parse_rows(get, max_row: int) -> list[PlanningRow]:
     rows: list[PlanningRow] = []
-    for r in range(config.PLANNING_FIRST_DATA_ROW, ws.max_row + 1):
-        name = _cell(ws, r, config.COL_NAME)
-        balloon = _cell(ws, r, config.COL_BALLOON)
-        if not name and not balloon and not _cell(ws, r, config.COL_PASSPORT_NO):
+    for r in range(config.PLANNING_FIRST_DATA_ROW, max_row + 1):
+        name = get(r, config.COL_NAME)
+        balloon = get(r, config.COL_BALLOON)
+        if not name and not balloon and not get(r, config.COL_PASSPORT_NO):
             continue
-        pax_raw = _cell(ws, r, config.COL_PAX)
+        pax_raw = get(r, config.COL_PAX)
         try:
             pax = int(float(pax_raw)) if pax_raw else None
         except ValueError:
@@ -117,35 +133,96 @@ def _rows_from_ws(ws) -> list[PlanningRow]:
         rows.append(PlanningRow(
             row=r,
             pax=pax,
-            nationality=_cell(ws, r, config.COL_UYRUK),
-            sex=_cell(ws, r, config.COL_MF),
+            nationality=get(r, config.COL_UYRUK),
+            sex=get(r, config.COL_MF),
             name=name,
-            room=_cell(ws, r, config.COL_ROOM),
-            hotel=_cell(ws, r, config.COL_HOTEL),
-            pickup=_cell(ws, r, config.COL_PICKUP),
-            reserved_by=_cell(ws, r, config.COL_RESERVED_BY),
-            agency=_cell(ws, r, config.COL_AGENCY),
-            company=_cell(ws, r, config.COL_COMPANY),
+            room=get(r, config.COL_ROOM),
+            hotel=get(r, config.COL_HOTEL),
+            pickup=get(r, config.COL_PICKUP),
+            reserved_by=get(r, config.COL_RESERVED_BY),
+            agency=get(r, config.COL_AGENCY),
+            company=get(r, config.COL_COMPANY),
             balloon=balloon.upper(),
-            pilot=_cell(ws, r, config.COL_PILOT),
-            note=_cell(ws, r, config.COL_NOTE),
-            driver=_cell(ws, r, config.COL_DRIVER),
-            coming_place=_cell(ws, r, config.COL_COMING_PLACE),
-            passport_no=_cell(ws, r, config.COL_PASSPORT_NO),
+            pilot=get(r, config.COL_PILOT),
+            note=get(r, config.COL_NOTE),
+            driver=get(r, config.COL_DRIVER),
+            coming_place=get(r, config.COL_COMING_PLACE),
+            passport_no=get(r, config.COL_PASSPORT_NO),
         ))
     return rows
+
+
+def _read_workbook_grid(path: Path) -> dict[str, list[tuple]]:
+    """Kitabın tüm sayfalarını salt-okunur modda tek geçişte okur (yalnız değerler, A..T).
+
+    Tam (biçimli) yükleme 17 sayfalık gerçek dosyada ~2,2 sn sürüyordu; bu yol ~0,25 sn'de
+    bütün sayfaları verir. Birleşik hücrelerin sol üstü dışındaki hücreler None gelir (tam
+    yüklemedeki MergedCell ile aynı).
+    """
+    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    try:
+        grid: dict[str, list[tuple]] = {}
+        for ws in wb.worksheets:
+            ws.reset_dimensions()   # bozuk <dimension> etiketi satırları kesmesin
+            grid[ws.title] = [list(r) for r in ws.iter_rows(values_only=True, max_col=config.COL_PASSPORT_NO)]
+    finally:
+        wb.close()
+    # Salt-okunur mod birleşik alanların altında kalmış eski değerleri de döndürür; tam
+    # yüklemede bunlar None'dur (MergedCell). Aynı sonucu vermek için sol üst dışını boşalt.
+    for title, ranges in _merged_ranges(path).items():
+        rows = grid.get(title)
+        if not rows:
+            continue
+        for min_col, min_row, max_col, max_row in ranges:
+            for r in range(min_row, min(max_row, len(rows)) + 1):
+                row = rows[r - 1]
+                for c in range(min_col, min(max_col, len(row)) + 1):
+                    if (r, c) != (min_row, min_col):
+                        row[c - 1] = None
+    return {title: [tuple(r) for r in rows] for title, rows in grid.items()}
+
+
+def _merged_ranges(path: Path) -> dict[str, list[tuple[int, int, int, int]]]:
+    """Sayfa adı → birleşik alanlar (min_col, min_row, max_col, max_row); xlsx XML'inden okunur."""
+    import posixpath
+    import zipfile
+    import xml.etree.ElementTree as ET
+    from openpyxl.utils.cell import range_boundaries
+
+    ns_main = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+    ns_rel = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
+    out: dict[str, list[tuple[int, int, int, int]]] = {}
+    with zipfile.ZipFile(path) as z:
+        rels = ET.fromstring(z.read("xl/_rels/workbook.xml.rels"))
+        targets = {r.get("Id"): r.get("Target") for r in rels}
+        wbx = ET.fromstring(z.read("xl/workbook.xml"))
+        for sh in wbx.iter(f"{ns_main}sheet"):
+            target = targets.get(sh.get(f"{ns_rel}id"))
+            if not target:
+                continue
+            part = target.lstrip("/") if target.startswith("/") else posixpath.normpath(posixpath.join("xl", target))
+            try:
+                xml = z.read(part)
+            except KeyError:
+                continue
+            refs = re.findall(rb'<(?:\w+:)?mergeCell\s+ref="([A-Z]+[0-9]+:[A-Z]+[0-9]+)"', xml)
+            if refs:
+                out[sh.get("name")] = [range_boundaries(ref.decode()) for ref in refs]
+    return out
+
+
+def workbook_grid(planning_xlsx: Path) -> dict[str, list[tuple]]:
+    """Önbellekli ızgara: dosyanın mtime+boyutu değişene kadar tek okuma paylaşılır."""
+    return get_cached_excel_data(planning_xlsx, "workbook_grid", _read_workbook_grid)
 
 
 def read_rows(planning_xlsx: Path, sheet: str) -> list[PlanningRow]:
     """Bir gün sayfasının tüm satırlarını okur (header row 3 sonrası); boş koltuklar dahil."""
     def _read(path: Path, s: str) -> list[PlanningRow]:
-        wb = openpyxl.load_workbook(path, data_only=True)
-        if s not in wb.sheetnames:
-            wb.close()
-            raise KeyError(f"Planlama dosyasında '{s}' sayfası yok. Mevcut: {wb.sheetnames}")
-        rows = _rows_from_ws(wb[s])
-        wb.close()
-        return rows
+        grid = workbook_grid(path)
+        if s not in grid:
+            raise KeyError(f"Planlama dosyasında '{s}' sayfası yok. Mevcut: {list(grid)}")
+        return _rows_from_grid(grid[s])
 
     return get_cached_excel_data(planning_xlsx, "read_rows", _read, sheet)
 
@@ -221,24 +298,126 @@ def balloon_load(blocks: list[ReservationBlock]) -> dict[str, int]:
     return load
 
 
+Capacity = Union[int, Callable[[str], int]]
+
+
+def capacity_fn(capacity: Capacity) -> Callable[[str], int]:
+    """Kapasite argümanını `kod → kapasite` fonksiyonuna çevirir.
+
+    Tek bir int (eski çağrılar, testler) tüm balonlara aynı kapasiteyi verir; fonksiyon
+    (ör. `Settings.capacity_for`) balon başına kapasite verir. Boş kod varsayılanı döndürür.
+    """
+    if callable(capacity):
+        return lambda code: int(capacity(str(code or "").strip().upper()))
+    cap = int(capacity)
+    return lambda _code: cap
+
+
+def _candidates(codes: list[str], allowed: Optional[Iterable[str]]) -> list[str]:
+    """`allowed` verilirse (günlük balon sınırı dolu) yalnız o balonlar; sıra `codes`, sonra kalanlar."""
+    if allowed is None:
+        return list(codes)
+    allowed_set = {str(c).strip().upper() for c in allowed if c}
+    out = [c for c in codes if c in allowed_set]
+    out += sorted(allowed_set - set(out))
+    return out
+
+
+def pickup_key(value) -> str:
+    """Pickup saatini karşılaştırma için 'HH:MM'e çevirir ('5:20', '05:20:00', '1900-01-01 05:20:00').
+
+    Saat okunamazsa boş döner (bilinmiyor)."""
+    m = re.search(r"(\d{1,2})[:.](\d{2})", str(value or ""))
+    if not m:
+        return ""
+    h, mnt = int(m.group(1)), int(m.group(2))
+    return f"{h:02d}:{mnt:02d}" if h < 24 and mnt < 60 else ""
+
+
+def _same_pickup(a: str, b: str) -> bool:
+    """Saatlerden biri bilinmiyorsa (henüz girilmemiş) eşleşir; ikisi de biliniyorsa eşit olmalı."""
+    return not a or not b or a == b
+
+
+def hotel_seats_by_balloon(blocks: list[ReservationBlock], hotel: str, pickup: str = "",
+                           hotel_key: Callable[[str], str] = fold_name) -> dict[str, int]:
+    """Bu otelin (ve aynı pickup saatinin) yolcularını taşıyan balonlar → koltuk; çoktan aza.
+
+    Otel adları `hotel_key` ile karşılaştırılır; varsayılan `fold_name` ("Argos" = "ARGOS",
+    "Kapadokya  Otel" = "KAPADOKYA OTEL"), otel kartı varsa `HotelResolver.key` aynı otelin
+    farklı yazımlarını birleştirir. Aynı otel farklı saatte alınıyorsa ayrı araç/ayrı kalkış demektir,
+    gruplanmaz; saati girilmemiş rezervasyon her saatle eşleşir. Eşit koltukta sayfada önce
+    görülen balon önce gelir.
+    """
+    if not fold_name(hotel):
+        return {}
+    key = hotel_key(hotel)
+    want = pickup_key(pickup)
+    seats: dict[str, int] = {}
+    for b in blocks:
+        if b.balloon and fold_name(b.hotel) and hotel_key(b.hotel) == key and _same_pickup(want, pickup_key(b.pickup)):
+            seats[b.balloon] = seats.get(b.balloon, 0) + block_seats(b)
+    return dict(sorted(seats.items(), key=lambda kv: -kv[1]))
+
+
+def hotel_split(blocks: list[ReservationBlock], hotel_key: Callable[[str], str] = fold_name) -> list[dict]:
+    """Aynı gün, aynı pickup saatinde 2+ balona dağılmış oteller (birleştirme önerisi).
+
+    Aynı otel farklı saatlerde alınıyorsa dağınık sayılmaz (ayrı kalkış). Saati girilmemiş
+    bloklar kendi grubundadır.
+    Dönüş: [{"hotel", "pickup", "balloons": [kod, ...], "seats": toplam koltuk}], koltuk çoktan aza.
+    `balloons` o otelden en çok koltuk taşıyandan aza sıralıdır. Görünen ad, sayfada ilk
+    görülen yazımdır. Bilgi amaçlıdır; readiness uyarısı değildir (çıktıyı engellemez).
+    """
+    groups: dict[str, dict] = {}
+    for b in blocks:
+        if not fold_name(b.hotel) or not b.balloon:
+            continue
+        name = hotel_key(b.hotel)
+        key = f"{name}|{pickup_key(b.pickup)}"
+        g = groups.setdefault(key, {"hotel": b.hotel.strip(), "pickup": pickup_key(b.pickup), "per": {}, "seats": 0})
+        seats = block_seats(b)
+        g["per"][b.balloon] = g["per"].get(b.balloon, 0) + seats
+        g["seats"] += seats
+    out = [
+        {"hotel": g["hotel"], "pickup": g["pickup"],
+         "balloons": [code for code, _ in sorted(g["per"].items(), key=lambda kv: -kv[1])],
+         "seats": g["seats"]}
+        for g in groups.values() if len(g["per"]) >= 2
+    ]
+    out.sort(key=lambda item: (-item["seats"], fold_name(item["hotel"])))
+    return out
+
+
 def assign_balloon(
     load: dict[str, int],
     pax: int,
     codes: list[str],
-    capacity: int,
+    capacity: Capacity,
+    allowed: Optional[Iterable[str]] = None,
+    hotel: str = "",
+    pickup: str = "",
+    blocks: Optional[list[ReservationBlock]] = None,
+    hotel_key: Callable[[str], str] = fold_name,
 ) -> tuple[str, bool]:
     """Yeni bir `pax` kişilik grup için balon seç (grup bölünmez).
 
     First-fit: `codes` sırasında kalan kapasitesi ≥ pax olan ilk balonu döndürür.
     Hiçbiri sığmazsa en az dolu balonu döndürür ve overflow=True işaretler.
+    `allowed` verilirse yalnız bu balonlar aday olur (günlük balon sınırı).
+    `hotel` ve `blocks` verilirse bu otelin yolcularını taşıyan aday balonlar (çok
+    koltuktan aza) `codes` sırasından önce denenir; hiçbirine sığmazsa davranış aynıdır.
     """
-    if not codes:
-        return "", True
-    for code in codes:
-        if capacity - load.get(code, 0) >= pax:
+    cap = capacity_fn(capacity)
+    candidates = _candidates(codes, allowed)
+    if not candidates:
+        return (codes[0] if codes else ""), True
+    preferred = [c for c in hotel_seats_by_balloon(blocks or [], hotel, pickup, hotel_key) if c in candidates]
+    for code in [*preferred, *candidates]:
+        if cap(code) - load.get(code, 0) >= pax:
             return code, False
     # Hiçbiri tüm grubu alamıyor → en boş balon + overflow uyarısı
-    least = min(codes, key=lambda c: load.get(c, 0))
+    least = min(candidates, key=lambda c: load.get(c, 0) - cap(c))
     return least, True
 
 
@@ -273,46 +452,78 @@ def choose_balloon(
     blocks: list[ReservationBlock],
     pax: int,
     codes: list[str],
-    capacity: int,
+    capacity: Capacity,
     requested: str = "",
+    allowed: Optional[Iterable[str]] = None,
+    hotel: str = "",
+    pickup: str = "",
+    hotel_key: Callable[[str], str] = fold_name,
 ) -> dict:
     """Yeni `pax` kişilik grup için balon ve yazım biçimi seçer (grup bölünmez).
 
-    Koltuk şablonu (sayfada serbest koltuk var): `requested`, sonra `codes` sırası, sonra
-    sayfadaki diğer balonlar içinde ≥ pax ardışık serbest koltuğu olan ilk balon → "seat".
-    Hiçbirinde yer yoksa overflow (operatör onayıyla şablonun altına eklenir).
-    Ekleme şablonu (serbest koltuk yok): mevcut first-fit kapasite kuralı → "append".
+    Koltuk şablonu (sayfada serbest koltuk var): `requested`, sonra aynı otelin balonları,
+    sonra `codes` sırası, sonra sayfadaki diğer balonlar içinde ≥ pax ardışık serbest koltuğu
+    olan ve balon kapasitesini aşmayan ilk balon → "seat". Hiçbirinde yer yoksa overflow
+    (operatör onayıyla şablonun altına eklenir). Ekleme şablonu (serbest koltuk yok):
+    first-fit kapasite kuralı → "append".
+
+    `capacity`: tek int ya da `kod → kapasite` fonksiyonu (balon başına kapasite).
+    `allowed`: verilirse yalnız bu balonlar aday olur (günlük balon sınırı dolduğunda
+    uçan balonlar); iki modda da geçerlidir.
+    `hotel`: verilirse bu otelin yolcularını zaten taşıyan balonlar (o otelden çok koltuk
+    taşıyandan aza) normal sıradan önce denenir — pickup kolaylığı. Kapasite, günlük sınır
+    ve ardışık koltuk kuralları aynen geçerlidir; hiçbirine sığmazsa davranış değişmez.
+    Dönüşteki `hotel_match`: seçilen balon bu oteli zaten taşıyor mu.
     """
+    cap = capacity_fn(capacity)
+    allowed_set = None if allowed is None else {str(c).strip().upper() for c in allowed if c}
+    load = balloon_load(blocks)
     runs = free_seat_runs(rows, blocks)
     requested = (requested or "").strip().upper()
+    hotel_codes = list(hotel_seats_by_balloon(blocks, hotel, pickup, hotel_key))
+
+    def result(code: str, overflow: bool, mode: str) -> dict:
+        return {"balloon": code, "overflow": overflow, "mode": mode,
+                "hotel_match": bool(code) and code in hotel_codes}
+
     if runs:
-        order = [c for c in [requested, *codes, *runs.keys()] if c]
+        order = [c for c in [requested, *hotel_codes, *codes, *runs.keys()] if c]
         seen: set[str] = set()
         for code in order:
             if code in seen:
                 continue
             seen.add(code)
+            if allowed_set is not None and code not in allowed_set:
+                continue
+            if load.get(code, 0) + pax > cap(code):
+                continue
             if any(len(seq) >= pax for seq in runs.get(code, [])):
-                return {"balloon": code, "overflow": False, "mode": "seat"}
-        if is_seat_template(rows, runs, capacity):
-            least = requested if requested in codes else (codes[0] if codes else next(iter(runs)))
-            return {"balloon": least, "overflow": True, "mode": "seat"}
+                return result(code, False, "seat")
+        if is_seat_template(rows, runs, cap):
+            pool = _candidates(codes, allowed_set)
+            if requested in codes and (allowed_set is None or requested in allowed_set):
+                least = requested
+            else:
+                least = pool[0] if pool else (codes[0] if codes else next(iter(runs)))
+            return result(least, True, "seat")
         # Ekleme şablonunda silmeden kalan küçük boşluklar: grup sığmıyorsa sona ekle
-    balloon, overflow = assign_balloon(balloon_load(blocks), pax, codes, capacity)
-    return {"balloon": balloon, "overflow": overflow, "mode": "append"}
+    balloon, overflow = assign_balloon(load, pax, codes, cap, allowed=allowed_set,
+                                       hotel=hotel, pickup=pickup, blocks=blocks, hotel_key=hotel_key)
+    return result(balloon, overflow, "append")
 
 
-def is_seat_template(rows: list[PlanningRow], runs: dict[str, list[list[int]]], capacity: int) -> bool:
+def is_seat_template(rows: list[PlanningRow], runs: dict[str, list[list[int]]], capacity: Capacity) -> bool:
     """Sayfa, koltukları önceden balonlara dağıtan bir şablon mu?
 
-    Ölçüt: serbest koltuğu olan en az bir balonun sayfada (dolu + boş) en az `capacity`
-    satırı var. Arkadaşın şablonunda her balon 28 satırlık banttır; uygulamanın ekleme
-    şablonunda serbest koltuk yalnız silmeden kalır ve bant oluşturmaz.
+    Ölçüt: serbest koltuğu olan en az bir balonun sayfada (dolu + boş) en az kendi
+    kapasitesi kadar satırı var. Arkadaşın şablonunda her balon 28 satırlık banttır;
+    uygulamanın ekleme şablonunda serbest koltuk yalnız silmeden kalır ve bant oluşturmaz.
     """
     from collections import Counter
 
+    cap = capacity_fn(capacity)
     per_balloon = Counter(r.balloon for r in rows if r.balloon)
-    return any(per_balloon[b] >= capacity for b in runs)
+    return any(per_balloon[b] >= cap(b) for b in runs)
 
 
 def pilot_for_balloon(rows: list[PlanningRow], code: str) -> str:
@@ -412,10 +623,19 @@ def _unmerge_rows(ws, lo: int, hi: int) -> None:
             ws.unmerge_cells(str(rng))
 
 
-def _merge_lead_columns(ws, lead: int, last: int) -> None:
+def _block_merged_cols(ws, lead: int, last: int) -> tuple[int, ...]:
+    """Bloğun kendi düzeni: lider..son satırı tam kapsayan tek kolonluk birleşimler."""
+    return tuple(sorted(
+        rng.min_col for rng in ws.merged_cells.ranges
+        if rng.min_col == rng.max_col and rng.min_row == lead and rng.max_row == last
+    ))
+
+
+def _merge_lead_columns(ws, lead: int, last: int, cols: Optional[tuple[int, ...]] = None) -> None:
+    """Blok boyunca dikey birleştirir. cols verilmezse varsayılan lider kolonları."""
     if last <= lead:
         return
-    for col in config.LEAD_MERGE_COLS:
+    for col in (config.LEAD_MERGE_COLS if cols is None else cols):
         ws.merge_cells(start_row=lead, start_column=col, end_row=last, end_column=col)
 
 
@@ -520,6 +740,50 @@ def sheet_date(name: str):
         return None
 
 
+def day_seat_load(ws, *, capacity: Capacity, codes: list[str]) -> dict:
+    """Bir gün sayfasının koltuk doluluğu: {"used", "free", "total"}.
+
+    Dolu = `balloon_load` toplamı; serbest = `free_seat_summary` toplamı.
+    Koltuk şablonunda (balon bantları) toplam, sayfadaki koltuklardır (dolu + serbest).
+    Ekleme şablonunda satır yalnız yolcu için açıldığından toplam = kapasite × balon sayısı
+    (Ayarlar'daki kodlar + sayfada görülenler).
+    """
+    return _day_seat_load_rows(_rows_from_ws(ws), capacity=capacity, codes=codes)
+
+
+def _day_seat_load_rows(rows: list[PlanningRow], *, capacity: Capacity, codes: list[str]) -> dict:
+    cap = capacity_fn(capacity)
+    blocks = group_blocks(rows)
+    load = balloon_load(blocks)
+    free = free_seat_summary(rows, blocks)
+    used = sum(load.values())
+    free_total = sum(v["free"] for v in free.values())
+    if _is_seat_layout_rows(rows, cap("")):   # bant tespiti varsayılan kapasiteyle
+        total = used + free_total
+    else:
+        balloons = {c for c in codes if c} | set(load) | set(free)
+        total = max(used + free_total, sum(cap(b) for b in balloons))
+    return {"used": used, "free": free_total, "total": total}
+
+
+def month_load(planning_xlsx: Path, year: int, month: int, *, capacity: Capacity, codes: list[str]) -> dict[str, dict]:
+    """Ayın her gün sayfası için `day_seat_load`. Anahtar 'GG.AA.YYYY'.
+
+    Ortak salt-okunur ızgarayı kullanır (gün okumalarıyla aynı tek okuma); okunamayan
+    sayfa atlanır (takvim yine çizilir).
+    """
+    out: dict[str, dict] = {}
+    for name, grid in workbook_grid(planning_xlsx).items():
+        d = sheet_date(name)
+        if d is None or d.year != year or d.month != month:
+            continue
+        try:
+            out[d.strftime("%d.%m.%Y")] = _day_seat_load_rows(_rows_from_grid(grid), capacity=capacity, codes=codes)
+        except Exception:
+            continue
+    return out
+
+
 def nearest_source_sheet(sheetnames: list[str], new_sheet: str) -> Optional[str]:
     """Yeni gün için kopyalanacak gün: tarihçe en yakın ÖNCEKİ gün, yoksa en yakın sonraki."""
     target = sheet_date(new_sheet)
@@ -538,10 +802,13 @@ def is_seat_layout(ws, capacity: int = config.DEFAULT_BALLOON_CAPACITY) -> bool:
     Ölçüt: en az 2 balon bandı kadar satırda balon kodu var ve her balon en çok 2
     ardışık parça hâlinde (ekleme şablonunda balonlar bloklar arasında karışır).
     """
+    return _is_seat_layout_rows(_rows_from_ws(ws), capacity)
+
+
+def _is_seat_layout_rows(rows: list[PlanningRow], capacity: int = config.DEFAULT_BALLOON_CAPACITY) -> bool:
     from collections import Counter
 
     cap = max(int(capacity or 28), 1)
-    rows = _rows_from_ws(ws)
     with_balloon = [r for r in rows if r.balloon]
     if len(with_balloon) < 2 * cap:
         return False
@@ -691,6 +958,7 @@ def reorder_reservation(planning_xlsx: Path, sheet: str, source_rows: list[int],
             "bloğu başka bir bloğun başına veya listenin sonuna bırakın."
         )
 
+    own_cols = _block_merged_cols(ws, lo, hi)
     _unmerge_rows(ws, lo, hi)
 
     # insert_rows birleşmeleri taşımaz → hedefin altındakileri ayır, ekle, kaydırarak geri tak
@@ -722,7 +990,7 @@ def reorder_reservation(planning_xlsx: Path, sheet: str, source_rows: list[int],
     _reattach_merges(ws, detached, delta=-num_rows)
 
     final_target = target_row if target_row <= lo else target_row - num_rows
-    _merge_lead_columns(ws, final_target, final_target + num_rows - 1)
+    _merge_lead_columns(ws, final_target, final_target + num_rows - 1, own_cols)
     
     target = out_path or planning_xlsx
     wb.save(target)
@@ -754,6 +1022,7 @@ def delete_passenger_from_reservation(
     ws = wb[sheet]
     lo, hi = min(rows), max(rows)
 
+    own_cols = _block_merged_cols(ws, lo, hi) or None
     _unmerge_rows(ws, lo, hi)
 
     identity_cols = (config.COL_UYRUK, config.COL_MF, config.COL_NAME, config.COL_PASSPORT_NO)
@@ -775,7 +1044,7 @@ def delete_passenger_from_reservation(
         pax = len(rows)
     pax = max(1, pax - 1)
     ws.cell(lead_row, config.COL_PAX).value = pax
-    _merge_lead_columns(ws, lead_row, rows[-2])
+    _merge_lead_columns(ws, lead_row, rows[-2], own_cols)
 
     target = out_path or planning_xlsx
     wb.save(target)
@@ -803,6 +1072,7 @@ def resize_reservation(
     ws = wb[sheet]
     old_last = rows[-1]
     new_last = lead_row + new_pax - 1
+    own_cols = _block_merged_cols(ws, lead_row, old_last) or None
     _unmerge_rows(ws, lead_row, max(old_last, new_last))
 
     if new_last > old_last:
@@ -857,7 +1127,7 @@ def resize_reservation(
             _clear_row(ws, row)
 
     ws.cell(lead_row, config.COL_PAX).value = new_pax
-    _merge_lead_columns(ws, lead_row, new_last)
+    _merge_lead_columns(ws, lead_row, new_last, own_cols)
     target = out_path or planning_xlsx
     wb.save(target)
     wb.close()
@@ -917,3 +1187,13 @@ def write_operation_details(
     wb.save(target)
     wb.close()
     return target
+
+
+
+# ─── Rezervasyonları birleşik düzene getirme ───────────────────────────
+# Arkadaşın doğru örneğinde bir rezervasyonun ortak bilgileri (PAX, irtibat/oda, otel,
+# pickup, rezerve yapan, acente, not) blok boyunca TEK birleşik hücrede durur. Elle
+# girilmiş bazı bloklarda aynı değer her satıra tekrar yazılmış olabiliyor; bu yardımcı
+# yalnız güvenli durumda (tüm dolu değerler aynı) birleştirir, farklı değer varsa dokunmaz.
+
+

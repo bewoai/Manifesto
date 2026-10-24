@@ -10,7 +10,6 @@ export async function render(container) {
       <div class="weather-hero animate-fade-in">
         <div class="flex flex-col sm:flex-row justify-between items-start gap-4 w-full">
           <div>
-            <div class="text-xs font-bold tracking-widest text-primary mb-2">BALON UÇUŞ OPERASYONU</div>
             <h2 id="weather-title" class="font-headline text-headline-md text-on-surface mb-2">Hava verisi yükleniyor</h2>
             <p id="weather-summary" class="text-on-surface-variant">Rüzgar, ani rüzgar, görüş ve yağış kontrol ediliyor.</p>
           </div>
@@ -205,7 +204,7 @@ function renderHistory(items) {
     return;
   }
   el.innerHTML = items.slice(0, 12).map(p => `
-    <div class="history-row border-b border-white/5 last:border-0 hover:bg-white/5 rounded px-2 -mx-2 transition-colors">
+    <div class="history-row border-b border-line last:border-0 hover:bg-tertiary/[.05] rounded px-2 -mx-2 transition-colors">
       <span>${fmtDayTime(p.measured_at)}</span>
       <strong>${statusLabel(p.flight_status)}</strong>
       <span>${kmh(p.wind_speed_kmh)} / ${kmh(p.wind_gust_kmh)}</span>

@@ -1,9 +1,13 @@
 /* ═══════════════════════════════════════════════════════════════════
    Planlama — Gün seçimi, rezervasyon blokları, operasyon formu
    ═══════════════════════════════════════════════════════════════════ */
-import { api, toast, modal, renderHeader, helpIcon, registerUnsavedCheck } from '/app.js';
+import { api, toast, modal, renderHeader, helpIcon, registerUnsavedCheck, balloonInk, envStripe, setBalloonCodes, routeParams } from '/app.js';
+import { parseQuery, matchesBlock, describeTerms } from '/planning_search.js';
+import { mountSheetGrid, sheetGridDirty } from '/sheet_grid.js';
 import { attachCombobox } from '/combobox.js';
 import { openIdentityEditor } from '/identity_edit.js';
+import { capacityFor, balloonLimitText, isDailyCapacityExceeded, dailyCapacityConfirmOptions } from '/capacity_rules.js';
+import { issueLabel, issueLeadRows, findBlockIndexForRow } from '/issue_links.js';
 
 let state = {
   sheets: [],
@@ -14,11 +18,14 @@ let state = {
   source: 'excel',
   revision: '',
   readiness: null,
+  issueFilter: null, // { sheet, code } — uyarıdan gelen blok filtresi
 };
 
 let calState = {
   currentYear: new Date().getFullYear(),
   currentMonth: new Date().getMonth() + 1, // 1-12
+  monthLoad: {},        // 'YYYY-AA' → { revision, days: { 'GG.AA.YYYY': {used, free, total} } }
+  monthLoadPending: {},
 };
 
 const monthsTR = [
@@ -55,9 +62,15 @@ function restoreSelection(ref, { byKey = false } = {}) {
 
 function applyDayData(data) {
   state.blocks = data.blocks || [];
+  state.hotelSplit = data.hotel_split || [];
   state.balloons = data.balloon_codes || [];
+  setBalloonCodes(state.balloons);
   state.balloonLoad = data.balloon_load || {};
   state.capacity = data.capacity || 28;
+  state.capacities = data.capacities || {};
+  state.dailyMaxBalloons = Number(data.daily_max_balloons) || 0;
+  state.balloonsInUse = data.balloons_in_use;
+  state.agencyUsage = data.agency_usage || [];
   state.revision = data.workbook_revision || '';
   state.readiness = data.readiness || null;
 }
@@ -68,6 +81,7 @@ const OPERATION_KEYS = ['pax','room','hotel','pickup','reserved_by','agency','co
 // pencere yenileme/kapama onay ister.
 registerUnsavedCheck('planning', () => {
   if (state.pendingReorder) return true;
+  if (sheetGridDirty()) return true;
   if (!document.getElementById('op-pax')) return false; // form bu ekranda açık değil
   const block = state.selectedBlock !== null ? state.blocks[state.selectedBlock] : null;
   if (!block) return false;
@@ -84,7 +98,10 @@ function todayStart() {
 
 export async function render(container) {
   loadToken++; // önceki sayfa ziyaretinden kalan yanıtlar uygulanmasın
+  state.view = 'blocks'; excelMountedFor = '';
   renderHeader('Planlama', 'Uçuş günü yönetimi ve rezervasyon blokları');
+  const deepLink = readDeepLink();
+  state.issueFilter = null;
 
   container.innerHTML = `
     <div class="grid grid-cols-1 lg:grid-cols-[360px_1fr] gap-6 items-start">
@@ -128,7 +145,7 @@ export async function render(container) {
         <!-- Balon Dolulukları Kartı -->
         <div class="card p-6 w-full animate-in" id="sidebar-balloon-load-card" style="display:none">
           <div class="card-title text-base mb-4 flex items-center gap-2">
-            <span class="material-symbols-outlined text-[20px]">monitoring</span> Balon Dolulukları
+            <span class="material-symbols-outlined text-[20px]">airline_seat_recline_normal</span> Balon doluluğu
           </div>
           <div class="flex flex-col" id="sidebar-balloon-load-list">
             <!-- Dinamik olarak dolacak -->
@@ -139,16 +156,9 @@ export async function render(container) {
       <!-- SAĞ KOLON: Boş Durum veya Rezervasyon Listesi -->
       <div class="w-full">
         <!-- Boş Durum (Gün seçilmediğinde) -->
-        <div class="card text-center p-12 flex flex-col items-center justify-center min-h-[350px] animate-in" id="empty-planning-state">
-          <div class="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center text-primary mb-4">
-            <span class="material-symbols-outlined text-3xl">calendar_month</span>
-          </div>
-          <h3 class="font-headline text-headline-sm text-on-surface mb-4">Uçuş Planı Seçilmedi</h3>
-          <div class="text-on-surface-variant max-w-lg space-y-4 text-sm text-left bg-surface/30 p-6 rounded-2xl border border-white/5">
-            <p><strong class="text-on-surface">Ne yok?</strong> Ekranda henüz görüntülenen bir uçuş planı veya rezervasyon listesi yok.</p>
-            <p><strong class="text-on-surface">Neden olabilir?</strong> İşlem yapmak istediğiniz tarih henüz sol taraftaki takvimden seçilmemiş olabilir.</p>
-            <p><strong class="text-on-surface">Şimdi ne yapmalıyım?</strong> Sol taraftaki takvimden uçuş tarihinizi seçebilirsiniz. İşlem yapacağınız gün henüz yoksa takvimde bugün veya ileri bir boş güne tıklayıp onaylayarak yeni gün oluşturabilirsiniz.</p>
-          </div>
+        <div class="card min-h-[220px] flex flex-col justify-center animate-in" id="empty-planning-state">
+          <h3 class="font-headline text-headline-sm text-on-surface mb-1.5">Bir gün seçin</h3>
+          <p class="text-on-surface-variant">Takvimde planı olan günler mavi görünür. Planı olmayan bir güne tıklarsanız o gün koltuk düzeniyle boş açılır.</p>
         </div>
 
         <!-- Rezervasyon Blokları Kartı (Gün seçildiğinde) -->
@@ -158,15 +168,27 @@ export async function render(container) {
               <span class="material-symbols-outlined mr-2">group</span> Rezervasyon Blokları
               <span id="reorder-status" style="display: none;"></span>
             </div>
-            <div class="flex items-center gap-3">
+            <div class="flex flex-wrap items-center gap-3">
+              <div class="inline-flex rounded-lg border border-line bg-raised p-0.5" role="tablist" aria-label="Görünüm">
+                <button role="tab" id="pv-blocks" aria-selected="true" class="pv-tab is-on" onclick="window.__planView('blocks')">
+                  <span class="material-symbols-outlined text-[18px]">view_agenda</span> Rezervasyonlar
+                </button>
+                <button role="tab" id="pv-excel" aria-selected="false" class="pv-tab" onclick="window.__planView('excel')" title="Günün Excel sayfasını uygulama içinde göster ve düzenle">
+                  <span class="material-symbols-outlined text-[18px]">table_view</span> Excel
+                </button>
+              </div>
               <span class="text-sm text-on-surface-variant" id="blocks-count"></span>
               <button class="btn-primary flex items-center gap-2" onclick="window.__newReservation()">
                 <span class="material-symbols-outlined text-sm">add</span> Yeni Rezervasyon
               </button>
             </div>
           </div>
-          <div class="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
-            <input class="form-input md:col-span-2" id="block-search" placeholder="İsim, otel, acente, balon veya şoför ara" oninput="window.__renderPlanningDebounced()" />
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4" id="blocks-tools">
+            <div class="md:col-span-2">
+              <input class="form-input" id="block-search" type="search" autocomplete="off" aria-describedby="block-search-hint"
+                     placeholder="Ara: pax 5 · isim ahmet · otel argos · şoför 2" oninput="window.__renderPlanningDebounced()" />
+              <div class="form-help" id="block-search-hint">Alan adıyla arayın: pax, isim, otel, acente, balon, pilot, şoför, pasaport, uyruk, oda, saat, not. Örn. <span class="font-mono">pax 3-5</span>, <span class="font-mono">pax &gt;4</span>.</div>
+            </div>
             <select class="form-select" id="block-filter" onchange="window.__renderPlanning()">
               <option value="">Tüm rezervasyonlar</option>
               <option value="missing">Pasaportu eksik</option>
@@ -179,13 +201,17 @@ export async function render(container) {
               <option value="name">İsme göre</option>
             </select>
           </div>
+          <div id="issue-filter-chip"></div>
+          <div id="balloon-chips" class="flex flex-wrap items-center gap-2 mb-3" role="group" aria-label="Balona göre süz"></div>
+          <div id="hotel-split" class="mb-3"></div>
           <div class="flex flex-col gap-3" id="blocks-list"></div>
+          <div id="excel-view" style="display:none"></div>
         </div>
       </div>
     </div>
   `;
 
-  loadSheets();
+  loadSheets().then(() => applyDeepLink(deepLink));
 }
 
 function parseSheetDate(sheetName) {
@@ -234,6 +260,40 @@ window.__nextMonth = function() {
   renderCalendar();
 };
 
+function monthKey(year, month) {
+  return `${year}-${String(month).padStart(2, '0')}`;
+}
+
+// Ayın gün doluluğu: sunucu workbook_revision ile önbellekler; burada yalnız revizyon
+// değiştiyse (yazım sonrası) yeniden istenir. Doluluk bilgi amaçlıdır, hata takvimi bozmaz.
+async function ensureMonthLoad(year, month) {
+  const key = monthKey(year, month);
+  const suffix = `.${String(month).padStart(2, '0')}.${year}`;
+  if (calState.monthLoadPending[key] || !state.sheets.some(s => s.endsWith(suffix))) return;
+  const have = calState.monthLoad[key];
+  if (have && (!state.revision || have.revision === state.revision)) return;
+  calState.monthLoadPending[key] = true;
+  try {
+    const data = await api.get(`/api/planning/month-load?month=${key}`);
+    const days = data.days || {};
+    const changed = !have || JSON.stringify(have.days) !== JSON.stringify(days);
+    calState.monthLoad[key] = { revision: data.workbook_revision || '', days };
+    if (changed && monthKey(calState.currentYear, calState.currentMonth) === key) renderCalendar();
+  } catch (err) {
+    // doluluk gösterilmez; takvim yine çalışır
+  } finally {
+    delete calState.monthLoadPending[key];
+  }
+}
+
+function dayLoadHtml(load) {
+  if (!load || !load.total) return '';
+  const pct = Math.min(100, Math.round((load.used / load.total) * 100));
+  const over = load.used > load.total ? ' over' : '';
+  return `<span class="seat-bar day-load${over}" aria-hidden="true"><span style="width:${pct}%"></span></span>`
+    + `<span class="sr-only">, ${load.used}/${load.total} koltuk dolu</span>`;
+}
+
 function renderCalendar() {
   const monthYearEl = document.getElementById('calendar-month-year');
   const daysGridEl = document.getElementById('calendar-days-grid');
@@ -253,6 +313,7 @@ function renderCalendar() {
 
   // Ayın günleri
   const today = todayStart();
+  const loadDays = (calState.monthLoad[monthKey(calState.currentYear, calState.currentMonth)] || {}).days || {};
   for (let day = 1; day <= daysInMonth; day++) {
     const formatted = formatCalendarDate(day, calState.currentMonth, calState.currentYear);
     const hasPlan = state.sheets.includes(formatted);
@@ -274,7 +335,9 @@ function renderCalendar() {
     if (isToday) cls += ' today';
 
     if (hasPlan) {
-      html += `<div class="${cls}" onclick="window.__loadDayDate('${formatted}')" title="Günü Yükle: ${formatted}">${day}</div>`;
+      const load = loadDays[formatted];
+      const seats = load && load.total ? ` · ${load.used}/${load.total} koltuk` : '';
+      html += `<div class="${cls}" onclick="window.__loadDayDate('${formatted}')" title="Günü Yükle: ${formatted}${seats}">${day}${dayLoadHtml(load)}</div>`;
     } else if (isPast) {
       // Geçmiş ve planı olmayan gün: yanlışlıkla gün oluşturulmasın diye tıklanamaz
       html += `<div class="${cls}" title="Geçmiş tarih — uçuş günü yok">${day}</div>`;
@@ -284,6 +347,7 @@ function renderCalendar() {
   }
 
   daysGridEl.innerHTML = html;
+  ensureMonthLoad(calState.currentYear, calState.currentMonth);
 
   const remainBtn = document.getElementById('btn-create-remaining');
   if (remainBtn) {
@@ -381,6 +445,7 @@ window.__loadDayDate = async function(sheet) {
 
     renderBlocks();
     renderBalloonLoad();
+    refreshExcelView();
     // Başarılı yüklemede toast yok: takvimde seçili gün ve liste zaten geri bildirim.
   } catch (err) {
     if (token !== loadToken) return;
@@ -509,6 +574,8 @@ window.__submitNewDayDate = async function() {
 };
 
 function renderBlocks() {
+  renderBalloonChips();
+  renderHotelSplit();
   const section = document.getElementById('blocks-section');
   const list = document.getElementById('blocks-list');
   const count = document.getElementById('blocks-count');
@@ -554,8 +621,10 @@ function renderBlocks() {
     const dragAttrs = (isRowSort && !state.pendingReorder) ? `draggable="true" ondragstart="window.__onDragStart(event, ${i})" ondragend="window.__onDragEnd(event)" ondragover="window.__onDragOver(event)" ondragleave="window.__onDragLeave(event)" ondrop="window.__onDrop(event, ${i})"` : '';
     return `
     <div class="block-shell ${state.selectedBlock === i ? 'selected' : ''}" id="block-${i}" ${dragAttrs}>
-    <div class="block-item ${state.selectedBlock === i ? 'selected' : ''}"
+    <div class="block-item ${b.balloon ? 'has-env' : ''} ${state.selectedBlock === i ? 'selected' : ''}"
+         ${b.balloon ? `style="${balloonInk(b.balloon)}"` : ''}
          onclick="window.__selectBlock(${i})">
+      ${b.balloon ? envStripe(b.balloon) : '<span class="env-stripe env-none" aria-hidden="true"><i></i><i></i><i></i></span>'}
       <div class="block-seq-num">
         ${listSeq + 1}
       </div>
@@ -587,7 +656,7 @@ function renderBlocks() {
         <span class="badge badge-blue flex items-center gap-1">
           <span class="material-symbols-outlined text-[16px]">person</span> ${count} kişi
         </span>
-        ${b.balloon ? `<div class="block-balloon">${escHtml(b.balloon)}</div>` : ''}
+        ${b.balloon ? `<div class="block-balloon" style="${balloonInk(b.balloon)}">${escHtml(b.balloon)}</div>` : ''}
         <button class="btn-ghost btn-icon" title="Rezervasyonu sil"
                 onclick="event.stopPropagation(); window.__deleteBlock(${i})">
           <span class="material-symbols-outlined">delete</span>
@@ -600,16 +669,12 @@ function renderBlocks() {
 }
 
 function filteredBlocks() {
-  const query = (document.getElementById('block-search')?.value || '').trim().toLocaleUpperCase('tr-TR');
+  const rawQuery = (document.getElementById('block-search')?.value || '').trim();
+  const terms = parseQuery(rawQuery);
   const filter = document.getElementById('block-filter')?.value || '';
   const sort = document.getElementById('block-sort')?.value || 'row';
   let rows = state.blocks.map((block, index) => ({ block, index }));
-  if (query) {
-    rows = rows.filter(({ block }) => [
-      block.lead_name, block.hotel, block.agency, block.balloon, block.driver,
-      ...(block.passengers || []).map(p => p.name),
-    ].join(' ').toLocaleUpperCase('tr-TR').includes(query));
-  }
+  if (terms.length) rows = rows.filter(({ block }) => matchesBlock(block, terms));
   if (filter) {
     rows = rows.filter(({ block }) => {
       if (filter.startsWith('balloon_')) {
@@ -618,6 +683,14 @@ function filteredBlocks() {
       const missing = (block.passengers || []).some(p => !p.name || !p.passport_no || !p.nationality || !p.sex);
       return filter === 'missing' ? missing : !missing;
     });
+  }
+  rows = applyIssueFilter(rows);
+  const hint = document.getElementById('block-search-hint');
+  if (hint) {
+    if (!hint.dataset.default) hint.dataset.default = hint.innerHTML;
+    hint.innerHTML = terms.length
+      ? `<span class="text-on-surface font-semibold">${rows.length}</span> rezervasyon · ${escHtml(describeTerms(terms))}`
+      : hint.dataset.default;
   }
   rows.sort((a, b) => {
     if (sort === 'pickup') return String(a.block.pickup || '99:99').localeCompare(String(b.block.pickup || '99:99'));
@@ -630,23 +703,102 @@ function filteredBlocks() {
 
 window.__renderPlanning = renderBlocks;
 
+// ─── Balon renk filtresi ve aynı otel önerisi ───
+function foldName(v) {
+  return String(v || '').toLocaleUpperCase('tr-TR').replace(/[İIı]/g, 'I').replace(/Ş/g, 'S').replace(/Ğ/g, 'G')
+    .replace(/Ü/g, 'U').replace(/Ö/g, 'O').replace(/Ç/g, 'C').replace(/\s+/g, ' ').trim();
+}
+
+function blockSeats(b) {
+  return Number(b.pax) || (b.rows || []).length || (b.passengers || []).length || 0;
+}
+
+function renderBalloonChips() {
+  const root = document.getElementById('balloon-chips');
+  if (!root) return;
+  const current = document.getElementById('block-filter')?.value || '';
+  const codes = [...new Set([...(state.balloons || []), ...state.blocks.map(b => b.balloon).filter(Boolean)])];
+  if (!codes.length) { root.innerHTML = ''; return; }
+  const count = (code) => state.blocks.filter(b => b.balloon === code).length;
+  const chip = (value, label, n, style = '') => {
+    const on = current === value;
+    return `<button type="button" class="balloon-chip ${on ? 'is-on' : ''}" ${style} aria-pressed="${on}"
+      onclick="window.__filterBalloon('${value}')">${label}<span class="balloon-chip-n">${n}</span></button>`;
+  };
+  root.innerHTML = chip('', 'Tümü', state.blocks.length)
+    + codes.map(code => chip(`balloon_${escHtml(code)}`, `${envStripe(code)}<span>${escHtml(code)}</span>`, count(code), `style="${balloonInk(code)}"`)).join('');
+}
+
+window.__filterBalloon = function(value) {
+  const sel = document.getElementById('block-filter');
+  if (!sel) return;
+  if (value && !Array.from(sel.options).some(o => o.value === value)) return;
+  sel.value = sel.value === value ? '' : value;
+  renderBlocks();
+};
+
+function renderHotelSplit() {
+  const root = document.getElementById('hotel-split');
+  if (!root) return;
+  // Sunucu hesaplar: aynı otel + aynı pickup saati 2+ balonda (farklı saatler ayrı kalkış sayılır)
+  const split = state.hotelSplit || [];
+  if (!split.length) { root.innerHTML = ''; return; }
+  root.innerHTML = `
+    <div class="rounded-lg border border-line bg-well px-4 py-3">
+      <div class="flex items-center gap-2 text-sm font-semibold text-on-surface mb-1.5">
+        <span class="material-symbols-outlined text-[18px] text-info">airport_shuttle</span>
+        Aynı otel ve saatte farklı balonlara dağılmış yolcular
+      </div>
+      <p class="text-xs text-on-surface-variant mb-2">Aynı saatte aynı otelden alınan yolcuları tek balonda toplamak lojistiği kolaylaştırır. Farklı saatte alınanlar ayrı kalkış sayılır, burada görünmez. Tıklayınca o rezervasyonlar listelenir.</p>
+      <div class="flex flex-wrap gap-2">
+        ${split.slice(0, 8).map(e => {
+          const q = `otel ${e.hotel}${e.pickup ? ` saat ${e.pickup}` : ''}`;
+          return `
+          <button type="button" class="btn-secondary btn-sm" onclick="window.__searchHotel(${JSON.stringify(q).replace(/"/g, '&quot;')})">
+            <span class="font-semibold">${escHtml(e.hotel)}</span>
+            <span class="text-on-surface-variant">${e.pickup ? `· ${escHtml(e.pickup)} ` : '· saat yok '}· ${e.seats} kişi ·</span>
+            ${(e.balloons || []).map(code => `<span class="balloon-code" style="${balloonInk(code)}">${escHtml(code)}</span>`).join(' ')}
+          </button>`;
+        }).join('')}
+      </div>
+    </div>`;
+}
+
+window.__searchHotel = function(query) {
+  const inp = document.getElementById('block-search');
+  if (!inp) return;
+  inp.value = query;
+  renderBlocks();
+  inp.focus();
+};
+
 function renderBalloonLoad() {
   const el = document.getElementById('sidebar-balloon-load-list');
   if (!el) return;
-  const cap = state.capacity || 28;
   const codes = state.balloons || [];
-  el.innerHTML = codes.map(code => {
+  const limit = state.dailyMaxBalloons || 0;
+  const inUse = state.balloonsInUse ?? codes.filter(code => ((state.balloonLoad || {})[code] || 0) > 0).length;
+  const limitLine = limit ? `
+      <div class="flex items-center justify-between text-sm pb-2.5 mb-0.5 border-b border-line">
+        <span class="text-on-surface-variant">Günlük balon sınırı</span>
+        <span class="tnum font-semibold ${inUse > limit ? 'text-danger' : 'text-on-surface'}">${escHtml(balloonLimitText(inUse, limit))}</span>
+      </div>` : '';
+  el.innerHTML = limitLine + (codes.map(code => {
+    const cap = state.capacities?.[code] ?? state.capacity ?? 28;
     const used = (state.balloonLoad || {})[code] || 0;
-    const full = used >= cap;
-    const cls = full ? 'badge-red' : (used > 0 ? 'badge-green' : 'badge-blue');
+    const over = used > cap;
+    const pct = Math.min(100, Math.round((used / Math.max(1, cap)) * 100));
     return `
-      <div class="flex items-center justify-between py-2.5 border-b border-white/5 last:border-0 text-sm">
-        <span class="font-semibold text-on-surface">${escHtml(code)} Balonu</span>
-        <span class="badge ${cls}">${used} / ${cap}</span>
+      <div class="flex items-center gap-3 py-2.5 border-b border-line last:border-0 text-sm" style="${balloonInk(code)}">
+        ${envStripe(code)}
+        <span class="font-bold w-11 shrink-0" style="color: rgb(var(--env))">${escHtml(code)}</span>
+        <div class="seat-bar flex-1" style="${balloonInk(code)}"><span style="width:${pct}%"></span></div>
+        <span class="tnum font-semibold w-14 text-right ${over ? 'text-danger' : 'text-on-surface'}">${used}/${cap}</span>
       </div>
     `;
-  }).join('') || '<div class="text-xs text-on-surface-variant italic p-2">Kayıtlı balon yok</div>';
+  }).join('') || '<div class="text-sm text-on-surface-variant p-2">Kayıtlı balon yok. Listeler\'den balon kodu ekleyin.</div>');
 }
+
 
 window.__selectBlock = function(index) {
   state.selectedBlock = state.selectedBlock === index ? null : index;
@@ -855,7 +1007,7 @@ function renderBlockDetails(block, index) {
     const display = p.name || p.passport_no || 'Kimlik boş';
     const meta = [p.nationality, p.sex, p.passport_no, `Satır ${p.row}`].filter(Boolean).join(' · ');
     return `
-      <div class="passenger-row ${p.name || p.passport_no ? '' : 'empty'}">
+      <div class="passenger-row ${p.name || p.passport_no ? '' : 'empty'}" data-row="${Number(p.row)}">
         <div class="min-w-0">
           <strong>${idx + 1}. ${escHtml(display)}</strong>
           <span>${escHtml(meta)}</span>
@@ -882,7 +1034,7 @@ function renderBlockDetails(block, index) {
           <div class="card-title">
             <span class="material-symbols-outlined">edit</span> Operasyon Bilgileri
           </div>
-          <button class="btn-success flex items-center gap-2" onclick="window.__saveOperation()">
+          <button class="btn-primary flex items-center gap-2" onclick="window.__saveOperation()">
             <span class="material-symbols-outlined text-sm">save</span> Kaydet
           </button>
         </div>
@@ -1094,7 +1246,11 @@ window.__submitReservation = async function() {
 
   try {
     body.expected_revision = state.revision;
-    const res = await api.post('/api/planning/create-block', body);
+    const res = await postCreateBlock(body);
+    if (!res) {   // kota aşımı onaylanmadı
+      toast.info('Rezervasyon eklenmedi', 'Acente kotası aşılmadı.');
+      return;
+    }
     modal.close();
     if (res.overflow) {
       toast.warning('Balon atandı (taşma)', res.message);
@@ -1114,14 +1270,33 @@ window.__submitReservation = async function() {
   }
 };
 
+// create-block isteği; 409 daily_capacity_exceeded gelirse operatöre sorar ve
+// allow_daily_capacity_override ile yeniden dener. body yerinde güncellenir (sonraki kapasite
+// onayı da günlük kapasite onayını taşısın). Vazgeçilirse null döner.
+async function postCreateBlock(body) {
+  try {
+    return await api.post('/api/planning/create-block', body);
+  } catch (err) {
+    if (!isDailyCapacityExceeded(err) || body.allow_daily_capacity_override) throw err;
+    const ok = await modal.confirm(dailyCapacityConfirmOptions(err.detail, escHtml));
+    if (!ok) return null;
+    body.allow_daily_capacity_override = true;
+    return api.post('/api/planning/create-block', body);
+  }
+}
+
 function showCapacityChoice(body, detail) {
   window.__pendingOverflowBody = body;
+  const intro = detail.message
+    || 'Grup hiçbir balona kapasite içinde sığmıyor. Hedef balonu seçip kapasite aşımını açıkça onaylayın veya iptal edin.';
+  const limit = Number(detail.daily_max_balloons) || 0;
   modal.open('Balon Kapasitesi Doldu', `
-    <p class="text-on-surface-variant mb-4">Grup hiçbir balona kapasite içinde sığmıyor. Hedef balonu seçip kapasite aşımını açıkça onaylayın veya iptal edin.</p>
+    <p class="text-on-surface-variant mb-4">${escHtml(intro)}</p>
+    ${limit ? `<p class="text-sm text-on-surface-variant -mt-2 mb-4">Günlük en fazla ${limit} balon uçabilir.</p>` : ''}
     <div class="space-y-2">${(detail.balloon_codes || []).map(code => `
-      <label class="flex items-center justify-between rounded-lg border border-white/10 p-3 cursor-pointer">
+      <label class="flex items-center justify-between rounded-lg border border-line p-3 cursor-pointer">
         <span><input type="radio" name="overflow-balloon" value="${escHtml(code)}" class="mr-3" />${escHtml(code)}</span>
-        <strong>${detail.balloon_load?.[code] || 0}/${detail.capacity}</strong>
+        <strong class="tnum">${Number(detail.balloon_load?.[code] || 0)}/${capacityFor(detail, code)}</strong>
       </label>`).join('')}</div>
   `, `
     <button class="btn-secondary" onclick="window.__closeModal()">İptal</button>
@@ -1136,11 +1311,119 @@ window.__confirmOverflow = async function() {
   body.requested_balloon = selected;
   body.allow_overflow = true;
   try {
-    const res = await api.post('/api/planning/create-block', body);
+    const res = await postCreateBlock(body);
+    if (!res) { toast.info('Rezervasyon eklenmedi', 'Acente kotası aşılmadı.'); return; }
     modal.close();
     toast.warning('Kapasite aşımı onaylandı', `${res.balloon} balonuna atandı`);
     window.__loadDay();
   } catch (err) { toast.error('Oluşturma hatası', err.message); }
+};
+
+// ─── Uyarılardan derin bağlantı ───
+// #/planning?sheet=22.10.2026&row=83         → günü aç, satırın rezervasyonunu seç, vurgula
+// #/planning?sheet=22.10.2026&issue=missing_pickup → yalnız o uyarının rezervasyonları
+function readDeepLink() {
+  const p = routeParams();
+  const sheet = (p.get('sheet') || '').trim();
+  const row = parseInt(p.get('row') || '', 10);
+  const issue = (p.get('issue') || '').trim();
+  if (!sheet && !issue && !Number.isFinite(row)) return null;
+  return { sheet, row: Number.isFinite(row) ? row : null, issue, token: loadToken };
+}
+
+async function applyDeepLink(link) {
+  if (!link || link.token !== loadToken) return; // sayfadan çıkıldı ya da başka gün açıldı
+  const sheet = link.sheet || state.currentSheet;
+  if (!sheet) return;
+  if (!state.sheets.includes(sheet)) {
+    toast.warning('Gün bulunamadı', `${sheet} planlama dosyasında yok.`);
+    return;
+  }
+  const parsed = parseSheetDate(sheet);
+  if (parsed) {
+    calState.currentYear = parsed.year;
+    calState.currentMonth = parsed.month;
+  }
+  if (link.issue) state.issueFilter = { sheet, code: link.issue };
+  await window.__loadDayDate(sheet);
+  if (state.currentSheet !== sheet || !document.getElementById('blocks-list')) return;
+  if (link.row != null && !link.issue) focusRow(link.row);
+  else if (link.issue) {
+    // Dar pencerede liste takvimin altında kalır; süzülmüş listeyi göster
+    const reduce = !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    document.getElementById('blocks-section')?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
+  }
+}
+
+function focusRow(row) {
+  const idx = findBlockIndexForRow(state.blocks, row);
+  if (idx < 0) {
+    toast.warning('Satır bulunamadı', `Satır ${row} bu günde bir rezervasyona ait değil; liste değişmiş olabilir.`);
+    return;
+  }
+  state.selectedBlock = idx;
+  renderBlocks();
+  const block = state.blocks[idx];
+  const shell = document.getElementById(`block-${idx}`);
+  if (!shell) return;
+  // Yolcu satırı (ya da kimliği eksik lider) ise o yolcu da vurgulanır
+  const passenger = (block.passengers || []).find(p => Number(p.row) === Number(row));
+  const incomplete = passenger && (!passenger.name || !passenger.passport_no || !passenger.nationality || !passenger.sex);
+  const person = passenger && (Number(row) !== Number(block.lead_row) || incomplete)
+    ? shell.querySelector(`.passenger-row[data-row="${Number(row)}"]`)
+    : null;
+  const reduce = !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  (person || shell).scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: person ? 'center' : 'start' });
+  flashFocus(shell.querySelector('.block-item'));
+  flashFocus(person);
+}
+
+function flashFocus(el) {
+  if (!el) return;
+  el.classList.remove('deep-link-flash');
+  void el.offsetWidth; // animasyonu yeniden başlat
+  el.classList.add('deep-link-flash');
+  setTimeout(() => el.classList.remove('deep-link-flash'), 2100);
+}
+
+// filteredBlocks() içinden çağrılır: uyarı filtresi + üstteki kaldırılabilir çip.
+// Seçili blok, uyarısı giderilse de listede kalır (kaydedince kaybolmasın).
+function applyIssueFilter(rows) {
+  const chip = document.getElementById('issue-filter-chip');
+  if (state.issueFilter && state.issueFilter.sheet !== state.currentSheet) {
+    state.issueFilter = null; // başka güne geçildi
+    clearDeepLinkHash();
+  }
+  const f = state.issueFilter;
+  if (!f) {
+    if (chip) chip.innerHTML = '';
+    return rows;
+  }
+  const leads = issueLeadRows(state.readiness?.issues, state.blocks, f.code);
+  const out = rows.filter(({ block, index }) => leads.has(Number(block.lead_row)) || index === state.selectedBlock);
+  if (chip) {
+    const label = issueLabel(f.code) || f.code;
+    const countText = leads.size ? `${leads.size} rezervasyon` : 'uyarı kalmadı';
+    chip.innerHTML = `
+      <div class="issue-filter-chip" role="status">
+        <span class="material-symbols-outlined text-[16px]" aria-hidden="true">filter_alt</span>
+        <span>Filtre: <strong class="font-semibold">${escHtml(label)}</strong> · ${escHtml(countText)}</span>
+        <button type="button" class="issue-filter-clear" onclick="window.__clearIssueFilter()" aria-label="Filtreyi kaldır" title="Filtreyi kaldır">
+          <span class="material-symbols-outlined text-[16px]">close</span>
+        </button>
+      </div>`;
+  }
+  return out;
+}
+
+function clearDeepLinkHash() {
+  try { history.replaceState(null, '', '#/planning'); } catch (e) { /* yoksay */ }
+}
+
+window.__clearIssueFilter = function() {
+  state.issueFilter = null;
+  clearDeepLinkHash();
+  renderBlocks();
 };
 
 function escHtml(s) {
@@ -1160,3 +1443,42 @@ window.__renderPlanningDebounced = debounce(() => {
     window.__renderPlanning();
   }
 }, 200);
+
+
+// ─── Uygulama içi Excel görünümü (frontend/sheet_grid.js) ───
+let excelMountedFor = '';
+
+function refreshExcelView(force = false) {
+  if (state.view !== 'excel' || !state.currentSheet) return;
+  if (!force && excelMountedFor === state.currentSheet) return;
+  excelMountedFor = state.currentSheet;
+  mountSheetGrid(document.getElementById('excel-view'), {
+    sheet: state.currentSheet,
+    // Kaydedince rezervasyon listesi ve doluluk da tazelensin (Excel görünümü zaten yenilendi)
+    onSaved: () => window.__loadDayDate(state.currentSheet),
+  });
+}
+
+window.__planView = async function(mode) {
+  if (state.view === 'excel' && mode !== 'excel' && sheetGridDirty()) {
+    const ok = await modal.confirm({
+      title: 'Kaydedilmemiş hücreler var',
+      bodyHtml: '<p class="text-on-surface-variant">Excel görünümünde kaydetmediğiniz değişiklikler kaybolacak.</p>',
+      confirmLabel: 'Kaydetmeden çık', tone: 'danger',
+    });
+    if (!ok) return;
+  }
+  state.view = mode === 'excel' ? 'excel' : 'blocks';
+  const excel = state.view === 'excel';
+  for (const [id, on] of [['pv-blocks', !excel], ['pv-excel', excel]]) {
+    const b = document.getElementById(id);
+    if (b) { b.classList.toggle('is-on', on); b.setAttribute('aria-selected', String(on)); }
+  }
+  for (const id of ['blocks-tools', 'blocks-list', 'balloon-chips', 'hotel-split']) {
+    const el = document.getElementById(id);
+    if (el) el.style.display = excel ? 'none' : '';
+  }
+  const view = document.getElementById('excel-view');
+  if (view) view.style.display = excel ? '' : 'none';
+  if (excel) refreshExcelView(true);
+};

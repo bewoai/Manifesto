@@ -3,58 +3,58 @@
 @tailwind utilities;
 
 /* ═══════════════════════════════════════════════════════════════════
-   İrtifa — Aetheria Design System (Kapadokya şafağı)
-   Zemin: şafak öncesi gök (koyu indigo). Kart/metin: tüf taşı sıcak nötrleri.
-   Vurgu: gün doğumu amberi (primary). Bilgi/link: gök mavisi (secondary/info).
-   İlke: sakin, az dekor, neon/parıltı yok — gece 03:00'te göz yormasın.
-   Renkler tailwind.config.js token'larından gelir; burada ham değer yalnız
-   rgba() karışımları için kullanılır (tüf: 233,220,199 · amber: 242,166,90).
+   İrtifa — "Kısık Tüf" tasarım sistemi
+   Dünya: Kapadokya tüf taşı katmanları (düz, mat, düşük kontrast), tek arayüz vurgusu
+   soluk lapis. Biçim dili: balon zarfı renk dilimleri (her balonun sabit mürekkebi),
+   havalimanı kapı panosu (sabit kolonlu tablo, değişen satır işaretli kalır), biniş kartı
+   (segmentli yolcu kartı), sabah uçuş bayrağı (yeşil/sarı/kırmızı düz bez blokları).
+   Kurallar: saf beyaz yok, cam/blur/gradyan/parıltı yok, turuncu yok. Durum renkleri anlamlıdır.
+   İki tema: :root = Kısık Tüf (gündüz ofis), [data-theme="graphite"] = Yumuşak Grafit.
    ═══════════════════════════════════════════════════════════════════ */
 
-/* ─── Yerel yazı tipleri (ağ gerekmez; sahada internet yokken de ikonlar çizilir) ───
-   Kaynak: Fontsource npm paketleri — @fontsource/material-symbols-outlined 5.3.9 (400),
-   @fontsource-variable/plus-jakarta-sans 5.3.0, @fontsource-variable/bricolage-grotesque
-   5.3.0, @fontsource-variable/jetbrains-mono 5.3.0 (wght ekseni). Dosyalar ve lisanslar:
-   frontend/public/fonts/ (LICENSE-*.txt). Alt kümeler: latin + latin-ext (Türkçe ş/ğ/İ). */
+/* ─── Yerel yazı tipleri (ağ gerekmez) ───
+   Fontsource: @fontsource/material-symbols-outlined 5.3.9, @fontsource-variable/source-serif-4
+   5.3.1, @fontsource-variable/source-sans-3 5.3.1, @fontsource-variable/jetbrains-mono 5.3.0.
+   Dosyalar ve lisanslar: frontend/public/fonts/. Alt kümeler: latin + latin-ext (ş/ğ/İ). */
 @font-face {
   font-family: 'Material Symbols Outlined';
   font-style: normal;
   font-weight: 400;
-  font-display: block; /* ikon adı metin olarak görünüp sıçramasın */
+  font-display: block;
   src: url('/fonts/material-symbols-outlined-latin-400-normal.woff2') format('woff2');
 }
 
 @font-face {
-  font-family: 'Plus Jakarta Sans';
+  font-family: 'Source Serif 4';
   font-style: normal;
-  font-weight: 200 800;
+  font-weight: 200 900;
   font-display: swap;
-  src: url('/fonts/plus-jakarta-sans-latin-ext-wght-normal.woff2') format('woff2-variations');
+  src: url('/fonts/source-serif-4-latin-ext-wght-normal.woff2') format('woff2-variations');
   unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
 }
 @font-face {
-  font-family: 'Plus Jakarta Sans';
+  font-family: 'Source Serif 4';
   font-style: normal;
-  font-weight: 200 800;
+  font-weight: 200 900;
   font-display: swap;
-  src: url('/fonts/plus-jakarta-sans-latin-wght-normal.woff2') format('woff2-variations');
+  src: url('/fonts/source-serif-4-latin-wght-normal.woff2') format('woff2-variations');
   unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
 }
 
 @font-face {
-  font-family: 'Bricolage Grotesque';
+  font-family: 'Source Sans 3';
   font-style: normal;
-  font-weight: 200 800;
+  font-weight: 200 900;
   font-display: swap;
-  src: url('/fonts/bricolage-grotesque-latin-ext-wght-normal.woff2') format('woff2-variations');
+  src: url('/fonts/source-sans-3-latin-ext-wght-normal.woff2') format('woff2-variations');
   unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
 }
 @font-face {
-  font-family: 'Bricolage Grotesque';
+  font-family: 'Source Sans 3';
   font-style: normal;
-  font-weight: 200 800;
+  font-weight: 200 900;
   font-display: swap;
-  src: url('/fonts/bricolage-grotesque-latin-wght-normal.woff2') format('woff2-variations');
+  src: url('/fonts/source-sans-3-latin-wght-normal.woff2') format('woff2-variations');
   unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
 }
 
@@ -75,13 +75,90 @@
   unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
 }
 
+/* ─── Tema değişkenleri (RGB kanalları; tailwind.config.js bunları okur) ─── */
+:root {
+  color-scheme: light;
+  /* Tüf taşı katmanları — saf beyaz yok */
+  --ground: 217 212 204;      /* #d9d4cc sayfa zemini */
+  --rail: 207 201 192;        /* #cfc9c0 menü rayı */
+  --panel: 228 224 217;       /* #e4e0d9 panel */
+  --raised: 234 231 225;      /* #eae7e1 giriş alanı / üzerine gelme */
+  --well: 221 216 209;        /* #ddd8d1 içe gömük alan */
+  --line: 196 189 179;        /* #c4bdb3 kıl çizgi */
+  --outline: 143 136 127;     /* #8f887f */
+  --ink: 46 43 40;            /* #2e2b28 kömür, siyah değil */
+  --ink-2: 98 92 85;          /* #625c55 ikincil metin */
+  /* Soluk lapis */
+  --primary: 61 90 138;       /* #3d5a8a */
+  --primary-hover: 52 78 121; /* #344e79 */
+  --primary-soft: 203 211 224;/* #cbd3e0 */
+  --primary-deep: 36 54 86;   /* #243656 */
+  --on-primary: 238 240 243;  /* #eef0f3 */
+  /* Durum */
+  --success: 63 110 68;       /* #3f6e44 adaçayı */
+  --warning: 122 92 18;       /* #7a5c12 okr */
+  --danger: 154 62 52;        /* #9a3e34 tuğla */
+  --danger-soft: 233 207 201; /* #e9cfc9 */
+  --danger-deep: 110 38 30;   /* #6e261e */
+  --info: 62 100 135;         /* #3e6487 */
+  /* Uçuş bayrağı (düz bez) */
+  --flag-go: 79 117 80;       /* #4f7550 */
+  --flag-hold: 135 107 34;    /* #876b22 */
+  --flag-stop: 154 72 62;     /* #9a483e */
+  --on-flag: 244 242 236;     /* #f4f2ec */
+  /* Balon zarf mürekkepleri */
+  --env-1: 74 111 165;        /* #4a6fa5 mavi */
+  --env-2: 95 138 95;         /* #5f8a5f adaçayı */
+  --env-3: 161 74 106;        /* #a14a6a ahududu */
+  --env-4: 111 90 154;        /* #6f5a9a menekşe */
+  --env-5: 63 127 127;        /* #3f7f7f deniz yeşili */
+  --env-6: 140 112 42;        /* #8c702a okr */
+  --env-7: 92 107 122;        /* #5c6b7a arduvaz */
+  --env-8: 168 103 111;       /* #a8676f gül */
+}
+
+[data-theme="graphite"] {
+  color-scheme: dark;
+  --ground: 31 30 28;         /* #1f1e1c */
+  --rail: 26 25 24;           /* #1a1918 */
+  --panel: 40 39 37;          /* #282725 */
+  --raised: 49 48 45;         /* #31302d */
+  --well: 35 34 32;           /* #232220 */
+  --line: 60 58 55;           /* #3c3a37 */
+  --outline: 120 114 106;
+  --ink: 228 224 217;         /* #e4e0d9 */
+  --ink-2: 163 157 149;       /* #a39d95 */
+  --primary: 125 155 209;     /* #7d9bd1 */
+  --primary-hover: 146 171 216;
+  --primary-soft: 46 56 76;   /* #2e384c */
+  --primary-deep: 196 210 236;
+  --on-primary: 22 27 38;
+  --success: 143 176 138;
+  --warning: 209 176 97;
+  --danger: 208 131 118;
+  --danger-soft: 72 40 36;
+  --danger-deep: 240 205 198;
+  --info: 143 176 204;
+  --flag-go: 70 104 70;
+  --flag-hold: 122 102 46;
+  --flag-stop: 124 62 54;
+  --on-flag: 236 233 226;
+  --env-1: 138 166 214;
+  --env-2: 147 184 143;
+  --env-3: 213 138 164;
+  --env-4: 169 152 207;
+  --env-5: 127 183 181;
+  --env-6: 207 176 106;
+  --env-7: 159 176 194;
+  --env-8: 211 154 161;
+}
+
 @layer base {
-  /* Google Fonts CSS'inin verdiği ikon sınıfı artık yerelde tanımlı (ligature ile çizim) */
   .material-symbols-outlined {
     font-family: 'Material Symbols Outlined';
     font-weight: normal;
     font-style: normal;
-    font-size: 24px;
+    font-size: 22px;
     line-height: 1;
     letter-spacing: normal;
     text-transform: none;
@@ -89,341 +166,258 @@
     white-space: nowrap;
     word-wrap: normal;
     direction: ltr;
-    -webkit-font-feature-settings: 'liga';
     font-feature-settings: 'liga';
     -webkit-font-smoothing: antialiased;
+    font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
   }
+
+  html { background-color: rgb(var(--ground)); }
 
   body {
     min-height: 100vh;
-    color: theme('colors.on-surface');
+    background-color: rgb(var(--ground));
+    color: rgb(var(--ink));
+    font-family: theme('fontFamily.body');
+    font-size: 15.5px;
     overflow-x: hidden;
-    /* Şafak öncesi gök: düz koyu indigo + ufukta çok hafif sıcak ışık (parlak gradyan yok) */
-    background:
-      radial-gradient(120% 55% at 50% 118%, rgba(242,166,90,0.06), transparent 62%),
-      linear-gradient(180deg, #0b1020 0%, #0e1428 45%, #141a33 100%);
-    background-color: theme('colors.background');
-    background-attachment: fixed;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
+    font-variant-numeric: tabular-nums;
   }
 
+  h1, h2, h3 { text-wrap: balance; }
+
+  ::selection { background: rgb(var(--primary) / 0.22); color: rgb(var(--ink)); }
+  input, textarea { caret-color: rgb(var(--primary)); }
+  a { text-underline-offset: 3px; }
+
   :focus-visible {
-    outline: 2px solid rgb(242 166 90 / 0.7);
+    outline: 2px solid rgb(var(--primary) / 0.75);
     outline-offset: 2px;
   }
 
-  .material-symbols-outlined {
-    font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  /* Pencere geneli kaydırma çubuğu */
+  * { scrollbar-width: thin; scrollbar-color: rgb(var(--outline) / 0.55) transparent; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgb(var(--outline) / 0.45); border-radius: 10px; border: 3px solid transparent; background-clip: content-box; }
+  ::-webkit-scrollbar-thumb:hover { background: rgb(var(--outline) / 0.75); background-clip: content-box; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
   }
 }
 
 @layer components {
-  /* ─── Glass Panel (tüf tonlu, sıcak) ─── */
-  .glass-panel {
-    @apply backdrop-blur-2xl border border-tertiary/[.12];
-    background-color: rgb(233 220 199 / 0.06);
-    box-shadow: 0 14px 40px -16px rgba(3,6,18,0.7), inset 0 1px 0 rgba(233,220,199,0.05);
+  /* ─── Panel (eski glass-panel adı uyumluluk için korunur; artık düz ve mat) ─── */
+  .glass-panel, .panel-flat {
+    background-color: rgb(var(--panel));
+    border: 1px solid rgb(var(--line));
   }
 
-  /* ─── Liquid Background Blobs ─── */
-  .liquid-bg {
-    filter: blur(80px);
-    opacity: 0.35;
-    pointer-events: none;
-  }
+  .custom-scrollbar { scrollbar-gutter: stable; }
 
-  .blob-shape {
-    border-radius: 42% 58% 70% 30% / 45% 45% 55% 55%;
-    animation: morph 20s ease-in-out infinite;
+  /* ─── Menü rayı ─── */
+  .nav-item {
+    @apply flex items-center gap-3 px-3 py-2 rounded-lg text-[15px] font-medium text-ink-2
+           transition-colors duration-150;
   }
+  .nav-item:hover { background-color: rgb(var(--ink) / 0.06); color: rgb(var(--ink)); }
+  .nav-item .material-symbols-outlined { font-size: 21px; }
+  .nav-item.active { background-color: rgb(var(--primary)); color: rgb(var(--on-primary)); }
+  .nav-item.active:hover { background-color: rgb(var(--primary-hover)); }
 
-  @keyframes morph {
-    0% { border-radius: 42% 58% 70% 30% / 45% 45% 55% 55%; }
-    50% { border-radius: 70% 30% 46% 54% / 30% 29% 71% 70%; }
-    100% { border-radius: 42% 58% 70% 30% / 45% 45% 55% 55%; }
-  }
-
-  /* ─── Custom Scrollbar ─── */
-  .custom-scrollbar::-webkit-scrollbar {
-    width: 6px;
-  }
-  .custom-scrollbar::-webkit-scrollbar-track {
-    background: rgba(233, 220, 199, 0.03);
-  }
-  .custom-scrollbar::-webkit-scrollbar-thumb {
-    background: rgba(233, 220, 199, 0.18);
-    border-radius: 10px;
-  }
-  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: rgba(242, 166, 90, 0.45);
-  }
-
-  /* ─── Buttons ─── */
+  /* ─── Düğmeler ─── */
   .btn-primary {
-    @apply px-6 py-3 bg-primary text-on-primary rounded-full font-semibold
-           hover:bg-primary-fixed-dim active:scale-95 transition-all shadow-md shadow-black/20
-           disabled:opacity-60 disabled:cursor-not-allowed disabled:active:scale-100;
+    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg font-semibold text-[15px]
+           bg-primary text-on-primary hover:bg-primary-fixed-dim active:translate-y-px transition-colors
+           disabled:opacity-55 disabled:cursor-not-allowed;
   }
 
   .btn-secondary {
-    @apply px-6 py-3 border border-tertiary/15 text-on-surface-variant rounded-full font-medium
-           hover:bg-tertiary/[.06] hover:text-on-surface active:scale-95 transition-all
-           disabled:opacity-60 disabled:cursor-not-allowed;
+    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg font-medium text-[15px]
+           border border-line bg-raised text-on-surface hover:border-outline active:translate-y-px transition-colors
+           disabled:opacity-55 disabled:cursor-not-allowed;
   }
 
   .btn-success {
-    @apply px-6 py-3 bg-success/15 text-success border border-success/30 rounded-full font-semibold
-           hover:bg-success/25 active:scale-95 transition-all
-           disabled:opacity-60 disabled:cursor-not-allowed;
+    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg font-semibold text-[15px]
+           bg-flag-go text-on-flag hover:brightness-95 active:translate-y-px transition
+           disabled:opacity-55 disabled:cursor-not-allowed;
   }
 
   .btn-danger {
-    @apply px-6 py-3 bg-error-container text-on-error-container rounded-full font-medium
-           hover:brightness-110 active:scale-95 transition-all
-           disabled:opacity-60 disabled:cursor-not-allowed;
+    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg font-semibold text-[15px]
+           bg-flag-stop text-on-flag hover:brightness-95 active:translate-y-px transition
+           disabled:opacity-55 disabled:cursor-not-allowed;
   }
 
   .btn-ghost {
-    @apply p-2 rounded-full text-on-surface-variant hover:bg-tertiary/[.06] hover:text-on-surface transition-all;
+    @apply inline-flex items-center justify-center gap-1.5 p-2 rounded-lg text-on-surface-variant
+           hover:bg-tertiary/[.07] hover:text-on-surface transition-colors;
   }
 
   .btn-icon {
-    @apply w-10 h-10 flex items-center justify-center;
+    @apply w-9 h-9 flex items-center justify-center;
   }
 
-  /* ─── Forms ─── */
+  .btn-link {
+    @apply inline-flex items-center gap-1 font-semibold text-primary hover:underline;
+  }
+
+  /* ─── Form ─── */
   .form-input {
-    @apply w-full bg-surface-container-low border border-tertiary/[.12] rounded-xl px-4 py-3
-           text-on-surface placeholder-on-surface-variant/50
-           focus:ring-2 focus:ring-primary/40 focus:border-primary/40 transition-all
-           disabled:opacity-60;
+    @apply w-full bg-raised border border-line rounded-lg px-3.5 py-2.5 text-on-surface
+           placeholder-on-surface-variant/60 focus:ring-2 focus:ring-primary/30 focus:border-primary/60
+           transition-colors disabled:opacity-60;
   }
 
   .form-select {
-    @apply w-full bg-surface-container-low border border-tertiary/[.12] rounded-xl px-4 py-3
-           text-on-surface focus:ring-2 focus:ring-primary/40 focus:border-primary/40 transition-all
-           disabled:opacity-60;
+    @apply w-full bg-raised border border-line rounded-lg px-3.5 py-2.5 text-on-surface
+           focus:ring-2 focus:ring-primary/30 focus:border-primary/60 transition-colors disabled:opacity-60;
   }
 
   .form-label {
-    @apply block text-sm font-medium text-on-surface-variant mb-1.5;
+    @apply block text-sm font-semibold text-on-surface-variant mb-1.5;
   }
 
   .form-help {
-    @apply text-xs text-on-surface-variant/70 mt-1;
+    @apply text-xs text-on-surface-variant mt-1;
   }
 
-  /* ─── Cards ─── */
+  /* ─── Kart / panel ─── */
   .card {
-    @apply glass-panel rounded-3xl p-6;
+    @apply glass-panel rounded-xl p-6;
   }
 
   .card-header {
-    @apply flex justify-between items-center mb-6;
+    @apply flex flex-wrap justify-between items-center gap-3 mb-5;
   }
 
-  /* Başlık metni sakin (tüf beji); amber yalnız ikonda */
   .card-title {
-    @apply font-headline text-headline-sm text-on-surface flex items-center gap-3;
+    @apply font-headline text-headline-sm text-on-surface flex items-center gap-2.5;
   }
   .card-title .material-symbols-outlined {
-    @apply text-primary;
+    @apply text-primary text-[22px];
   }
 
-  /* ─── Badges ─── */
+  /* ─── Rozetler ─── */
   .badge {
-    @apply inline-flex items-center px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider;
+    @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-semibold tracking-wide;
   }
+  .badge .material-symbols-outlined { font-size: 15px; }
+  .badge-green { @apply bg-success/[.14] text-success; }
+  .badge-yellow { @apply bg-warning/[.14] text-warning; }
+  .badge-red { @apply bg-danger/[.14] text-danger; }
+  .badge-blue { @apply bg-info/[.14] text-info; }
+  .badge-amber { @apply bg-primary/[.12] text-primary; }
+  button.badge { @apply cursor-pointer hover:brightness-95; }
 
-  .badge-green {
-    @apply bg-success/15 text-success;
-  }
-
-  .badge-yellow {
-    @apply bg-warning/15 text-warning;
-  }
-
-  .badge-red {
-    @apply bg-danger/15 text-danger;
-  }
-
-  .badge-blue {
-    @apply bg-info/15 text-info;
-  }
-
-  .badge-amber {
-    @apply bg-primary/15 text-primary;
-  }
-
-  /* ─── Toast ─── */
+  /* ─── Bildirim (toast) ─── */
   .toast {
-    @apply pointer-events-auto flex items-start gap-3 glass-panel bg-surface-container/95 rounded-2xl px-5 py-4
-           min-w-[320px] max-w-[420px] animate-slide-in relative overflow-hidden;
+    @apply pointer-events-auto flex items-start gap-3 rounded-xl px-4 py-3.5 min-w-[320px] max-w-[420px]
+           animate-slide-in relative overflow-hidden;
+    background-color: rgb(var(--raised));
+    border: 1px solid rgb(var(--line));
+    box-shadow: 0 10px 24px -12px rgb(var(--ink) / 0.35);
   }
 
-  .toast.success { @apply border-l-4 border-l-success; }
-  .toast.error   { @apply border-l-4 border-l-danger; }
-  .toast.warning  { @apply border-l-4 border-l-warning; }
-  .toast.info     { @apply border-l-4 border-l-info; }
-
-  .toast-icon {
-    @apply text-lg mt-0.5 flex-shrink-0;
-  }
+  .toast-icon { @apply text-lg mt-0.5 flex-shrink-0; }
   .toast.success .toast-icon { @apply text-success; }
-  .toast.error .toast-icon   { @apply text-danger; }
-  .toast.warning .toast-icon  { @apply text-warning; }
-  .toast.info .toast-icon     { @apply text-info; }
-
-  .toast-title {
-    @apply font-semibold text-on-surface text-sm;
-  }
-
-  .toast-message {
-    @apply text-on-surface-variant text-xs mt-0.5;
-  }
-
-  .toast-close {
-    @apply ml-auto text-on-surface-variant/40 hover:text-on-surface transition-colors cursor-pointer text-sm;
-  }
+  .toast.error .toast-icon { @apply text-danger; }
+  .toast.warning .toast-icon { @apply text-warning; }
+  .toast.info .toast-icon { @apply text-info; }
+  .toast-title { @apply font-semibold text-on-surface text-sm; }
+  .toast-message { @apply text-on-surface-variant text-xs mt-0.5 break-words; }
+  .toast-close { @apply ml-auto text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer text-sm; }
 
   .toast-progress {
-    @apply absolute bottom-0 left-0 h-0.5 bg-tertiary/20 w-full;
+    @apply absolute bottom-0 left-0 h-[3px] w-full;
     animation: toast-shrink linear forwards;
   }
+  .toast.success .toast-progress { @apply bg-success/60; }
+  .toast.error .toast-progress { @apply bg-danger/60; }
+  .toast.warning .toast-progress { @apply bg-warning/60; }
+  .toast.info .toast-progress { @apply bg-info/60; }
 
-  .toast.leaving {
-    @apply opacity-0 translate-x-8 transition-all duration-200;
-  }
+  .toast.leaving { @apply opacity-0 translate-x-6 transition-all duration-200; }
 
   @keyframes slide-in {
-    from { opacity: 0; transform: translateX(100px); }
+    from { opacity: 0; transform: translateX(24px); }
     to { opacity: 1; transform: translateX(0); }
   }
+  @keyframes toast-shrink { from { width: 100%; } to { width: 0%; } }
 
-  @keyframes toast-shrink {
-    from { width: 100%; }
-    to { width: 0%; }
-  }
-
-  /* ─── Modal ─── */
+  /* ─── Pencere (modal) ─── */
   .modal-overlay {
-    @apply fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm
-           flex items-center justify-center p-4 animate-fade-in;
+    @apply fixed inset-0 z-[200] flex items-center justify-center p-4 animate-fade-in;
+    background-color: rgb(var(--ink) / 0.38);
   }
 
   .modal {
-    @apply glass-panel bg-surface-container/95 rounded-3xl w-full max-w-lg max-h-[90vh] overflow-auto;
+    @apply rounded-xl w-full max-w-lg max-h-[90vh] overflow-auto;
+    background-color: rgb(var(--panel));
+    border: 1px solid rgb(var(--line));
+    box-shadow: 0 24px 48px -20px rgb(var(--ink) / 0.45);
   }
 
-  .modal-header {
-    @apply flex justify-between items-center p-6 pb-4 border-b border-tertiary/10;
-  }
+  .modal-header { @apply flex justify-between items-center px-6 pt-5 pb-4 border-b border-line; }
+  .modal-header h3 { @apply font-headline text-headline-sm text-on-surface; }
+  .modal-body { @apply p-6; }
+  .modal-footer { @apply flex justify-end gap-3 px-6 py-4 border-t border-line; }
 
-  .modal-header h3 {
-    @apply font-headline text-headline-sm text-on-surface;
-  }
+  @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 
-  .modal-body {
-    @apply p-6;
-  }
-
-  .modal-footer {
-    @apply flex justify-end gap-3 p-6 pt-4 border-t border-tertiary/10;
-  }
-
-  @keyframes fade-in {
-    from { opacity: 0; }
-    to { opacity: 1; }
-  }
-
-  /* ─── Dropzone ─── */
+  /* ─── Bırakma alanı ─── */
   .dropzone {
-    @apply glass-panel rounded-3xl p-12 text-center cursor-pointer
-           border-2 border-dashed border-tertiary/15 hover:border-primary/40
-           transition-all hover:bg-tertiary/[.04];
+    @apply rounded-xl p-12 text-center cursor-pointer border-2 border-dashed border-outline/50
+           bg-well transition-colors hover:border-primary/60 hover:bg-primary/[.04];
   }
+  .dropzone.drag-over { @apply border-primary bg-primary/[.07]; }
+  .drop-icon { @apply text-5xl mb-4 text-primary; }
+  .drop-text { @apply text-on-surface mb-2; }
+  .drop-hint { @apply text-on-surface-variant text-sm; }
 
-  .dropzone.drag-over {
-    @apply border-primary/50 bg-primary/5 scale-[1.01];
-  }
-
-  .drop-icon {
-    @apply text-5xl mb-4;
-  }
-
-  .drop-text {
-    @apply text-on-surface mb-2;
-  }
-
-  .drop-hint {
-    @apply text-on-surface-variant text-sm;
-  }
-
-  /* ─── Passport Control Cards ─── */
+  /* ─── Pasaport kontrol kartları ─── */
   .passport-card {
-    @apply glass-panel rounded-3xl p-5 grid gap-4
-           transition-all;
+    @apply glass-panel rounded-xl p-5 grid gap-4 transition-colors relative;
     grid-template-columns: 160px 1fr auto;
   }
-
-  .passport-card.green {
-    @apply border-l-4 border-l-success;
-  }
-
-  .passport-card.yellow {
-    @apply border-l-4 border-l-warning;
-  }
-
-  .passport-card .thumb {
-    @apply w-40 h-32 object-cover rounded-2xl;
-  }
-
+  /* Durum: kenarlığın tamamı durum renginde ince ton (yan/üst şerit yok) */
+  .passport-card.green { border-color: rgb(var(--success) / 0.55); }
+  .passport-card.yellow { border-color: rgb(var(--warning) / 0.6); }
+  .passport-card .thumb { @apply w-40 h-32 object-cover rounded-lg; }
   .passport-card .thumb-placeholder {
-    @apply w-40 h-32 flex items-center justify-center text-center text-sm
-           text-on-surface-variant bg-surface-container rounded-2xl;
+    @apply w-40 h-32 flex items-center justify-center text-center text-sm text-on-surface-variant bg-well rounded-lg;
   }
+  .passport-fields { @apply grid grid-cols-2 gap-3 content-start; }
+  .passport-status { @apply flex flex-col items-end justify-start gap-2 min-w-[100px]; }
+  .status-label { @apply text-sm font-bold; }
+  .flags { @apply text-xs text-on-surface-variant; }
 
-  .passport-fields {
-    @apply grid grid-cols-2 gap-3 content-start;
-  }
-
-  .passport-status {
-    @apply flex flex-col items-end justify-start gap-2 min-w-[100px];
-  }
-
-  .status-label {
-    @apply text-sm font-bold;
-  }
-
-  .flags {
-    @apply text-xs text-on-surface-variant;
-  }
-
-  /* ─── Block List (Planning) ─── */
+  /* ─── Planlama blokları ─── */
   .block-shell {
     position: relative;
-    @apply rounded-3xl border border-transparent transition-all;
+    @apply rounded-xl border border-transparent transition-colors;
   }
 
   .help-icon {
     position: relative;
     display: inline-flex;
-    width: 20px;
-    height: 20px;
+    width: 18px;
+    height: 18px;
     align-items: center;
     justify-content: center;
     margin-left: 6px;
-    border: 1px solid rgb(233 220 199 / 16%);
+    border: 1px solid rgb(var(--line));
     border-radius: 50%;
-    background: rgb(233 220 199 / 6%);
-    color: theme('colors.primary');
-    font-size: 12px;
+    background: rgb(var(--raised));
+    color: rgb(var(--primary));
+    font-size: 11px;
     font-weight: 700;
     cursor: help;
     vertical-align: middle;
   }
-
   .help-icon::after {
     content: attr(data-help);
     position: absolute;
@@ -432,12 +426,12 @@
     bottom: calc(100% + 9px);
     width: min(280px, 70vw);
     padding: 10px 12px;
-    border: 1px solid rgb(233 220 199 / 12%);
+    border: 1px solid rgb(var(--line));
     border-radius: 8px;
-    background: theme('colors.surface-container');
-    color: theme('colors.on-surface');
-    box-shadow: 0 12px 35px rgb(0 0 0 / 45%);
-    font-size: 12px;
+    background: rgb(var(--raised));
+    color: rgb(var(--ink));
+    box-shadow: 0 12px 28px -12px rgb(var(--ink) / 0.4);
+    font-size: 12.5px;
     font-weight: 400;
     line-height: 1.45;
     text-align: left;
@@ -446,375 +440,295 @@
     transform: translate(-50%, 4px);
     transition: opacity .15s ease, transform .15s ease;
   }
+  .help-icon:hover::after, .help-icon:focus::after { opacity: 1; transform: translate(-50%, 0); }
 
-  .help-icon:hover::after,
-  .help-icon:focus::after {
-    opacity: 1;
-    transform: translate(-50%, 0);
-  }
-
-  .block-shell.selected {
-    @apply border-primary/25 bg-tertiary/[.025];
-  }
+  .block-shell.selected { @apply border-primary/40 bg-panel; }
 
   .block-item {
-    @apply flex items-center gap-4 p-5 rounded-3xl bg-tertiary/[.05] hover:bg-tertiary/[.08]
-           transition-all border border-transparent hover:border-tertiary/10 cursor-pointer;
+    @apply flex items-center gap-4 p-4 rounded-xl bg-panel border border-line hover:border-outline/70
+           transition-colors cursor-pointer;
   }
-
-  .block-item.selected {
-    @apply border-primary/30 bg-primary/5;
-  }
-
-  .block-seq-num {
-    @apply text-on-surface-variant font-bold text-base min-w-[28px] text-center opacity-60;
-  }
-
+  .block-item.selected { @apply border-primary/60 bg-primary/[.05]; }
+  .block-seq-num { @apply text-on-surface-variant font-semibold text-sm min-w-[28px] text-center; }
   .block-pax {
-    @apply w-16 h-16 flex items-center justify-center rounded-2xl
-           bg-primary/10 text-primary font-bold text-sm;
+    @apply w-14 h-14 flex flex-col items-center justify-center rounded-lg bg-well text-on-surface font-bold text-sm leading-tight;
   }
-
-  .block-main {
-    @apply flex-1 min-w-0;
-  }
-
-  .block-info {
-    @apply flex flex-wrap gap-3 text-sm text-on-surface-variant;
-  }
-
-  .block-passengers {
-    @apply flex flex-wrap gap-2 mt-2;
-  }
-
-  .block-passenger {
-    @apply text-xs px-2 py-1 rounded-lg bg-tertiary/[.06] text-on-surface;
-  }
-
-  .block-passenger.empty {
-    @apply text-on-surface-variant/40 italic;
-  }
+  .block-main { @apply flex-1 min-w-0; }
+  .block-info { @apply flex flex-wrap gap-x-4 gap-y-1 text-sm text-on-surface-variant; }
+  .block-passengers { @apply flex flex-wrap gap-1.5 mt-2; }
+  .block-passenger { @apply text-xs px-2 py-0.5 rounded-md bg-well text-on-surface; }
+  .block-passenger.empty { @apply text-on-surface-variant italic; }
 
   .block-details {
-    @apply grid grid-cols-1 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,0.9fr)] gap-4 px-5 pb-5;
+    @apply grid grid-cols-1 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,0.9fr)] gap-4 px-4 pb-4;
   }
-
-  .detail-panel {
-    @apply rounded-3xl border border-tertiary/10 bg-black/10 p-5;
-  }
-
-  .detail-header {
-    @apply flex items-center justify-between gap-3 mb-4;
-  }
-
-  .passenger-list {
-    @apply flex flex-col gap-2 max-h-[360px] overflow-auto pr-1 custom-scrollbar;
-  }
-
+  .detail-panel { @apply rounded-xl border border-line bg-well p-5; }
+  .detail-header { @apply flex items-center justify-between gap-3 mb-4; }
+  .passenger-list { @apply flex flex-col gap-1.5 max-h-[360px] overflow-auto pr-1 custom-scrollbar; }
   .passenger-row {
-    @apply flex items-center justify-between gap-3 rounded-2xl border border-tertiary/[.06] bg-tertiary/[.035] px-3 py-2;
+    @apply flex items-center justify-between gap-3 rounded-lg border border-line bg-panel px-3 py-2;
+  }
+  .passenger-row.empty { @apply opacity-60; }
+  .passenger-row strong { @apply block text-sm text-on-surface truncate; }
+  .passenger-row span { @apply block text-xs text-on-surface-variant truncate mt-0.5; }
+  .btn-icon.danger { @apply text-danger hover:bg-danger/10; }
+
+  /* ─── Uyarıdan derin bağlantı: hedef rezervasyon/yolcu kısa lapis halka, ~2 sn söner ─── */
+  .block-shell, .passenger-row, #blocks-section { scroll-margin-top: 88px; scroll-margin-bottom: 24px; }
+  .deep-link-flash { animation: deep-link-ring 2s ease-out forwards; }
+  @keyframes deep-link-ring {
+    0%, 30% { box-shadow: 0 0 0 3px rgb(var(--primary) / 0.55); }
+    100%    { box-shadow: 0 0 0 3px rgb(var(--primary) / 0); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    /* hareket yok: halka sabit durur, JS ~2 sn sonra kaldırır */
+    .deep-link-flash { animation-name: none; box-shadow: 0 0 0 3px rgb(var(--primary) / 0.55); }
+  }
+  .issue-filter-chip {
+    @apply inline-flex items-center gap-2 mb-3 rounded-md border border-primary/30 bg-primary/[.10]
+           text-primary text-sm pl-2.5 pr-1 py-1;
+  }
+  .issue-filter-clear {
+    @apply inline-flex items-center justify-center w-6 h-6 rounded hover:bg-primary/[.14] transition-colors;
   }
 
-  .passenger-row.empty {
-    @apply opacity-60;
+  /* ─── Uyarı listesi (manifesto): tıklanınca planlamadaki kişiye gider ─── */
+  .issue-link {
+    @apply flex items-baseline gap-2 py-2 px-2 text-sm text-on-surface rounded-md
+           hover:bg-tertiary/[.06] transition-colors;
+  }
+  .issue-link .issue-row { @apply ml-auto shrink-0 text-xs text-on-surface-variant tnum; }
+
+  /* ─── Balon kodu ve zarf dili ───
+     Her balonun sabit mürekkebi inline --env değişkeniyle verilir (app.js balloonInk). */
+  .block-balloon, .balloon-code {
+    --env: var(--env-1);
+    @apply inline-flex items-center px-2 py-0.5 rounded-md text-xs font-bold tracking-wide;
+    color: rgb(var(--env));
+    background-color: rgb(var(--env) / 0.13);
+    border: 1px solid rgb(var(--env) / 0.35);
+  }
+  .env-stripe {
+    --env: var(--env-1);
+    display: inline-grid;
+    grid-template-columns: repeat(3, 4px);
+    gap: 2px;
+    height: 100%;
+    min-height: 28px;
+    align-self: stretch;
+  }
+  .env-stripe > i { display: block; border-radius: 2px; background-color: rgb(var(--env)); }
+  .env-stripe > i:nth-child(2) { background-color: rgb(var(--env) / 0.62); }
+  .seat-bar {
+    --env: var(--env-1);
+    @apply relative h-2 rounded-full overflow-hidden;
+    background-color: rgb(var(--ink) / 0.09);
+  }
+  .seat-bar > span {
+    @apply absolute inset-y-0 left-0 rounded-full;
+    background-color: rgb(var(--env));
   }
 
-  .passenger-row strong {
-    @apply block text-sm text-on-surface truncate;
+  /* ─── Sabah uçuş bayrağı ─── */
+  .flag-strip { @apply flex gap-1.5 rounded-xl overflow-hidden; }
+  .flag {
+    @apply flex items-center gap-3 px-5 py-3.5 min-h-[64px] text-on-flag transition-[flex-grow] duration-300;
+    flex: 1 1 0;
+  }
+  .flag .flag-name { @apply font-headline text-[18px] sm:text-[19px] font-semibold leading-tight; }
+  .flag .flag-sub { @apply text-[13px] leading-snug opacity-90; }
+  .flag.go { background-color: rgb(var(--flag-go)); }
+  .flag.hold { background-color: rgb(var(--flag-hold)); }
+  .flag.stop { background-color: rgb(var(--flag-stop)); }
+  .flag.unknown { background-color: rgb(var(--well)); color: rgb(var(--ink-2)); border: 1px solid rgb(var(--line)); }
+  .flag.on { flex-grow: 4.2; }
+  .flag.off {
+    @apply hidden sm:flex justify-center gap-2 px-3;
+    background-color: rgb(var(--well));
+    color: rgb(var(--ink-2));
+  }
+  .flag.off::before {
+    content: '';
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--off-ink);
+    flex: none;
+  }
+  .flag.off.go { --off-ink: rgb(var(--flag-go)); }
+  .flag.off.hold { --off-ink: rgb(var(--flag-hold)); }
+  .flag.off.stop { --off-ink: rgb(var(--flag-stop)); }
+  .flag.off .flag-name { @apply text-[13px] font-body font-semibold uppercase tracking-[0.08em]; }
+
+  /* ─── Kapı panosu (sabit kolonlu tablo) ─── */
+  .board { @apply w-full text-left; border-collapse: separate; border-spacing: 0; }
+  .board thead th {
+    @apply px-3 lg:px-4 py-2.5 text-label-md uppercase text-on-surface-variant border-b border-line whitespace-nowrap;
+  }
+  .board tbody td { @apply px-3 lg:px-4 py-3 border-b border-line align-middle; }
+  .board tbody tr:last-child td { @apply border-b-0; }
+  .board tbody tr { @apply transition-colors; }
+  .board tbody tr:hover td { background-color: rgb(var(--ink) / 0.035); }
+  .board tbody tr.changed td { background-color: rgb(var(--primary) / 0.07); }
+  .board .num { font-variant-numeric: tabular-nums; @apply font-semibold; }
+  .board.sticky-head thead th { position: sticky; top: 64px; z-index: 2; background-color: rgb(var(--panel)); }
+  .changed-tag {
+    @apply inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-bold tracking-[0.06em] uppercase;
+    color: rgb(var(--primary));
+    background-color: rgb(var(--primary) / 0.14);
   }
 
-  .passenger-row span {
-    @apply block text-xs text-on-surface-variant truncate mt-0.5;
+  /* ─── Biniş kartı (segmentli yolcu kartı) ─── */
+  .pass {
+    @apply rounded-xl relative;
+    background-color: rgb(var(--panel));
+    border: 1px solid rgb(var(--line));
   }
-
-  .btn-icon.danger {
-    @apply text-error hover:bg-error/10;
+  .pass-seg { @apply px-5 py-4; }
+  .pass-field { @apply grid grid-cols-[96px_1fr] gap-3 py-2 border-b border-line last:border-b-0 items-baseline; }
+  .pass-field dt { @apply text-label-md uppercase text-on-surface-variant; }
+  .pass-field dd { @apply text-on-surface font-semibold truncate; }
+  .pass-perf { @apply relative h-0 border-t-2 border-dashed border-line mx-4; }
+  .pass-perf::before, .pass-perf::after {
+    content: '';
+    position: absolute;
+    top: -11px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background-color: rgb(var(--ground));
+    border: 1px solid rgb(var(--line));
   }
+  .pass-perf::before { left: -27px; clip-path: inset(0 0 0 50%); }
+  .pass-perf::after { right: -27px; clip-path: inset(0 50% 0 0); }
+  .pass-code { @apply font-mono text-[12.5px] leading-6 text-on-surface-variant; }
 
-  /* Balon kodu rozeti — balon paletinin kullanıldığı az sayıdaki yerden biri */
-  .block-balloon {
-    @apply px-3 py-1 rounded-full bg-balloon-teal/15 text-balloon-teal border border-balloon-teal/20
-           text-xs font-bold;
-  }
-
-  /* ─── Combobox (combobox.js: panel .cb-list, seçenek .cb-opt) ───
-     Panel body'e eklenir; position:fixed burada verilir → kartların
-     overflow:hidden'ı kırpmaz, konumu combobox.js getBoundingClientRect ile ayarlar. */
+  /* ─── Combobox ─── */
   .cb-list {
-    @apply fixed z-[250] glass-panel bg-surface-container/95 rounded-2xl py-2 min-w-[200px] max-h-[240px]
-           overflow-y-auto shadow-2xl;
+    @apply fixed z-[250] rounded-lg py-1.5 min-w-[200px] max-h-[260px] overflow-y-auto;
+    background-color: rgb(var(--raised));
+    border: 1px solid rgb(var(--line));
+    box-shadow: 0 16px 32px -16px rgb(var(--ink) / 0.4);
   }
+  .cb-opt { @apply px-3.5 py-2 text-sm text-on-surface cursor-pointer transition-colors; }
+  .cb-opt:hover { background-color: rgb(var(--ink) / 0.06); }
+  .cb-opt.active { @apply bg-primary/[.12] text-primary; }
 
-  .cb-opt {
-    @apply px-4 py-2 text-sm text-on-surface cursor-pointer hover:bg-tertiary/[.08]
-           transition-colors;
-  }
-
-  .cb-opt.active {
-    @apply bg-primary/15 text-primary;
-  }
-
-  /* ─── Liste inceleme (passport.js: liste paneli + kompakt satırlar) ─── */
-  .form-input-sm {
-    @apply px-3 py-1.5 text-sm rounded-lg;
-  }
-
-  .btn-sm {
-    @apply px-3 py-1.5 text-xs;
-  }
-
+  /* ─── Liste inceleme ─── */
+  .form-input-sm { @apply px-2.5 py-1.5 text-sm rounded-md; }
+  .btn-sm { @apply px-3 py-1.5 text-[13px]; }
   .list-row {
-    @apply relative flex flex-wrap md:flex-nowrap items-center gap-2 pl-4 pr-2 py-2 rounded-2xl
-           bg-tertiary/[.04] border border-tertiary/[.08] hover:border-tertiary/20 transition-colors;
+    @apply relative flex flex-wrap md:flex-nowrap items-center gap-2 pl-4 pr-2 py-2 rounded-lg
+           bg-panel border border-line hover:border-outline/70 transition-colors;
   }
-
-  .list-row-edge {
-    @apply absolute left-0 top-1.5 bottom-1.5 w-1 rounded-full;
-  }
-
-  .list-row-deferred {
-    @apply opacity-60;
-  }
-
+  .list-row-edge { @apply absolute left-1 top-2 bottom-2 w-[3px] rounded-full; }
+  .list-row-deferred { @apply opacity-60; }
   .src-chip {
-    @apply inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium
-           bg-info/10 text-info border border-info/20 whitespace-nowrap;
+    @apply inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold bg-info/[.12] text-info whitespace-nowrap;
   }
-
   .mark-chip {
-    @apply inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold
-           bg-primary/15 text-primary border border-primary/25 whitespace-nowrap max-w-[140px] truncate;
+    @apply inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold bg-primary/[.12] text-primary
+           whitespace-nowrap max-w-[140px] truncate;
   }
-
-  .mark-chip-staff {
-    @apply bg-tertiary/10 text-on-surface-variant border-tertiary/20;
-  }
-
+  .mark-chip-staff { @apply bg-tertiary/[.08] text-on-surface-variant; }
   .flag-chip {
-    @apply inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium tracking-wide
-           bg-surface-light border border-white/5 text-on-surface-variant whitespace-nowrap;
+    @apply inline-flex items-center px-1.5 py-0.5 rounded text-[10.5px] font-semibold tracking-wide
+           bg-well border border-line text-on-surface-variant whitespace-nowrap;
   }
 
-  /* ─── Checkbox ─── */
-  .checkbox-label {
-    @apply flex items-center gap-2 text-sm text-on-surface-variant cursor-pointer;
-  }
-
+  /* ─── Onay kutusu ─── */
+  .checkbox-label { @apply flex items-center gap-2 text-sm text-on-surface-variant cursor-pointer; }
   .checkbox-label input[type="checkbox"] {
-    @apply w-4 h-4 rounded bg-surface-container border-tertiary/20 text-primary
-           focus:ring-primary/50;
+    @apply w-4 h-4 rounded bg-raised border-outline/60 text-primary focus:ring-primary/40;
   }
 
-  /* ─── Progress Bar ─── */
-  .progress-bar {
-    @apply w-full bg-tertiary/[.06] h-1.5 rounded-full overflow-hidden;
-  }
+  /* ─── İlerleme ─── */
+  .progress-bar { @apply w-full h-1.5 rounded-full overflow-hidden; background-color: rgb(var(--ink) / 0.09); }
+  .progress-fill { @apply h-full bg-primary rounded-full transition-all duration-500; }
 
-  .progress-fill {
-    @apply h-full bg-primary rounded-full transition-all duration-500;
-  }
+  /* ─── Boş durum ─── */
+  .empty-state { @apply py-14 text-center; }
+  .empty-icon { @apply text-5xl mb-3 text-outline; }
+  .empty-title { @apply font-headline text-xl text-on-surface mb-1.5; }
+  .empty-desc { @apply text-sm text-on-surface-variant max-w-md mx-auto; }
 
-  /* ─── Empty State ─── */
-  .empty-state {
-    @apply py-16 text-center;
-  }
+  /* ─── İskelet ─── */
+  .skeleton { @apply rounded-xl animate-pulse; background-color: rgb(var(--ink) / 0.06); }
+  .skeleton-title { @apply h-8 w-48; }
+  .skeleton-text { @apply h-4 w-32 mt-2; }
+  .skeleton-card { @apply h-32; }
 
-  .empty-icon {
-    @apply text-5xl mb-4;
-  }
+  /* ─── Hava durumu dilimleri ─── */
+  .weather-slot { @apply p-3 rounded-lg border border-line bg-panel; }
+  .weather-slot.low { border-color: rgb(var(--success) / 0.5); }
+  .weather-slot.medium { border-color: rgb(var(--warning) / 0.55); }
+  .weather-slot.high { border-color: rgb(var(--danger) / 0.55); }
+  .slot-time { @apply font-bold text-on-surface text-sm; }
+  .slot-status { @apply mt-1 text-info text-xs font-bold; }
+  .slot-values { @apply text-on-surface-variant text-xs; }
 
-  .empty-title {
-    @apply text-lg font-semibold text-on-surface mb-2;
-  }
+  .calendar-day-label { @apply flex items-center justify-between gap-3 py-2 border-b border-line mt-3 first:mt-0; }
+  .calendar-day-label span { @apply block font-bold text-sm text-primary capitalize; }
+  .calendar-day-label small { @apply block text-xs text-on-surface-variant mt-0.5; }
+  .calendar-day-label strong { @apply text-xs font-bold px-2 py-0.5 rounded-md bg-well text-on-surface; }
+  .calendar-day-slots { @apply grid grid-cols-[repeat(auto-fill,minmax(100px,1fr))] gap-2; }
 
-  .empty-desc {
-    @apply text-sm text-on-surface-variant;
-  }
+  .history-row { @apply grid grid-cols-3 gap-3 py-2 text-sm items-center; }
+  .history-row span { @apply text-on-surface-variant; }
+  .history-row strong { @apply text-info; }
 
-  /* ─── Skeleton ─── */
-  .skeleton {
-    @apply bg-tertiary/[.05] rounded-2xl animate-pulse;
-  }
+  .weather-metric { @apply glass-panel rounded-xl p-5; }
+  .weather-metric.risk-low { border-color: rgb(var(--success) / 0.5); }
+  .weather-metric.risk-medium { border-color: rgb(var(--warning) / 0.55); }
+  .weather-metric.risk-high { border-color: rgb(var(--danger) / 0.55); }
 
-  .skeleton-title {
-    @apply h-8 w-48;
-  }
+  .metric-label { @apply text-label-md uppercase text-on-surface-variant; }
+  .metric-value { @apply text-2xl font-bold text-on-surface mt-1.5; }
+  .metric-sub { @apply text-xs text-on-surface-variant; }
 
-  .skeleton-text {
-    @apply h-4 w-32 mt-2;
-  }
+  .section-header { @apply flex justify-between items-center gap-3 mb-5; }
+  .section-title { @apply font-headline text-headline-sm text-on-surface; }
 
-  .skeleton-card {
-    @apply h-32;
-  }
+  .btn-spinner { @apply inline-block w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin; }
 
-  /* ─── Weather Slots ─── */
-  .weather-slot {
-    @apply p-3 rounded-xl border border-tertiary/[.06] bg-tertiary/[.035];
-  }
+  .form-row { @apply grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4; }
+  .form-group { @apply flex flex-col; }
 
-  .weather-slot.low { @apply border-success/40; }
-  .weather-slot.medium { @apply border-warning/50; }
-  .weather-slot.high { @apply border-danger/50; }
-  .weather-slot.unknown { @apply border-tertiary/10; }
+  /* ─── Tablo ─── */
+  .data-table { @apply w-full; border-collapse: separate; border-spacing: 0; }
+  .data-table thead tr { @apply text-left; }
+  .data-table thead th { @apply px-4 py-2.5 text-label-md uppercase text-on-surface-variant border-b border-line; }
+  .data-table tbody tr { @apply transition-colors cursor-pointer; }
+  .data-table tbody tr:hover td { background-color: rgb(var(--ink) / 0.035); }
+  .data-table tbody td { @apply px-4 py-3 border-b border-line; }
 
-  .slot-time {
-    @apply font-extrabold text-on-surface text-sm;
-  }
+  .weather-hero { @apply glass-panel rounded-xl p-7 flex justify-between items-start; }
+  .weather-hero.risk-low { border-color: rgb(var(--flag-go) / 0.6); }
+  .weather-hero.risk-medium { border-color: rgb(var(--flag-hold) / 0.65); }
+  .weather-hero.risk-high { border-color: rgb(var(--flag-stop) / 0.6); }
 
-  .slot-status {
-    @apply mt-1 text-secondary text-xs font-bold;
-  }
-
-  .slot-values {
-    @apply text-on-surface-variant text-xs;
-  }
-
-  .calendar-day-label {
-    @apply flex items-center justify-between gap-3 py-2 border-b border-tertiary/10 mt-3 first:mt-0;
-  }
-
-  .calendar-day-label span {
-    @apply block font-bold text-sm text-primary capitalize;
-  }
-
-  .calendar-day-label small {
-    @apply block text-xs text-on-surface-variant mt-0.5;
-  }
-
-  .calendar-day-label strong {
-    @apply text-xs font-bold px-2 py-1 rounded-full bg-tertiary/[.06] text-on-surface;
-  }
-
-  .calendar-day-slots {
-    @apply grid grid-cols-[repeat(auto-fill,minmax(100px,1fr))] gap-2;
-  }
-
-  /* ─── History Row ─── */
-  .history-row {
-    @apply grid grid-cols-3 gap-3 py-2 text-sm items-center;
-  }
-
-  .history-row span {
-    @apply text-on-surface-variant;
-  }
-
-  .history-row strong {
-    @apply text-secondary;
-  }
-
-  /* ─── Weather Metrics ─── */
-  .weather-metric {
-    @apply glass-panel rounded-3xl p-5;
-  }
-
-  .weather-metric.risk-low { @apply border-l-4 border-l-success; }
-  .weather-metric.risk-medium { @apply border-l-4 border-l-warning; }
-  .weather-metric.risk-high { @apply border-l-4 border-l-danger; }
-  .weather-metric.risk-unknown { @apply border-l-4 border-l-tertiary/10; }
-
-  .metric-label {
-    @apply text-xs font-bold uppercase tracking-wider text-on-surface-variant;
-  }
-
-  .metric-value {
-    @apply text-2xl font-bold text-on-surface mt-2;
-  }
-
-  .metric-sub {
-    @apply text-xs text-on-surface-variant/70;
-  }
-
-  /* ─── Section Header ─── */
-  .section-header {
-    @apply flex justify-between items-center mb-6;
-  }
-
-  .section-title {
-    @apply font-headline text-headline-sm text-on-surface;
-  }
-
-  /* ─── Btn Spinner ─── */
-  .btn-spinner {
-    @apply inline-block w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin;
-  }
-
-  /* ─── Form Row ─── */
-  .form-row {
-    @apply grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4;
-  }
-
-  .form-group {
-    @apply flex flex-col;
-  }
-
-  /* ─── Table ─── */
-  .data-table {
-    @apply w-full border-separate border-spacing-y-2;
-  }
-
-  .data-table thead tr {
-    @apply text-left text-on-surface-variant/70 text-label-md;
-  }
-
-  .data-table thead th {
-    @apply px-5 py-2;
-  }
-
-  .data-table tbody tr {
-    @apply bg-tertiary/[.05] hover:bg-tertiary/[.08] transition-colors cursor-pointer;
-  }
-
-  .data-table tbody td {
-    @apply px-5 py-4;
-  }
-
-  .data-table tbody td:first-child {
-    @apply rounded-l-2xl;
-  }
-
-  .data-table tbody td:last-child {
-    @apply rounded-r-2xl;
-  }
-
-  /* ─── Weather Hero ─── */
-  .weather-hero {
-    @apply glass-panel rounded-[40px] p-8 flex justify-between items-start;
-  }
-
-  .weather-hero.risk-low { @apply border-l-4 border-l-success; }
-  .weather-hero.risk-medium { @apply border-l-4 border-l-warning; }
-  .weather-hero.risk-high { @apply border-l-4 border-l-danger; }
-  .weather-hero.risk-unknown { @apply border-l-4 border-l-tertiary/10; }
-
-  /* ─── Hava Durumu Şeridi (dashboard üst, sade + ikonlu + uçuş tahmini) ─── */
-  .wx-strip {
-    @apply glass-panel rounded-[28px] px-5 py-4 flex flex-wrap items-center gap-x-5 gap-y-3;
-  }
+  /* ─── Hava durumu şeridi (eski panel bileşeni; ayrıntı ekranında kullanılabilir) ─── */
+  .wx-strip { @apply glass-panel rounded-xl px-5 py-4 flex flex-wrap items-center gap-x-5 gap-y-3; }
   .wx-now { @apply flex items-center gap-3 pr-2; }
   .wx-temp { @apply font-headline text-4xl text-on-surface leading-none; }
   .wx-cond { @apply text-on-surface-variant text-xs; }
-  .wx-sep { @apply hidden lg:block w-px self-stretch bg-tertiary/10 mx-1; }
+  .wx-sep { @apply hidden lg:block w-px self-stretch bg-line mx-1; }
   .wx-metric { @apply flex items-center gap-2; }
-  .wx-metric .lbl { @apply text-on-surface-variant/70 text-[10px] uppercase tracking-wider leading-tight; }
+  .wx-metric .lbl { @apply text-on-surface-variant text-[10.5px] uppercase tracking-wider leading-tight; }
   .wx-metric .val { @apply text-on-surface text-sm font-semibold leading-tight; }
-  .wx-verdict {
-    @apply ml-auto flex items-center gap-3 rounded-2xl pl-4 pr-5 py-2 border;
-  }
-  /* Uçuş kararı semantiktir → durum renkleri (balon paleti değil) */
-  .wx-verdict.flyable { @apply bg-success/10 border-success/30 text-success; }
-  .wx-verdict.caution { @apply bg-warning/10 border-warning/30 text-warning; }
-  .wx-verdict.no_go   { @apply bg-danger/10 border-danger/30 text-danger; }
-  .wx-verdict.unknown { @apply bg-tertiary/[.05] border-tertiary/10 text-on-surface-variant; }
-  .wx-verdict .v-cap { @apply text-[10px] uppercase tracking-wider opacity-80 leading-tight; }
+  .wx-verdict { @apply ml-auto flex items-center gap-3 rounded-lg pl-4 pr-5 py-2 text-on-flag; }
+  .wx-verdict.flyable { background-color: rgb(var(--flag-go)); }
+  .wx-verdict.caution { background-color: rgb(var(--flag-hold)); }
+  .wx-verdict.no_go { background-color: rgb(var(--flag-stop)); }
+  .wx-verdict.unknown { @apply bg-well text-on-surface-variant border border-line; }
+  .wx-verdict .v-cap { @apply text-[10.5px] uppercase tracking-wider opacity-90 leading-tight; }
   .wx-verdict .v-status { @apply font-headline text-lg leading-none; }
-  .wx-verdict .v-window { @apply text-[10px] opacity-70 leading-tight; }
+  .wx-verdict .v-window { @apply text-[10.5px] opacity-85 leading-tight; }
 
-  /* ─── 3D ikon kabı (yumuşak gölge) ─── */
-  .icon3d { @apply inline-flex items-center justify-center shrink-0; }
-  .icon3d.shadow { filter: drop-shadow(0 6px 9px rgba(3,6,18,0.45)); }
+  /* ─── Düz çizgi ikon kabı (eski icon3d adı) ─── */
+  .icon3d { @apply inline-flex items-center justify-center shrink-0 rounded-lg; }
 
-  /* ─── Kapadokya silueti (yalnız giriş/lisans ekranı ve panel başlığı; opaklık ≤ 0.12) ─── */
+  /* ─── Kapadokya silueti (giriş ekranı) ─── */
   .cappadocia-backdrop {
     position: fixed;
     left: 0;
@@ -822,63 +736,45 @@
     bottom: 0;
     width: 100%;
     height: auto;
-    max-height: 45vh;
+    max-height: 42vh;
     object-fit: cover;
     object-position: bottom center;
-    opacity: 0.1;
+    opacity: 0.16;
     pointer-events: none;
     user-select: none;
     z-index: 0;
   }
-
-  .header-decor {
-    position: absolute;
-    right: 120px;
-    bottom: 0;
-    height: 100%;
-    width: auto;
-    opacity: 0.1;
-    pointer-events: none;
-    user-select: none;
-    z-index: -1;
-  }
+  [data-theme="graphite"] .cappadocia-backdrop { opacity: 0.22; filter: invert(1); }
+  .header-decor { display: none; }
 }
 
 @layer utilities {
-  .animate-slide-in {
-    animation: slide-in 0.3s ease-out;
-  }
-
-  .animate-fade-in {
-    animation: fade-in 0.2s ease-out;
-  }
-
-  .font-mono {
-    font-family: 'JetBrains Mono', monospace;
-  }
+  .animate-slide-in { animation: slide-in 0.28s cubic-bezier(.16,1,.3,1); }
+  .animate-fade-in { animation: fade-in 0.18s ease-out; }
+  .font-mono { font-family: 'JetBrains Mono', Consolas, monospace; }
+  .tnum { font-variant-numeric: tabular-nums; }
 }
 
 /* ─── Takvim (Planlama) ─── */
 .calendar-widget {
-  background: rgba(233, 220, 199, 0.06);
-  backdrop-filter: blur(25px);
-  -webkit-backdrop-filter: blur(25px);
-  border: 1px solid rgba(233, 220, 199, 0.12);
-  box-shadow: 0 14px 40px -16px rgba(3, 6, 18, 0.7), inset 0 1px 0 rgba(233, 220, 199, 0.05);
+  background: rgb(var(--panel));
+  border: 1px solid rgb(var(--line));
 }
 
 .calendar-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: 8px;
+  gap: 6px;
   text-align: center;
 }
 
 .calendar-day-header {
-  font-size: 13px;
-  font-weight: 600;
-  color: theme('colors.on-surface-variant');
-  padding: 8px 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgb(var(--ink-2));
+  padding: 6px 0;
 }
 
 .calendar-day {
@@ -886,75 +782,54 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 50%;
+  border-radius: 8px;
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
-  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
   position: relative;
   border: 1px solid transparent;
+  font-variant-numeric: tabular-nums;
 }
 
-/* Boş günler (bir önceki/sonraki aydan taşanlar) */
-.calendar-day.empty {
-  color: rgba(236, 226, 208, 0.25);
-  cursor: default;
-  pointer-events: none;
-}
-
-/* Normal boş günler (uçuş planı olmayanlar) */
-.calendar-day.no-plan {
-  color: rgba(236, 226, 208, 0.55);
-}
-
-.calendar-day.no-plan:hover {
-  background: rgba(233, 220, 199, 0.08);
-  color: theme('colors.on-surface');
-}
-
-/* Geçmiş ve planı olmayan günler — tıklanamaz */
-.calendar-day.past {
-  color: rgba(236, 226, 208, 0.22);
-  cursor: default;
-}
-
-.calendar-day.past:hover {
-  background: transparent;
-  color: rgba(236, 226, 208, 0.22);
-}
-
-/* Bugün */
-.calendar-day.today {
-  border-color: rgba(233, 220, 199, 0.35);
-}
-
-/* Uçuş planı olan günler (Aktif günler) */
+.calendar-day.empty { color: rgb(var(--ink) / 0.25); cursor: default; pointer-events: none; }
+.calendar-day.no-plan { color: rgb(var(--ink-2)); }
+.calendar-day.no-plan:hover { background: rgb(var(--ink) / 0.06); color: rgb(var(--ink)); }
+.calendar-day.past { color: rgb(var(--ink) / 0.3); cursor: default; }
+.calendar-day.past:hover { background: transparent; color: rgb(var(--ink) / 0.3); }
+.calendar-day.today { border-color: rgb(var(--primary)); }
 .calendar-day.has-plan {
-  background: rgba(242, 166, 90, 0.12);
-  border-color: rgba(242, 166, 90, 0.35);
-  color: theme('colors.primary');
+  background: rgb(var(--primary) / 0.12);
+  color: rgb(var(--primary));
   font-weight: 700;
 }
-
-.calendar-day.has-plan:hover {
-  background: rgba(242, 166, 90, 0.22);
-  color: theme('colors.primary-fixed');
-}
-
-/* Seçili gün */
+.calendar-day.has-plan:hover { background: rgb(var(--primary) / 0.2); }
 .calendar-day.selected {
-  background: theme('colors.primary') !important;
-  color: theme('colors.on-primary') !important;
-  font-weight: 800;
+  background: rgb(var(--primary)) !important;
+  color: rgb(var(--on-primary)) !important;
+  font-weight: 700;
   border-color: transparent !important;
 }
+/* Gün doluluğu: .seat-bar; bütün gün için zarf mürekkebi değil lapis (Envelope Rule) */
+.calendar-day .day-load {
+  --env: var(--primary);
+  position: absolute;
+  left: 24%;
+  right: 24%;
+  bottom: 5px;
+  height: 3px;
+}
+.calendar-day .day-load.over { --env: var(--danger); }
+.calendar-day.selected .day-load {
+  --env: var(--on-primary);
+  background-color: rgb(var(--on-primary) / 0.3);
+}
 
-/* Gezinme butonları */
 .calendar-nav-btn {
-  background: rgba(233, 220, 199, 0.06);
-  color: theme('colors.on-surface');
-  border: 1px solid rgba(233, 220, 199, 0.14);
-  border-radius: 10px;
+  background: rgb(var(--raised));
+  color: rgb(var(--ink));
+  border: 1px solid rgb(var(--line));
+  border-radius: 8px;
   width: 34px;
   height: 34px;
   display: flex;
@@ -962,57 +837,21 @@
   justify-content: center;
   font-weight: bold;
   cursor: pointer;
-  transition: background-color 0.2s, border-color 0.2s;
+  transition: background-color 0.15s, border-color 0.15s;
 }
+.calendar-nav-btn:hover { border-color: rgb(var(--outline)); }
+.calendar-nav-btn:active { transform: translateY(1px); }
 
-.calendar-nav-btn:hover {
-  background: rgba(242, 166, 90, 0.14);
-  border-color: rgba(242, 166, 90, 0.35);
-}
+/* ─── İskelet (düz nabız; parıltı yok) ─── */
+.shimmer { background: rgb(var(--ink) / 0.06); animation: shimmer-pulse 1.4s ease-in-out infinite; }
+@keyframes shimmer-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
 
-.calendar-nav-btn:active {
-  transform: scale(0.95);
-}
-
-/* ─── Skeleton Shimmer Animasyonu ─── */
-.shimmer {
-  background: linear-gradient(
-    90deg,
-    rgba(233, 220, 199, 0.03) 25%,
-    rgba(233, 220, 199, 0.07) 37%,
-    rgba(233, 220, 199, 0.03) 63%
-  );
-  background-size: 400% 100%;
-  animation: shimmer-pulse 1.4s ease infinite;
-}
-
-@keyframes shimmer-pulse {
-  0% {
-    background-position: 100% 50%;
-  }
-  100% {
-    background-position: 0 50%;
-  }
-}
-
-.skeleton-text {
-  height: 14px;
-  background: rgba(233, 220, 199, 0.04);
-  border-radius: 4px;
-  width: 100%;
-}
-
-.skeleton-title {
-  height: 20px;
-  background: rgba(233, 220, 199, 0.05);
-  border-radius: 6px;
-  width: 60%;
-}
-
+.skeleton-text { height: 14px; background: rgb(var(--ink) / 0.06); border-radius: 4px; width: 100%; }
+.skeleton-title { height: 20px; background: rgb(var(--ink) / 0.07); border-radius: 6px; width: 60%; }
 .skeleton-card {
-  background: rgba(233, 220, 199, 0.03);
-  border: 1px solid rgba(233, 220, 199, 0.06);
-  border-radius: 20px;
+  background: rgb(var(--panel));
+  border: 1px solid rgb(var(--line));
+  border-radius: 12px;
   padding: 20px;
   display: flex;
   flex-direction: column;
@@ -1020,59 +859,30 @@
 }
 
 /* ─── Sürükle-bırak aralıkları ve kayan durum çubuğu ─── */
-.block-shell {
-  transition: transform 0.2s ease, padding 0.2s ease, border-color 0.2s ease;
-}
-
-.block-shell.drag-hover-top {
-  padding-top: 54px !important;
-}
-
-.block-shell.drag-hover-top::before {
-  content: 'Buraya Bırakın';
-  position: absolute;
-  top: 8px;
-  left: 0;
-  right: 0;
-  height: 38px;
-  border: 2px dashed rgba(242, 166, 90, 0.4);
-  border-radius: 16px;
-  background: rgba(242, 166, 90, 0.05);
-  color: rgba(242, 166, 90, 0.9);
-  font-size: 11px;
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: none;
-}
-
-.block-shell.drag-hover-bottom {
-  padding-bottom: 54px !important;
-}
-
+.block-shell { transition: transform 0.2s ease, border-color 0.2s ease; }
+.block-shell.drag-hover-top { padding-top: 54px !important; }
+.block-shell.drag-hover-bottom { padding-bottom: 54px !important; }
+.block-shell.drag-hover-top::before,
 .block-shell.drag-hover-bottom::before {
-  content: 'Buraya Bırakın';
+  content: 'Buraya bırakın';
   position: absolute;
-  bottom: 8px;
   left: 0;
   right: 0;
   height: 38px;
-  border: 2px dashed rgba(242, 166, 90, 0.4);
-  border-radius: 16px;
-  background: rgba(242, 166, 90, 0.05);
-  color: rgba(242, 166, 90, 0.9);
-  font-size: 11px;
+  border: 2px dashed rgb(var(--primary) / 0.5);
+  border-radius: 10px;
+  background: rgb(var(--primary) / 0.06);
+  color: rgb(var(--primary));
+  font-size: 12px;
   font-weight: 600;
   display: flex;
   align-items: center;
   justify-content: center;
   pointer-events: none;
 }
-
-.block-shell.is-dragging {
-  opacity: 0.3 !important;
-}
+.block-shell.drag-hover-top::before { top: 8px; }
+.block-shell.drag-hover-bottom::before { bottom: 8px; }
+.block-shell.is-dragging { opacity: 0.35 !important; }
 
 .reorder-floating-bar {
   position: fixed;
@@ -1083,32 +893,54 @@
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 12px 24px;
-  background: rgba(16, 22, 43, 0.94);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(242, 166, 90, 0.3);
-  border-radius: 20px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  padding: 12px 20px;
+  background: rgb(var(--raised));
+  border: 1px solid rgb(var(--line));
+  border-radius: 12px;
+  box-shadow: 0 16px 32px -14px rgb(var(--ink) / 0.45);
   animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
-
-.floating-bar-content {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
+.floating-bar-content { display: flex; align-items: center; gap: 16px; }
 @keyframes slideUp {
-  from {
-    transform: translate(-50%, 20px);
-    opacity: 0;
-  }
-  to {
-    transform: translate(-50%, 0);
-    opacity: 1;
-  }
+  from { transform: translate(-50%, 16px); opacity: 0; }
+  to { transform: translate(-50%, 0); opacity: 1; }
 }
 
 /* Uyruk belge numarasından türetildi (kesin) / tahmin edildi (olası) — operatör değiştirmedikçe */
-.nat-derived { border-color: rgba(74, 222, 128, 0.55) !important; border-style: dashed !important; }
-.nat-inferred { border-color: #fbbf24 !important; border-style: dashed !important; background-color: rgba(251, 191, 36, 0.06) !important; }
+.nat-derived { border-color: rgb(var(--success) / 0.6) !important; border-style: dashed !important; }
+.nat-inferred { border-color: rgb(var(--warning) / 0.7) !important; border-style: dashed !important; background-color: rgb(var(--warning) / 0.06) !important; }
+
+/* ─── Uygulama içi Excel görünümü (sheet_grid.js) ─── */
+.sg-table { border-collapse: separate; border-spacing: 0; font-size: 13px; }
+.sg-table th, .sg-table td { border-right: 1px solid rgb(var(--line)); border-bottom: 1px solid rgb(var(--line)); padding: 4px 8px; white-space: nowrap; max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+.sg-table thead th { position: sticky; top: 0; z-index: 2; background: rgb(var(--panel)); text-align: left; vertical-align: bottom; }
+.sg-corner, .sg-rownum { position: sticky; left: 0; z-index: 1; background: rgb(var(--panel)); color: rgb(var(--ink-2)); font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; min-width: 44px; }
+.sg-table thead .sg-corner { z-index: 3; }
+.sg-letter { display: block; font-size: 11px; font-weight: 700; color: rgb(var(--ink-2)); letter-spacing: .04em; }
+.sg-head { display: block; font-size: 11.5px; font-weight: 600; color: rgb(var(--ink)); text-transform: uppercase; letter-spacing: .03em; }
+.sg-cell { color: rgb(var(--ink)); cursor: cell; min-width: 64px; }
+.sg-cell:focus { outline: 2px solid rgb(var(--primary)); outline-offset: -2px; }
+.sg-cell.sg-dirty { background: rgb(var(--primary) / 0.12); }
+.sg-cell.sg-balloon { color: rgb(var(--env)); font-weight: 700; }
+tr.sg-seat .sg-cell { color: rgb(var(--ink-2)); }
+tr.sg-focus .sg-cell, tr.sg-focus .sg-rownum { background: rgb(var(--primary) / 0.14); }
+.sg-input { width: 100%; min-width: 120px; padding: 2px 4px; border: 0; outline: 2px solid rgb(var(--primary)); border-radius: 2px; background: rgb(var(--raised)); color: rgb(var(--ink)); font: inherit; }
+.pv-tab { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 6px; font-size: 14px; font-weight: 600; color: rgb(var(--ink-2)); }
+.pv-tab:hover { color: rgb(var(--ink)); }
+.pv-tab.is-on { background: rgb(var(--primary)); color: rgb(var(--on-primary)); }
+
+/* ─── Rezervasyon kartı balonun zarf renginde ─── */
+.block-item.has-env { border-color: rgb(var(--env) / 0.45); background-color: rgb(var(--env) / 0.07); }
+.block-item.has-env:hover { border-color: rgb(var(--env) / 0.75); }
+.block-item.has-env.selected { border-color: rgb(var(--env)); box-shadow: 0 0 0 1px rgb(var(--env)); }
+.block-item.has-env .block-pax { background-color: rgb(var(--env) / 0.16); color: rgb(var(--env)); }
+.block-item .env-stripe { min-height: 44px; }
+.env-stripe.env-none > i { background-color: rgb(var(--line)); }
+.balloon-chip { --env: var(--outline); display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 8px; border: 1px solid rgb(var(--line)); background: rgb(var(--raised)); color: rgb(var(--ink)); font-size: 13.5px; font-weight: 600; }
+.balloon-chip .env-stripe { min-height: 16px; height: 16px; grid-template-columns: repeat(3, 3px); }
+.balloon-chip:hover { border-color: rgb(var(--env) / 0.7); }
+.balloon-chip.is-on { background: rgb(var(--env) / 0.14); border-color: rgb(var(--env)); color: rgb(var(--env)); }
+.balloon-chip:first-child.is-on { background: rgb(var(--primary)); border-color: rgb(var(--primary)); color: rgb(var(--on-primary)); }
+.balloon-chip-n { font-weight: 500; color: rgb(var(--ink-2)); font-variant-numeric: tabular-nums; }
+.balloon-chip:first-child.is-on .balloon-chip-n { color: rgb(var(--on-primary)); }
+.sg-cell.sg-merged { text-align: center; vertical-align: middle; background: rgb(var(--panel)); }

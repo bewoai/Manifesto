@@ -68,7 +68,7 @@ async function loadUsers(token) {
   const data = await api.get('/api/admin/users');
   if (token !== renderToken) return;
   document.getElementById('admin-users').innerHTML = (data.users || []).map(user => `
-    <div class="flex items-center justify-between border-b border-white/5 py-3">
+    <div class="flex items-center justify-between border-b border-line py-3">
       <div><strong class="text-on-surface">${esc(user.display_name)}</strong><div class="text-xs text-on-surface-variant">${esc(user.username)}</div></div>
       <span class="badge ${user.role === 'admin' ? 'badge-amber' : 'badge-blue'}">${user.role === 'admin' ? 'Yönetici' : 'Operatör'}</span>
     </div>`).join('');
@@ -78,7 +78,7 @@ async function loadBackups(token) {
   const data = await api.get('/api/admin/backups');
   if (token !== renderToken) return;
   document.getElementById('admin-backups').innerHTML = (data.backups || []).slice(0, 50).map(item => `
-    <div class="flex items-center justify-between gap-3 border-b border-white/5 py-3">
+    <div class="flex items-center justify-between gap-3 border-b border-line py-3">
       <div class="min-w-0"><strong class="block truncate text-sm">${esc(item.name)}</strong><span class="text-xs text-on-surface-variant">${new Date(item.created_at).toLocaleString('tr-TR')}</span></div>
       <button class="btn-ghost px-3" onclick="window.__restoreBackup('${escAttr(item.name)}')">Geri Yükle</button>
     </div>`).join('') || '<div class="empty-desc">Henüz yedek yok.</div>';
@@ -162,7 +162,7 @@ async function loadAudit(token) {
   document.getElementById('admin-audit').innerHTML = `
     <table class="w-full text-sm">
       <thead>
-        <tr class="text-on-surface-variant opacity-80 border-b border-white/10">
+        <tr class="text-on-surface-variant opacity-80 border-b border-line">
           <th class="p-3 text-left font-semibold">Zaman</th>
           <th class="p-3 text-left font-semibold">Kullanıcı</th>
           <th class="p-3 text-left font-semibold">İşlem Detayı</th>
@@ -171,7 +171,7 @@ async function loadAudit(token) {
       </thead>
       <tbody>
         ${(data.entries || []).map(row => `
-          <tr class="border-b border-white/5 hover:bg-white/[0.02] transition-colors">
+          <tr class="border-b border-line hover:bg-tertiary/[.03] transition-colors">
             <td class="p-3 text-on-surface-variant text-xs">${new Date(`${row.ts}Z`).toLocaleString('tr-TR')}</td>
             <td class="p-3 font-medium text-on-surface">${esc(row.actor)}</td>
             <td class="p-3">${formatActionDetail(row)}</td>

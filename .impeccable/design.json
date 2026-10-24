@@ -1,0 +1,88 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-24T00:30:00+03:00",
+  "title": "Design System: İrtifa",
+  "extensions": {
+    "colorMeta": {
+      "ground": { "role": "neutral", "displayName": "Tüf Zemin", "canonical": "rgb(var(--ground))" },
+      "panel": { "role": "neutral", "displayName": "Tüf Panel", "canonical": "rgb(var(--panel))" },
+      "ink": { "role": "neutral", "displayName": "Kömür", "canonical": "rgb(var(--ink))" },
+      "primary": { "role": "primary", "displayName": "Soluk Lapis", "canonical": "rgb(var(--primary))", "tonalRamp": ["#1c2a40", "#243656", "#2f4670", "#3d5a8a", "#5a76a3", "#8199bd", "#a9bad4", "#cbd3e0"] },
+      "flag-go": { "role": "semantic", "displayName": "Bayrak Yeşili" },
+      "flag-hold": { "role": "semantic", "displayName": "Bayrak Okru" },
+      "flag-stop": { "role": "semantic", "displayName": "Bayrak Tuğlası" }
+    },
+    "shadows": [
+      { "name": "overlay", "value": "0 16px 32px -16px rgb(var(--ink) / 0.4)", "purpose": "Yalnız üstte duran öğeler: bildirim, açılır menü, pencere, sürükleme çubuğu." }
+    ],
+    "motion": [
+      { "name": "ease-out-expo", "value": "cubic-bezier(.16,1,.3,1)", "purpose": "Bildirim girişi ve kayan çubuk." },
+      { "name": "state", "value": "150ms ease", "purpose": "Renk ve kenarlık geçişleri." }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" }, { "name": "md", "value": "768px" },
+      { "name": "lg", "value": "1024px" }, { "name": "xl", "value": "1280px" }, { "name": "2xl", "value": "1536px" }
+    ],
+    "themes": [
+      { "name": "tuff", "selector": ":root", "displayName": "Kısık Tüf" },
+      { "name": "graphite", "selector": "[data-theme=\"graphite\"]", "displayName": "Yumuşak Grafit" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Ana düğme", "kind": "button", "refersTo": "button-primary",
+      "description": "Her ekranın ana eylemi; lapis.",
+      "html": "<button class=\"ds-btn-primary\">Rezervasyon oluştur</button>",
+      "css": ".ds-btn-primary{background:#3d5a8a;color:#eef0f3;border:0;border-radius:8px;padding:10px 20px;font:600 15px 'Source Sans 3',sans-serif;transition:background .15s}.ds-btn-primary:hover{background:#344e79}.ds-btn-primary:focus-visible{outline:2px solid rgba(61,90,138,.75);outline-offset:2px}.ds-btn-primary:active{transform:translateY(1px)}"
+    },
+    {
+      "name": "İkincil düğme", "kind": "button", "refersTo": "button-secondary",
+      "description": "Yan eylemler.",
+      "html": "<button class=\"ds-btn-secondary\">Önizle</button>",
+      "css": ".ds-btn-secondary{background:#eae7e1;color:#2e2b28;border:1px solid #c4bdb3;border-radius:8px;padding:10px 20px;font:500 15px 'Source Sans 3',sans-serif;transition:border-color .15s}.ds-btn-secondary:hover{border-color:#8f887f}.ds-btn-secondary:focus-visible{outline:2px solid rgba(61,90,138,.75);outline-offset:2px}"
+    },
+    {
+      "name": "Giriş alanı", "kind": "input", "refersTo": "input",
+      "description": "Form alanı.",
+      "html": "<input class=\"ds-input\" placeholder=\"ör. ARGOS\" />",
+      "css": ".ds-input{background:#eae7e1;color:#2e2b28;border:1px solid #c4bdb3;border-radius:8px;padding:10px 14px;font:400 15px 'Source Sans 3',sans-serif}.ds-input::placeholder{color:rgba(98,92,85,.6)}.ds-input:focus{outline:none;border-color:rgba(61,90,138,.6);box-shadow:0 0 0 2px rgba(61,90,138,.3)}"
+    },
+    {
+      "name": "Menü satırı", "kind": "nav", "refersTo": "nav-item-active",
+      "description": "Çerçevesiz menü satırı; aktif olan dolu lapis.",
+      "html": "<nav class=\"ds-nav\"><a class=\"ds-nav-item is-active\">Ana Sayfa</a><a class=\"ds-nav-item\">Planlama</a></nav>",
+      "css": ".ds-nav{background:#cfc9c0;padding:8px;width:240px}.ds-nav-item{display:block;padding:8px 12px;border-radius:8px;color:#625c55;font:500 15px 'Source Sans 3',sans-serif;cursor:pointer}.ds-nav-item:hover{background:rgba(46,43,40,.06);color:#2e2b28}.ds-nav-item.is-active{background:#3d5a8a;color:#eef0f3}"
+    },
+    {
+      "name": "Balon kodu rozeti", "kind": "chip", "refersTo": "balloon-chip",
+      "description": "Balonun zarf mürekkebiyle kod.",
+      "html": "<span class=\"ds-env\">BZR</span>",
+      "css": ".ds-env{--env:111 90 154;display:inline-flex;padding:2px 8px;border-radius:6px;font:700 12px 'Source Sans 3',sans-serif;letter-spacing:.04em;color:rgb(var(--env));background:rgb(var(--env)/.13);border:1px solid rgb(var(--env)/.35)}"
+    },
+    {
+      "name": "Uçuş bayrağı", "kind": "custom", "refersTo": "flag-go",
+      "description": "Sabah hava tavsiyesi; aktif blok genişler.",
+      "html": "<div class=\"ds-flags\"><div class=\"ds-flag off\">Uygun</div><div class=\"ds-flag on\"><b>Bugün dikkatli takip</b><small>Göreme · 06:10 · rüzgâr 8 km/sa</small></div><div class=\"ds-flag off\">Riskli</div></div>",
+      "css": ".ds-flags{display:flex;gap:6px;border-radius:12px;overflow:hidden;font-family:'Source Sans 3',sans-serif}.ds-flag{flex:1;min-height:64px;display:flex;flex-direction:column;justify-content:center;padding:12px 20px}.ds-flag.on{flex:4.2;background:#876b22;color:#f4f2ec}.ds-flag.on b{font:600 19px 'Source Serif 4',serif}.ds-flag.on small{font-size:13px;opacity:.9}.ds-flag.off{background:#ddd8d1;color:#625c55;align-items:center;font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.08em}"
+    },
+    {
+      "name": "Biniş kartı", "kind": "card", "refersTo": "panel",
+      "description": "Seçili balonun segmentli kartı.",
+      "html": "<div class=\"ds-pass\"><div class=\"ds-pass-top\"><b>BYF</b><span>21/28</span></div><dl><div><dt>Pilot</dt><dd>PILOT 1</dd></div><div><dt>Şoför</dt><dd>1, 2</dd></div></dl><hr/><code>GÜN 23.10.2026<br/>RZV 3 rezervasyon</code></div>",
+      "css": ".ds-pass{width:320px;background:#e4e0d9;border:1px solid #c4bdb3;border-radius:12px;padding:16px 20px;font-family:'Source Sans 3',sans-serif;color:#2e2b28}.ds-pass-top{display:flex;justify-content:space-between;align-items:baseline}.ds-pass-top b{font:600 34px 'Source Serif 4',serif;color:#4a6fa5}.ds-pass-top span{font:600 24px 'Source Serif 4',serif}.ds-pass dl div{display:grid;grid-template-columns:96px 1fr;padding:8px 0;border-bottom:1px solid #c4bdb3}.ds-pass dt{font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#625c55}.ds-pass dd{margin:0;font-weight:600}.ds-pass hr{border:0;border-top:2px dashed #c4bdb3;margin:12px 0}.ds-pass code{font:12.5px/1.9 'JetBrains Mono',monospace;color:#625c55}"
+    }
+  ],
+  "narrative": {
+    "northStar": "Kısık Tüf",
+    "overview": "İrtifa'yı bir balon işletmesinin operasyon sorumlusu gündüz, ofiste ve ekrana uzun süre bakarak kullanır. Zemin orta tonlu tüf taşı grisidir, kontrast düşüktür ve saf beyaz hiçbir yerde yoktur. Tek arayüz vurgusu Göreme kaya kiliselerinin soluk lapis mavisidir. Renk yalnız anlam taşır: uçuş bayrağı, balonun zarf rengi ve durum.",
+    "keyCharacteristics": ["Taş katmanları: zemin, ray, panel, açık yüzey, gömük alan; hepsi düz ve mat.", "Tek vurgu soluk lapis; turuncu ve amber vurgu olarak kullanılmaz.", "Başlıklar ve büyük rakamlar Source Serif 4, metin Source Sans 3, belge ve kod JetBrains Mono.", "Tablo rakamları her yerde tnum.", "Cam, bulanıklık, gradyan, parıltı ve 3D ikon yoktur."],
+    "rules": [
+      { "name": "The One Accent Rule", "body": "Arayüzde eylem rengi yalnız lapistir. Yeşil bir düğme \"başarılı\" anlamı taşır, eylem için kullanılmaz.", "section": "colors" },
+      { "name": "The Envelope Rule", "body": "Bir balonun rengi her ekranda aynıdır: rozet, zarf şeridi, koltuk çubuğu, biniş kartı kodu. Zarf mürekkepleri balon dışında hiçbir şeyi boyamaz.", "section": "colors" },
+      { "name": "The No-White Rule", "body": "Açık temada bile en açık yüzey Açık Tüf'tür (#eae7e1). Saf beyaz kullanılmaz.", "section": "colors" },
+      { "name": "The Mono-Means-Data Rule", "body": "Monospace yalnız belge numarası ve kart koçanı gibi okunacak veri için kullanılır. Süs amaçlı kullanılmaz.", "section": "typography" }
+    ],
+    "dos": ["Do renkleri her zaman CSS değişkenleri üzerinden kullanın.", "Do balon kodlarını balloonInk / balloonBadge / envStripe ile çizin.", "Do ana eylem için .btn-primary, ikincil eylem için .btn-secondary kullanın.", "Do dar ekranda tablo kolonlarını önceliğe göre gizleyin.", "Do durumu kenarlık tonu, rozet ve metinle birlikte gösterin."],
+    "donts": ["Don't turuncu ya da amber vurgu, cam, bulanıklık, gradyan, parıltı ya da 3D ikon kullanmayın.", "Don't saf beyaz zemin kullanmayın.", "Don't yeşili eylem düğmesi olarak kullanmayın.", "Don't kartlarda yan veya üst renk şeridi kullanmayın.", "Don't başlık üstüne küçük etiket (kicker) ya da iç içe kart koymayın.", "Don't app.js'i sorgu ekiyle (?v=) yüklemeyin."]
+  }
+}

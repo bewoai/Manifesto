@@ -78,7 +78,7 @@ function renderCards() {
 
     return `
       <div class="glass-panel rounded-3xl p-6 flex flex-col gap-5 animate-in">
-        <div class="flex items-center justify-between border-b border-white/5 pb-3">
+        <div class="flex items-center justify-between border-b border-line pb-3">
           <div class="flex items-center gap-3">
             <span class="material-symbols-outlined text-primary text-[28px]">${cat.icon}</span>
             <h2 class="font-headline text-headline-sm text-on-surface m-0">${cat.title}</h2>

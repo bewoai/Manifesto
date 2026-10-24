@@ -1,10 +1,13 @@
 /* ═══════════════════════════════════════════════════════════════════
    Ayarlar — Vision modu, API key, dosya yolları, KVKK
    ═══════════════════════════════════════════════════════════════════ */
-import { api, toast, renderHeader } from '/app.js';
+import { api, toast, renderHeader, applyTheme, currentTheme, balloonBadge, escapeHtml, setBalloonCodes } from '/app.js';
+import { collectIntMap } from '/capacity_rules.js';
 
 let currentSettings = {};
 let renderToken = 0;
+// Balon başına kapasite ve acente kotası tablolarının girilmiş (henüz kaydedilmemiş) değerleri.
+let capacityDraft = {};   // { KOD: '30' }
 
 export async function render(container) {
   const currentToken = ++renderToken;
@@ -13,12 +16,23 @@ export async function render(container) {
   container.innerHTML = `
     <div class="max-w-3xl pb-12">
       <!-- Sekmeler (Tabs) -->
-      <div class="flex gap-6 border-b border-white/10 mb-6 overflow-x-auto whitespace-nowrap custom-scrollbar pb-2">
+      <div class="flex flex-wrap gap-x-6 gap-y-1 border-b border-line mb-6" role="tablist">
         <button class="settings-tab px-1 py-2 font-semibold text-primary border-b-2 border-primary transition-colors" data-tab="panel-ocr" onclick="window.__switchSettingsTab('panel-ocr')">OCR / Lisans</button>
         <button class="settings-tab px-1 py-2 font-semibold text-on-surface-variant border-b-2 border-transparent hover:text-on-surface transition-colors" data-tab="panel-operasyon" onclick="window.__switchSettingsTab('panel-operasyon')">Operasyon / Firma</button>
         <button class="settings-tab px-1 py-2 font-semibold text-on-surface-variant border-b-2 border-transparent hover:text-on-surface transition-colors" data-tab="panel-excel" onclick="window.__switchSettingsTab('panel-excel')">Excel / Çıktılar</button>
         <button class="settings-tab px-1 py-2 font-semibold text-on-surface-variant border-b-2 border-transparent hover:text-on-surface transition-colors" data-tab="panel-hava" onclick="window.__switchSettingsTab('panel-hava')">Hava Durumu</button>
         <button class="settings-tab px-1 py-2 font-semibold text-on-surface-variant border-b-2 border-transparent hover:text-on-surface transition-colors" data-tab="panel-gelismis" onclick="window.__switchSettingsTab('panel-gelismis')">Gelişmiş / KVKK</button>
+        <button class="settings-tab px-1 py-2 font-semibold text-on-surface-variant border-b-2 border-transparent hover:text-on-surface transition-colors" data-tab="panel-gorunum" onclick="window.__switchSettingsTab('panel-gorunum')">Görünüm</button>
+      </div>
+
+      <!-- Görünüm (bilgisayar başına; kaydetmeye gerek yok) -->
+      <div id="panel-gorunum" class="glass-panel rounded-xl p-6 mb-6" style="display:none">
+        <h2 class="font-headline text-headline-sm text-on-surface mb-1">Tema</h2>
+        <p class="text-sm text-on-surface-variant mb-5">Seçim hemen uygulanır ve bu bilgisayarda hatırlanır. Menüdeki yarım daire düğmesiyle de geçiş yapabilirsiniz.</p>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4" role="radiogroup" aria-label="Tema">
+          ${themeCard('tuff', 'Kısık Tüf', 'Gündüz ofis için. Taş grisi zemin, düşük kontrast, saf beyaz yok.', ['#d9d4cc', '#e4e0d9', '#2e2b28', '#3d5a8a'])}
+          ${themeCard('graphite', 'Yumuşak Grafit', 'Loş ortam ve uzun oturumlar için. Sıcak gri koyu zemin.', ['#1f1e1c', '#282725', '#e4e0d9', '#7d9bd1'])}
+        </div>
       </div>
 
       <!-- Irtifa OCR Servisi -->
@@ -110,16 +124,34 @@ export async function render(container) {
           <span class="material-symbols-outlined text-primary text-3xl">air</span>
           <h2 class="font-headline text-headline-sm text-on-surface">Balon Ayarları</h2>
         </div>
-        <div class="form-group">
-          <label class="form-label">Balon kapasitesi (kişi)</label>
-          <input class="form-input" id="s-balloon-capacity" type="number" min="1" max="28" placeholder="28" />
-          <div class="form-help">Her balona en fazla kaç kişi binebilir. Otomatik atama bu sınırı kullanır.</div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div class="form-group">
+            <label class="form-label" for="s-balloon-capacity">Varsayılan balon kapasitesi (kişi)</label>
+            <input class="form-input" id="s-balloon-capacity" type="number" min="1" max="60" placeholder="28" oninput="window.__syncCapacityPlaceholders()" />
+            <div class="form-help">Kapasitesi ayrıca girilmeyen her balon bu sınırı kullanır. Otomatik atama bu sınıra göre yapılır.</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="s-daily-max-balloons">Günlük en fazla balon</label>
+            <input class="form-input" id="s-daily-max-balloons" type="number" min="0" max="50" placeholder="Sınırsız" />
+            <div class="form-help">Bir günde en fazla kaç balon uçabilir. Boş ya da 0 ise sınır yoktur.</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="s-daily-capacity">Günlük toplam kapasite (kişi)</label>
+            <input class="form-input" id="s-daily-capacity" type="number" min="0" max="2000" placeholder="Sınırsız" />
+            <div class="form-help">Acentenin bir günde satabileceği toplam kişi (ör. 112). Boş koltuk bu sınıra göre gösterilir; aşan rezervasyon onay ister.</div>
+          </div>
         </div>
         <div class="form-group">
-          <label class="form-label">Balon kodları</label>
-          <input class="form-input" id="s-balloon-codes" placeholder="BYF, BTK, BYJ, BZR, BZV" />
+          <label class="form-label" for="s-balloon-codes">Balon kodları</label>
+          <input class="form-input" id="s-balloon-codes" placeholder="BYF, BTK, BYJ, BZR, BZV" onchange="window.__renderCapacityRows()" />
           <div class="form-help">Virgülle ayır. Yeni rezervasyon bu balonlara sırayla (first-fit) atanır.</div>
         </div>
+        <div class="form-group">
+          <span class="form-label" id="s-capacity-table-label">Balon başına kapasite</span>
+          <div id="s-balloon-capacities" class="rounded-lg border border-line divide-y divide-line" aria-labelledby="s-capacity-table-label"></div>
+          <div class="form-help">Boş bırakılan balon varsayılan kapasiteyi kullanır. En fazla 60 kişi.</div>
+        </div>
+
       </div>
 
       <!-- Veri Kaynağı ve Çıktı (Excel) -->
@@ -248,7 +280,7 @@ export async function render(container) {
   `;
 
   window.__switchSettingsTab = function(tabId) {
-    const tabs = ['panel-ocr', 'panel-operasyon', 'panel-excel', 'panel-hava', 'panel-gelismis'];
+    const tabs = ['panel-ocr', 'panel-operasyon', 'panel-excel', 'panel-hava', 'panel-gelismis', 'panel-gorunum'];
     tabs.forEach(t => {
       const el = document.getElementById(t);
       if (el) el.style.display = (t === tabId) ? 'block' : 'none';
@@ -264,7 +296,35 @@ export async function render(container) {
     });
   };
 
+  window.__pickTheme = function(theme) {
+    applyTheme(theme);
+    document.querySelectorAll('[data-theme-card]').forEach((el) => {
+      const on = el.dataset.themeCard === theme;
+      el.setAttribute('aria-checked', String(on));
+      el.classList.toggle('border-primary', on);
+      el.classList.toggle('ring-2', on);
+      el.classList.toggle('border-line', !on);
+    });
+  };
+
   loadSettings(currentToken);
+}
+
+function themeCard(id, name, desc, swatches) {
+  const on = currentTheme() === id;
+  return `
+    <button type="button" role="radio" aria-checked="${on}" data-theme-card="${id}" onclick="window.__pickTheme('${id}')"
+      class="text-left rounded-xl border ${on ? 'border-primary ring-2' : 'border-line'} ring-primary/30 bg-raised p-4 hover:border-outline transition-colors">
+      <div class="flex h-16 rounded-lg overflow-hidden border border-line mb-3" aria-hidden="true">
+        <div class="w-1/4" style="background:${swatches[0]}"></div>
+        <div class="flex-1 flex flex-col justify-center gap-1.5 px-3" style="background:${swatches[1]}">
+          <div class="h-2 w-3/4 rounded" style="background:${swatches[2]}"></div>
+          <div class="h-2 w-1/3 rounded" style="background:${swatches[3]}"></div>
+        </div>
+      </div>
+      <div class="font-semibold text-on-surface">${name}</div>
+      <div class="text-sm text-on-surface-variant mt-0.5">${desc}</div>
+    </button>`;
 }
 
 async function loadSettings(token) {
@@ -305,6 +365,11 @@ function fillForm(s) {
   val('s-output-dir', s.output_dir);
   val('s-balloon-capacity', s.balloon_capacity);
   val('s-balloon-codes', Array.isArray(s.balloon_codes) ? s.balloon_codes.join(', ') : '');
+  val('s-daily-max-balloons', Number(s.daily_max_balloons) > 0 ? s.daily_max_balloons : '');
+  val('s-daily-capacity', Number(s.daily_capacity) > 0 ? s.daily_capacity : '');
+  capacityDraft = Object.fromEntries(Object.entries(s.balloon_capacities || {}).map(([k, v]) => [String(k).toUpperCase(), String(v)]));
+  if (Array.isArray(s.balloon_codes)) setBalloonCodes(s.balloon_codes);
+  renderCapacityRows({ keepDom: false });
   chk('s-weather-enabled', s.weather_enabled);
   val('s-weather-provider', s.weather_provider);
   val('s-weather-poll', s.weather_poll_minutes);
@@ -315,6 +380,46 @@ function fillForm(s) {
   val('s-weather-lon', s.weather_longitude);
   chk('s-delete-images', s.delete_images_after_write);
 }
+
+// ─── Balon başına kapasite ───
+const parseList = (text, upper = false) => String(text || '').split(',')
+  .map((s) => (upper ? s.trim().toUpperCase() : s.trim())).filter(Boolean);
+
+function capacityPlaceholder() {
+  const v = parseInt(document.getElementById('s-balloon-capacity')?.value, 10);
+  return String(v > 0 ? v : (currentSettings.balloon_capacity || 28));
+}
+
+function readCapacityDom() {
+  document.querySelectorAll('[data-capacity-code]').forEach((el) => {
+    capacityDraft[el.dataset.capacityCode] = el.value.trim();
+  });
+}
+
+function renderCapacityRows({ keepDom = true } = {}) {
+  const root = document.getElementById('s-balloon-capacities');
+  if (!root) return;
+  if (keepDom) readCapacityDom();
+  const codes = [...new Set(parseList(document.getElementById('s-balloon-codes')?.value, true))];
+  if (!codes.length) {
+    root.innerHTML = '<div class="px-3 py-3 text-sm text-on-surface-variant">Önce balon kodlarını girin.</div>';
+    return;
+  }
+  const ph = capacityPlaceholder();
+  root.innerHTML = codes.map((code) => `
+    <div class="flex items-center gap-3 px-3 py-2">
+      <span class="flex-1">${balloonBadge(code)}</span>
+      <input class="form-input w-28 py-1.5 tnum" type="number" min="1" max="60" data-capacity-code="${escapeHtml(code)}"
+        value="${escapeHtml(capacityDraft[code] || '')}" placeholder="${escapeHtml(ph)}" aria-label="${escapeHtml(code)} kapasitesi (kişi)" />
+      <span class="text-sm text-on-surface-variant w-8">kişi</span>
+    </div>`).join('');
+}
+window.__renderCapacityRows = () => renderCapacityRows();
+window.__syncCapacityPlaceholders = function() {
+  const ph = capacityPlaceholder();
+  document.querySelectorAll('[data-capacity-code]').forEach((el) => { el.placeholder = ph; });
+};
+
 
 window.__settingsImportPlan = async function() {
   const { toast } = await import('/app.js');
@@ -378,6 +483,24 @@ window.__saveSettings = async function() {
   if (cap) body.balloon_capacity = cap;
   const codes = gv('s-balloon-codes');
   if (codes) body.balloon_codes = codes.split(',').map(c => c.trim().toUpperCase()).filter(Boolean);
+  // Balon başına kapasite (yalnız listedeki kodlar; boş = varsayılan), günlük balon sınırı
+  readCapacityDom();
+  const codeSet = new Set(body.balloon_codes || parseList(codes, true));
+  body.balloon_capacities = collectIntMap(
+    Object.entries(capacityDraft).filter(([code]) => codeSet.has(code)).map(([name, value]) => ({ name, value })),
+    { upperKey: true },
+  );
+  body.daily_max_balloons = Math.max(0, parseInt(gv('s-daily-max-balloons'), 10) || 0);
+  body.daily_capacity = Math.max(0, parseInt(gv('s-daily-capacity'), 10) || 0);
+  // Acente kotası kaldırıldı (2026-10-24): satış acente bazında, sorumluluk alan acentede
+  body.agency_quotas = {};
+  body.default_agency_quota = 0;
+  const badCap = [['Varsayılan', cap], ...Object.entries(body.balloon_capacities)].find(([, n]) => n && (n < 1 || n > 60));
+  if (badCap) {
+    toast.warning('Kapasite 1–60 arası olmalı', `${badCap[0]}: ${badCap[1]}`);
+    window.__switchSettingsTab?.('panel-operasyon');
+    return;
+  }
   const poll = parseInt(gv('s-weather-poll'), 10);
   if (poll) body.weather_poll_minutes = poll;
 

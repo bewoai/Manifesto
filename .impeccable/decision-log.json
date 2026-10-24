@@ -1,0 +1,15 @@
+{
+  "surface": "frontend (tüm uygulama kabuğu + ana sayfa)",
+  "mode": "operate",
+  "seed_key": "cb56260a",
+  "rounds": [
+    {"round": 0, "register": "default", "payload": "decision-direction.json", "answer": "reroll", "steer_register": "bolder"},
+    {"round": 1, "register": "bolder", "payload": "decision-direction-r1.json", "answer": "reroll", "steer_register": "safer"},
+    {"round": 2, "register": "safer", "payload": "decision-direction-r2.json", "answer": "page closed; user browsed gallery.html instead"},
+    {"round": 3, "register": "user-steered", "note": "Kullanıcı: 'fazla beyazlar göz yorar, daha sakin' → r3-dimtuff + r3-graphite üretildi; cevap: ikisi de, Ayarlar'dan seçilsin"},
+    {"round": 4, "register": "user-steered", "note": "Kullanıcı: 'balon zarfı, biniş kartı ve panosu ve sabah uçuş bayrağı gözüme en iyi gelenler' → birleşim; r4-fusion comp'u OpenAI kredisi bittiği için üretilemedi, code-led devam"}
+  ],
+  "chosen": "Kısık Tüf palet (r3-dimtuff) + Yumuşak Grafit (r3-graphite) + Balon Zarfı (r2-envelope) + Kapı Panosu/Biniş Kartı (challenger-boarding) + Sabah Uçuş Bayrağı (model-pick)",
+  "approved_comp": null,
+  "build_path": "code (comp-led intended; image credits exhausted)"
+}

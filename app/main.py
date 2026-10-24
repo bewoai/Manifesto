@@ -44,10 +44,13 @@ from app.manifest.planning import (
     assign_balloon as planning_assign_balloon,
     choose_balloon as planning_choose_balloon,
     free_seat_summary as planning_free_seat_summary,
+    hotel_seats_by_balloon as planning_hotel_seats_by_balloon,
+    hotel_split as planning_hotel_split,
     pilot_for_balloon as planning_pilot_for_balloon,
     create_reservation as planning_create_reservation,
     delete_reservation as planning_delete_reservation,
     list_sheets as planning_list_sheets,
+    month_load as planning_month_load,
     create_day_sheet as planning_create_day_sheet,
     create_missing_days as planning_create_missing_days,
     reorder_reservation as planning_reorder_reservation,
@@ -67,6 +70,7 @@ from app.passport_store import (
     save_image,
 )
 from app.readiness import check_blocks, check_workbook
+from app import hotels as hotels_mod
 from app.reports import (
     driver_rows,
     driver_summary,
@@ -751,6 +755,95 @@ def api_lists_delete(body: dict) -> dict:
     return _lists_payload(s)
 
 
+# ─── Otel kartları ───────────────────────────────────────────────────────
+
+def _planning_hotel_counts(s: settings_mod.Settings) -> dict[str, int]:
+    """Planlama dosyasının gün sayfalarındaki otel yazımları → rezervasyon sayısı."""
+    from collections import Counter
+
+    counts: Counter[str] = Counter()
+    if s.uses_google_sheets():
+        return {}
+    xlsx_path = s.planning_path()
+    if not xlsx_path.exists():
+        return {}
+    for sheet in planning_list_sheets(xlsx_path):
+        try:
+            blocks = read_blocks(xlsx_path, sheet)
+        except Exception:
+            continue
+        for block in blocks:
+            if block.hotel.strip():
+                counts[block.hotel.strip()] += 1
+    return dict(counts)
+
+
+def _hotels_payload(s: settings_mod.Settings) -> dict:
+    counts = _planning_hotel_counts(s)
+    cards = hotels_mod.load_catalog()
+    res = hotels_mod.HotelResolver(cards)
+    per_card: dict[str, int] = {}
+    for name, n in counts.items():
+        card = res.resolve(name)
+        if card:
+            per_card[card.id] = per_card.get(card.id, 0) + n
+    total = sum(counts.values())
+    matched = sum(per_card.values())
+    return {
+        "regions": list(hotels_mod.REGIONS),
+        "cards": [{**asdict(c), "count": per_card.get(c.id, 0)} for c in cards],
+        "unmatched": hotels_mod.unmatched_groups(counts, cards),
+        "stats": {"reservations": total, "matched": matched, "cards": len(cards),
+                  "with_region": sum(1 for c in cards if c.region)},
+    }
+
+
+@app.get("/api/hotels")
+def api_hotels() -> dict:
+    """Otel kartları + planlamada karta bağlanmamış yazımlar (benzerliğe göre öbekli)."""
+    return _hotels_payload(_load_settings())
+
+
+@app.post("/api/hotels/card")
+def api_hotels_card(body: dict, request: Request) -> dict:
+    """Kart oluştur/güncelle: id?, name, aliases?, region, meeting_point, map_url."""
+    try:
+        card = hotels_mod.upsert_card(body)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    audit_mod.record("hotel_card_saved", actor=_actor(request), detail={"id": card.id, "name": card.name})
+    return {"success": True, "card": asdict(card)}
+
+
+@app.post("/api/hotels/merge")
+def api_hotels_merge(body: dict, request: Request) -> dict:
+    """Yazımları tek otel kartına bağlar (card_id varsa o karta, yoksa name ile yeni kart)."""
+    names = body.get("names") or []
+    if not isinstance(names, list):
+        raise HTTPException(status_code=422, detail="names liste olmalı.")
+    try:
+        card = hotels_mod.merge_names(
+            [str(n) for n in names], card_id=str(body.get("card_id") or ""),
+            name=str(body.get("name") or ""), region=str(body.get("region") or ""),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e).strip("'\""))
+    audit_mod.record("hotel_names_merged", actor=_actor(request),
+                     detail={"id": card.id, "name": card.name, "names": names[:50]})
+    return {"success": True, "card": asdict(card)}
+
+
+@app.post("/api/hotels/delete")
+def api_hotels_delete(body: dict, request: Request) -> dict:
+    card_id = str(body.get("id") or "")
+    if not hotels_mod.delete_card(card_id):
+        raise HTTPException(status_code=404, detail="Otel kartı bulunamadı.")
+    audit_mod.record("hotel_card_deleted", actor=_actor(request), detail={"id": card_id})
+    return {"success": True}
+
+
 @app.post("/api/lists/scan")
 def api_lists_scan() -> dict:
     """Planlama Excel'indeki geçmiş günleri tarayıp öneri listelerini doldur."""
@@ -836,7 +929,12 @@ def api_planning_sheets() -> dict:
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Sayfalar okunamadı: {e}")
 
-    return {"sheets": sheets, "source": source}
+    # Yalnız gün sayfaları (GG.AA.YYYY), tarih sırasıyla. "Sayfa1" gibi özet/kapasite
+    # sayfaları gün seçicilerde görünmez; varsayılan olarak "son gün" yerine seçilmezler.
+    from app.manifest.planning import sheet_date
+    days = sorted((name for name in sheets if sheet_date(name)), key=sheet_date)
+    other = [name for name in sheets if not sheet_date(name)]
+    return {"sheets": days or sheets, "other_sheets": other if days else [], "source": source}
 
 
 @app.get("/api/planning/load")
@@ -879,10 +977,7 @@ def api_planning_load(sheet: str = Query(..., description="Gün sayfa adı")) ->
             balloon_codes.append(code)
 
     load = planning_balloon_load(blocks)
-    readiness = check_blocks(
-        blocks,
-        balloon_capacity=s.balloon_capacity,
-    )
+    readiness = check_blocks(blocks, **_readiness_rules(s))
     try:
         free_seats = planning_free_seat_summary(read_rows(xlsx_path, sheet), blocks)
     except Exception:
@@ -893,11 +988,218 @@ def api_planning_load(sheet: str = Query(..., description="Gün sayfa adı")) ->
         "blocks": [_block_to_dict(b) for b in blocks],
         "balloon_codes": balloon_codes,
         "balloon_load": load,
-        "capacity": s.balloon_capacity,
+        "capacity": s.balloon_capacity,               # varsayılan kapasite
+        "capacities": _capacities(s, balloon_codes),  # balon → kapasite
+        "daily_max_balloons": s.daily_max_balloons,   # 0 = sınır yok
+        "daily_capacity": s.daily_capacity,           # günlük toplam kişi; 0 = sınır yok
+        "balloons_in_use": sum(1 for v in load.values() if v > 0),
         "total_blocks": len(blocks),
         "workbook_revision": revision,
         "readiness": readiness,
         "free_seats": free_seats,   # koltuk şablonu: balon → {free, longest}
+        # 2+ balona dağılmış oteller: birleştirme önerisi (readiness değil, çıktıyı engellemez)
+        "hotel_split": planning_hotel_split(blocks, _hotel_key()),
+    }
+
+
+# Takvim doluluğu: (dosya, ay, revizyon, kapasite, kodlar) → gün → {used, free, total}.
+# Revizyon dosya içeriğinden türediği için Excel dışarıdan değişince anahtar da değişir;
+# kaynak yine Excel'dir, önbellek yalnız aynı içeriğin tekrar okunmasını önler.
+_MONTH_LOAD_CACHE: dict[tuple, dict] = {}
+_MONTH_LOAD_CACHE_MAX = 24
+
+
+@app.get("/api/planning/view")
+def api_planning_view(sheet: str = Query(..., description="Gün sayfası, ör. 22.10.2026")) -> dict[str, Any]:
+    """Planlama Excel'inin bir gün sayfasını uygulama içinde göstermek için hücre değerleri.
+
+    Satırlar Excel'deki gerçek satır numaralarıyla döner (uyarılardaki "Satır 83" bulunabilsin).
+    Ortak salt-okunur ızgara kullanılır; dosya değişmediyse diske gidilmez.
+    """
+    from app.manifest.planning import workbook_grid
+
+    s = _load_settings()
+    xlsx_path = _resolve_planning_path(s)
+    if not xlsx_path.exists():
+        raise HTTPException(status_code=404, detail=f"Planlama dosyası bulunamadı: {xlsx_path}")
+    try:
+        grid = workbook_grid(xlsx_path)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Planlama dosyası okunamadı: {e}")
+    if sheet not in grid:
+        raise HTTPException(status_code=404, detail=f"'{sheet}' sayfası yok.")
+    values = grid[sheet]
+    header_idx = config.PLANNING_HEADER_ROW - 1
+    header = [_cell_text(v) for v in values[header_idx]] if len(values) > header_idx else []
+    # İlk veri satırından son dolu satıra kadar HEPSİ (ara boşluklar dahil): birleşik
+    # alanların satır sayısı (rowspan) görünümde tutsun.
+    rows = [
+        {"row": i, "cells": [_cell_text(v) for v in row]}
+        for i, row in enumerate(values[config.PLANNING_FIRST_DATA_ROW - 1:], start=config.PLANNING_FIRST_DATA_ROW)
+    ]
+    while rows and not any(rows[-1]["cells"]):
+        rows.pop()
+    title = " ".join(t for t in (_cell_text(v) for r in values[:header_idx] for v in r) if t)
+    from app.manifest.planning import _merged_ranges
+    merges = [
+        {"row": min_row, "col": min_col, "rowspan": max_row - min_row + 1, "colspan": max_col - min_col + 1}
+        for (min_col, min_row, max_col, max_row) in _merged_ranges(xlsx_path).get(sheet, [])
+        if min_row >= config.PLANNING_FIRST_DATA_ROW and min_col <= config.COL_PASSPORT_NO
+    ]
+    return {
+        "merges": merges,
+        "sheet": sheet,
+        "file": xlsx_path.name,
+        "workbook_revision": workbook_revision(xlsx_path),
+        "first_data_row": config.PLANNING_FIRST_DATA_ROW,
+        "max_col": config.COL_PASSPORT_NO,
+        "title": title,
+        "header_row": config.PLANNING_HEADER_ROW,
+        "header": header,
+        "rows": rows,
+        "columns": {
+            "pax": config.COL_PAX, "name": config.COL_NAME, "balloon": config.COL_BALLOON,
+            "passport": config.COL_PASSPORT_NO,
+        },
+    }
+
+
+@app.post("/api/planning/cells")
+def api_planning_write_cells(body: dict, request: Request) -> dict[str, Any]:
+    """Uygulama içi Excel görünümünden hücre düzenlemeleri (toplu, tek yedekli yazım).
+
+    body: {"sheet": "22.10.2026", "expected_revision": "...", "changes": [{"row": 83, "col": 7, "value": "04:30"}]}
+    Yalnız veri satırları (4+) ve A..T kolonları; birleşik alanın sol üstü dışındaki hücre
+    yazılamaz. Biçim korunur (tam yükleme). PAX sayıya, pasaport metne çevrilir.
+    """
+    import openpyxl
+    from openpyxl.cell.cell import MergedCell
+
+    sheet = str(body.get("sheet", "")).strip()
+    changes = body.get("changes") or []
+    if not sheet or not isinstance(changes, list) or not changes:
+        raise HTTPException(status_code=422, detail="Gün ve en az bir değişiklik gerekli.")
+    if len(changes) > 2000:
+        raise HTTPException(status_code=422, detail="Tek seferde en fazla 2000 hücre.")
+    cleaned: list[tuple[int, int, Any]] = []
+    for ch in changes:
+        try:
+            r, c = int(ch.get("row")), int(ch.get("col"))
+        except (TypeError, ValueError, AttributeError):
+            raise HTTPException(status_code=422, detail="Geçersiz hücre adresi.")
+        if r < config.PLANNING_FIRST_DATA_ROW or not 1 <= c <= config.COL_PASSPORT_NO:
+            raise HTTPException(status_code=422, detail=f"Satır {r}, kolon {c} düzenlenemez.")
+        raw = ch.get("value")
+        text = "" if raw is None else str(raw).strip()
+        value: Any = text or None
+        if value is not None and c == config.COL_PAX:
+            try:
+                value = int(float(text))
+            except ValueError:
+                raise HTTPException(status_code=422, detail=f"Satır {r}: PAX sayı olmalı.")
+        elif value is not None and c in (config.COL_NAME, config.COL_PASSPORT_NO, config.COL_UYRUK, config.COL_BALLOON):
+            value = text.upper()
+        cleaned.append((r, c, value))
+
+    s = _load_settings()
+    xlsx_path = _resolve_planning_path(s)
+    if not xlsx_path.exists():
+        raise HTTPException(status_code=404, detail=f"Planlama dosyası bulunamadı: {xlsx_path}")
+
+    def mutate(temp: Path) -> int:
+        wb = openpyxl.load_workbook(temp)
+        try:
+            if sheet not in wb.sheetnames:
+                raise KeyError(f"'{sheet}' sayfası yok.")
+            ws = wb[sheet]
+            for r, c, value in cleaned:
+                cell = ws.cell(r, c)
+                if isinstance(cell, MergedCell):
+                    raise ValueError(f"Satır {r}, kolon {c} birleşik bir alanın içinde; alanın ilk hücresini düzenleyin.")
+                cell.value = value
+                if c == config.COL_PASSPORT_NO and value is not None:
+                    cell.number_format = "@"
+            wb.save(temp)
+        finally:
+            wb.close()
+        return len(cleaned)
+
+    try:
+        count, revision, backup = atomic_update(
+            xlsx_path,
+            expected_revision=body.get("expected_revision"),
+            reason="edit_cells",
+            mutator=mutate,
+        )
+    except (WorkbookConflictError, WorkbookLockedError) as e:
+        raise _atomic_error(e)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e).strip("'\""))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Hücreler yazılamadı: {e}")
+
+    audit_mod.record(
+        "cells_edited",
+        actor=_actor(request),
+        sheet=sheet,
+        detail={"count": count, "cells": [f"{openpyxl.utils.get_column_letter(c)}{r}" for r, c, _ in cleaned[:50]]},
+    )
+    _sync_sqlite(sheet)
+    return {"success": True, "count": count, "workbook_revision": revision, "backup": backup.name}
+
+
+
+
+@app.post("/api/planning/open-excel")
+def api_planning_open_excel() -> dict[str, Any]:
+    """Planlama dosyasını Excel'de açar. Not: Excel açıkken dosya kilitlenir, uygulama yazamaz."""
+    s = _load_settings()
+    xlsx_path = _resolve_planning_path(s)
+    if not xlsx_path.exists():
+        raise HTTPException(status_code=404, detail=f"Planlama dosyası bulunamadı: {xlsx_path}")
+    if os.name == "nt":
+        os.startfile(str(xlsx_path))  # noqa: S606 — yerel masaüstü uygulaması
+    return {"path": str(xlsx_path)}
+
+
+@app.get("/api/planning/month-load")
+def api_planning_month_load(month: str = Query(..., pattern=r"^\d{4}-\d{2}$", description="YYYY-AA")) -> dict:
+    """Takvim için ayın her uçuş gününün koltuk doluluğu."""
+    year, mon = (int(x) for x in month.split("-"))
+    if not 1 <= mon <= 12:
+        raise HTTPException(status_code=422, detail=f"Geçersiz ay: {month}")
+    s = _load_settings()
+    xlsx_path = _resolve_planning_path(s)
+    if not xlsx_path.exists():
+        raise HTTPException(status_code=404, detail=f"Planlama dosyası bulunamadı: {xlsx_path}")
+    try:
+        revision = workbook_revision(xlsx_path)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Planlama dosyası okunamadı: {e}")
+
+    capacity = s.balloon_capacity
+    codes = tuple(s.balloon_codes)
+    per_balloon = tuple(sorted(s.balloon_capacities.items()))
+    key = (str(xlsx_path.resolve()), month, revision, capacity, per_balloon, codes)
+    days = _MONTH_LOAD_CACHE.get(key)
+    cached = days is not None
+    if not cached:
+        try:
+            days = planning_month_load(xlsx_path, year, mon, capacity=s.capacity_for, codes=list(codes))
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Doluluk hesaplanamadı: {e}")
+        while len(_MONTH_LOAD_CACHE) >= _MONTH_LOAD_CACHE_MAX:
+            _MONTH_LOAD_CACHE.pop(next(iter(_MONTH_LOAD_CACHE)))
+        _MONTH_LOAD_CACHE[key] = days
+
+    return {
+        "month": month,
+        "days": days,
+        "capacity": capacity,
+        "workbook_revision": revision,
+        "cached": cached,
     }
 
 
@@ -1046,8 +1348,13 @@ def api_planning_create_block(body: dict, request: Request) -> dict:
         raise HTTPException(status_code=500, detail=f"Sayfa okunamadı: {e}")
 
     load = planning_balloon_load(blocks)
+    _check_daily_capacity(s, load, pax, body)
     requested_balloon = str(body.get("requested_balloon", "")).strip().upper()
-    choice = planning_choose_balloon(rows, blocks, pax, s.balloon_codes, s.balloon_capacity)
+    allowed = _daily_allowed_balloons(s, load)
+    lead_hotel = lead_fields.get("hotel", "")
+    lead_pickup = lead_fields.get("pickup", "")
+    choice = planning_choose_balloon(rows, blocks, pax, s.balloon_codes, s.capacity_for, allowed=allowed,
+                                     hotel=lead_hotel, pickup=lead_pickup, hotel_key=_hotel_key())
     balloon, overflow = choice["balloon"], choice["overflow"]
     if not balloon:
         raise HTTPException(status_code=409, detail="Tanımlı balon kodu yok (Settings).")
@@ -1055,10 +1362,11 @@ def api_planning_create_block(body: dict, request: Request) -> dict:
     if overflow and not (allow_overflow and requested_balloon in s.balloon_codes):
         raise HTTPException(
             status_code=409,
-            detail=_capacity_detail(choice, rows, blocks, load, s, pax),
+            detail=_capacity_detail(choice, rows, blocks, load, s, pax, allowed=allowed),
         )
     if overflow:
         balloon = requested_balloon
+    hotel_match = _hotel_match(blocks, lead_hotel, balloon, lead_pickup)
     pilot = planning_pilot_for_balloon(rows, balloon)
 
     try:
@@ -1086,7 +1394,7 @@ def api_planning_create_block(body: dict, request: Request) -> dict:
         actor=_actor(request),
         sheet=sheet,
         reservation_row=result["lead_row"],
-        detail={"pax": pax, "balloon": balloon, "overflow": overflow},
+        detail={"pax": pax, "balloon": balloon, "overflow": overflow, "hotel_match": hotel_match},
     )
     _sync_sqlite(sheet)
     return {
@@ -1094,14 +1402,17 @@ def api_planning_create_block(body: dict, request: Request) -> dict:
         "balloon": balloon,
         "pilot": pilot,
         "overflow": overflow,
+        "hotel_match": hotel_match,
         "lead_row": result["lead_row"],
         "rows": result["rows"],
         "capacity": s.balloon_capacity,
+        "balloon_capacity": s.capacity_for(balloon),
         "load": new_load,
         "message": (
             f"{pax} kişilik rezervasyon {balloon} balonuna atandı "
-            f"({new_load[balloon]}/{s.balloon_capacity})."
+            f"({new_load[balloon]}/{s.capacity_for(balloon)})."
             + (" ⚠ Tüm balonlar dolu, en boş balona yerleştirildi." if overflow else "")
+            + _hotel_note(lead_hotel, balloon, hotel_match)
         ),
         "workbook_revision": revision,
         "backup": backup.name,
@@ -1575,14 +1886,87 @@ def _mark_extractions_approved(identities: list[dict], sheet: str, rows: list[in
     return removed
 
 
-def _capacity_detail(choice: dict, rows, blocks, load: dict, s, pax: int) -> dict:
-    """409 kapasite onayı gövdesi; koltuk şablonunda serbest koltuk özeti eklenir."""
+def _readiness_rules(s: settings_mod.Settings) -> dict:
+    """check_blocks/check_workbook için kapasite kuralları (balon başına kapasite, günlük
+    balon sınırı). Acente kotası yok: satış acente bazında, sorumluluk alan acentede."""
+    return {
+        "balloon_capacity": s.capacity_for,
+        "daily_max_balloons": s.daily_max_balloons,
+        "daily_capacity": s.daily_capacity,
+    }
+
+
+def _check_daily_capacity(s: settings_mod.Settings, load: dict, pax: int, body: dict) -> None:
+    """Günlük toplam kapasite (Ayarlar, ör. 112 kişi) aşılacaksa 409 daily_capacity_exceeded.
+
+    Operatör onaylarsa (`allow_daily_capacity_override`) rezervasyon yine de eklenir."""
+    limit = int(s.daily_capacity or 0)
+    if limit <= 0 or body.get("allow_daily_capacity_override"):
+        return
+    used = sum(int(v or 0) for v in load.values())
+    if used + pax > limit:
+        raise HTTPException(status_code=409, detail={
+            "code": "daily_capacity_exceeded",
+            "used": used,
+            "pax": pax,
+            "capacity": limit,
+            "message": f"Günlük kapasite {limit} kişi. Bu günde {used} kişi var; {pax} kişilik rezervasyon "
+                       f"ile {used + pax} olur.",
+        })
+
+
+def _capacities(s: settings_mod.Settings, codes) -> dict[str, int]:
+    """Balon kodu → kapasite: Ayarlar'daki kodlar + verilen (sayfada görülen) kodlar."""
+    out: dict[str, int] = {}
+    for code in [*s.balloon_codes, *codes]:
+        c = str(code or "").strip().upper()
+        if c and c not in out:
+            out[c] = s.capacity_for(c)
+    return out
+
+
+def _hotel_key():
+    """Otel gruplama anahtarı: kartlı otelin bütün yazımları tek otel sayılır."""
+    return hotels_mod.resolver().key
+
+
+def _hotel_match(blocks, hotel: str, balloon: str, pickup: str = "") -> bool:
+    """Seçilen balon bu otelin (aynı pickup saatindeki) yolcularını zaten taşıyor mu."""
+    return bool(balloon) and balloon in planning_hotel_seats_by_balloon(blocks, hotel, pickup, _hotel_key())
+
+
+def _hotel_note(hotel: str, balloon: str, matched: bool) -> str:
+    """Başarı mesajına otel gruplaması notu (gruplama olmadıysa boş)."""
+    if not matched:
+        return ""
+    return f" {hotel.strip()} otelinin diğer yolcularıyla aynı balona ({balloon}) atandı."
+
+
+def _daily_allowed_balloons(s: settings_mod.Settings, load: dict) -> Optional[set[str]]:
+    """Günlük balon sınırı dolduysa yeni rezervasyonun gidebileceği (uçan) balonlar; yoksa None."""
+    limit = int(s.daily_max_balloons or 0)
+    if limit <= 0:
+        return None
+    in_use = {b for b, used in load.items() if used > 0}
+    return in_use if len(in_use) >= limit else None
+
+
+
+def _capacity_detail(choice: dict, rows, blocks, load: dict, s, pax: int,
+                     allowed: Optional[set[str]] = None) -> dict:
+    """409 kapasite onayı gövdesi; koltuk şablonunda serbest koltuk özeti eklenir.
+
+    `allowed` doluysa günlük balon sınırı dolmuştur: yalnız uçan balonlar adaydı.
+    """
     detail = {
         "code": "capacity_confirmation_required",
         "message": "Hiçbir balonda grubun tamamına yer yok.",
         "balloon_load": load,
         "capacity": s.balloon_capacity,
+        "capacities": _capacities(s, load.keys()),
         "balloon_codes": s.balloon_codes,
+        "daily_max_balloons": s.daily_max_balloons,
+        "daily_limit_reached": allowed is not None,
     }
     if choice.get("mode") == "seat":
         seats = planning_free_seat_summary(rows, blocks)
@@ -1592,6 +1976,14 @@ def _capacity_detail(choice: dict, rows, blocks, load: dict, s, pax: int) -> dic
             "Onaylarsanız rezervasyon şablonun altına eklenir."
         )
         detail["free_seats"] = seats
+    if allowed is not None:
+        flying = ", ".join(sorted(allowed))
+        detail["balloons_in_use"] = sorted(allowed)
+        detail["message"] = (
+            f"Günlük balon sınırı ({s.daily_max_balloons}) dolu; yalnız uçan balonlara eklenebilir "
+            f"({flying}), hiçbirinde {pax} kişilik yer yok. "
+            "Onaylarsanız seçtiğiniz balona eklenir."
+        )
     return detail
 
 
@@ -1622,15 +2014,23 @@ def api_create_with_identities(body: dict, request: Request) -> dict:
     current_rows = read_rows(path, sheet)
     current_blocks = read_blocks(path, sheet)
     current_load = planning_balloon_load(current_blocks)
-    choice = planning_choose_balloon(current_rows, current_blocks, pax, s.balloon_codes, s.balloon_capacity)
+    _check_daily_capacity(s, current_load, pax, body)
+    allowed = _daily_allowed_balloons(s, current_load)
+    lead_hotel = fields.get("hotel", "")
+    lead_pickup = fields.get("pickup", "")
+    choice = planning_choose_balloon(current_rows, current_blocks, pax, s.balloon_codes, s.capacity_for,
+                                     allowed=allowed, hotel=lead_hotel, pickup=lead_pickup,
+                                     hotel_key=_hotel_key())
     suggested, overflow = choice["balloon"], choice["overflow"]
     requested = str(body.get("requested_balloon", "")).strip().upper()
     if overflow and not (body.get("allow_overflow") and requested in s.balloon_codes):
         raise HTTPException(
             status_code=409,
-            detail=_capacity_detail(choice, current_rows, current_blocks, current_load, s, pax),
+            detail=_capacity_detail(choice, current_rows, current_blocks, current_load, s, pax,
+                                    allowed=allowed),
         )
     balloon = requested if overflow else suggested
+    hotel_match = _hotel_match(current_blocks, lead_hotel, balloon, lead_pickup)
 
     def mutate(temp: Path) -> dict:
         rows = read_rows(temp, sheet)
@@ -1665,7 +2065,8 @@ def api_create_with_identities(body: dict, request: Request) -> dict:
         actor=_actor(request),
         sheet=sheet,
         reservation_row=result["lead_row"],
-        detail={"pax": pax, "identity_count": len(identities), "balloon": balloon},
+        detail={"pax": pax, "identity_count": len(identities), "balloon": balloon,
+                "hotel_match": hotel_match},
     )
     if not s.uses_google_sheets():
         _sync_sqlite(sheet)
@@ -1673,7 +2074,10 @@ def api_create_with_identities(body: dict, request: Request) -> dict:
         "success": True,
         **result,
         "overflow": overflow,
+        "hotel_match": hotel_match,
+        "message": f"{pax} kişilik rezervasyon {balloon} balonuna atandı." + _hotel_note(lead_hotel, balloon, hotel_match),
         "capacity": s.balloon_capacity,
+        "balloon_capacity": s.capacity_for(balloon),
         "workbook_revision": revision,
         "backup": backup.name,
     }
@@ -2029,6 +2433,64 @@ def api_passport_manual_review_resolve(req: ResolveManualReviewRequest, request:
     return {"success": True, "record": result}
 
 
+@app.post("/api/passport/manual-review/dismiss")
+def api_passport_manual_review_dismiss(request: Request, body: dict) -> dict:
+    """Bekleyen manuel kontrol kayıtlarını toplu kaldırır (reddedildi sayılır; Excel'e dokunmaz).
+
+    body: {"ids": [1, 2, ...]} ya da {"all": true}. Başka bir canlı kaydın kullanmadığı
+    kaynak görseller diskten silinir (KVKK, yer açar). Bir liste görselinden birden çok
+    yolcu çıkabildiği için görsel ancak son kullanan kayıt da kaldırılınca silinir.
+    """
+    dismiss_all = bool(body.get("all"))
+    raw_ids = body.get("ids") or []
+    if not dismiss_all:
+        if not isinstance(raw_ids, list) or not raw_ids:
+            raise HTTPException(status_code=422, detail="Kaldırılacak kayıt seçilmedi.")
+        try:
+            ids = sorted({int(i) for i in raw_ids})
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=422, detail="Kayıt kimlikleri sayı olmalı.")
+
+    pending = "requires_manual_review = 1 AND status = 'pending'"
+    conn = connect()
+    try:
+        if dismiss_all:
+            rows = conn.execute(f"SELECT id, source_media_id FROM passport_extraction WHERE {pending}").fetchall()
+        else:
+            marks = ",".join("?" * len(ids))
+            rows = conn.execute(
+                f"SELECT id, source_media_id FROM passport_extraction WHERE {pending} AND id IN ({marks})",
+                ids,
+            ).fetchall()
+        target_ids = [r["id"] for r in rows]
+        if target_ids:
+            marks = ",".join("?" * len(target_ids))
+            conn.execute(
+                f"UPDATE passport_extraction SET status = 'rejected', requires_manual_review = 0, "
+                f"manual_review_reason = 'operator_dismissed' WHERE id IN ({marks})",
+                target_ids,
+            )
+        sources = sorted({r["source_media_id"] for r in rows if r["source_media_id"]})
+        orphaned = [
+            src for src in sources
+            if not conn.execute(
+                "SELECT 1 FROM passport_extraction WHERE source_media_id = ? AND status != 'rejected' LIMIT 1",
+                (src,),
+            ).fetchone()
+        ]
+        conn.commit()
+    finally:
+        conn.close()
+
+    removed_files = sum(1 for src in orphaned if delete_passport_image(src))
+    audit_mod.record(
+        "manual_review_dismissed",
+        actor=_actor(request),
+        detail={"count": len(target_ids), "all": dismiss_all, "removed_files": removed_files},
+    )
+    return {"success": True, "dismissed": len(target_ids), "removed_files": removed_files}
+
+
 @app.post("/api/passport/cleanup")
 def api_passport_cleanup(request: Request, body: dict) -> dict:
     requested_day = str(body.get("day") or "").strip()
@@ -2128,13 +2590,13 @@ def api_manifest_export(
     """Balon için manifesto xlsx dosyasını üret ve indir."""
     balloon = _balloon_param(balloon)
     s = _load_settings()
-    out_dir = s.output_path()
+    out_dir = s.output_path() / _safe_output_name(sheet) / "Manifestolar"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     try:
         xlsx_path = _resolve_planning_path(s)
         readiness = check_workbook(
-            xlsx_path, sheet, balloon_capacity=s.balloon_capacity
+            xlsx_path, sheet, **_readiness_rules(s)
         )
         if readiness["issue_count"] and not override_reason.strip():
             raise HTTPException(
@@ -2175,7 +2637,7 @@ def api_manifest_export(
 def api_readiness(sheet: str) -> dict:
     s = _load_settings()
     path = _resolve_planning_path(s)
-    return check_workbook(path, sheet, balloon_capacity=s.balloon_capacity)
+    return check_workbook(path, sheet, **_readiness_rules(s))
 
 
 @app.get("/api/reports/drivers/preview")
@@ -2183,7 +2645,7 @@ def api_driver_report_preview(sheet: str) -> dict:
     s = _load_settings()
     path = _resolve_planning_path(s)
     blocks = read_blocks(path, sheet)
-    grouped = driver_rows(blocks)
+    grouped = driver_rows(blocks, hotels_mod.resolver())
     return {
         "drivers": [
             {"driver": driver, "count": len(rows), "rows": rows}
@@ -2202,7 +2664,7 @@ def api_driver_report_export(request: Request, body: dict) -> FileResponse:
     s = _load_settings()
     path = _resolve_planning_path(s)
     out_dir = s.output_path() / _safe_output_name(sheet) / "Sofor_Listeleri"
-    paths = export_driver_reports(path, sheet, out_dir, selected_driver=driver)
+    paths = export_driver_reports(path, sheet, out_dir, selected_driver=driver, hotels=hotels_mod.resolver())
     if not paths:
         raise HTTPException(status_code=404, detail="Şoför listesi oluşturulamadı.")
     summary_paths = export_summary(
@@ -2238,7 +2700,7 @@ def api_all_outputs(request: Request, body: dict) -> FileResponse:
     s = _load_settings()
     planning_path = _resolve_planning_path(s)
     readiness = check_workbook(
-        planning_path, sheet, balloon_capacity=s.balloon_capacity
+        planning_path, sheet, **_readiness_rules(s)
     )
     if readiness["issue_count"] and not reason:
         raise HTTPException(
@@ -2251,7 +2713,7 @@ def api_all_outputs(request: Request, body: dict) -> FileResponse:
         )
     out_dir = s.output_path() / _safe_output_name(sheet)
     out_dir.mkdir(parents=True, exist_ok=True)
-    outputs = export_driver_reports(planning_path, sheet, out_dir / "Sofor_Listeleri")
+    outputs = export_driver_reports(planning_path, sheet, out_dir / "Sofor_Listeleri", hotels=hotels_mod.resolver())
     outputs += export_summary(
         planning_path,
         sheet,
@@ -2294,6 +2756,110 @@ def api_open_output_folder(body: dict) -> dict[str, Any]:
         target = base
     if not target.exists():
         raise HTTPException(status_code=404, detail="Çıktı klasörü henüz oluşturulmadı.")
+    if os.name == "nt":
+        os.startfile(str(target))  # noqa: S606 — yerel masaüstü uygulaması
+    return {"path": str(target)}
+
+
+_OUTPUT_FILE_KINDS = {".xlsx": "excel", ".pdf": "pdf", ".zip": "zip", ".txt": "text"}
+
+
+def _day_output_dir(sheet: str) -> Path:
+    if not sheet:
+        raise HTTPException(status_code=422, detail="Gün seçimi gerekli.")
+    return (_load_settings().output_path() / _safe_output_name(sheet)).resolve()
+
+
+def _output_file(sheet: str, rel: str) -> Path:
+    """Gün klasörü altındaki bir çıktı dosyası; klasör dışına çıkan yol reddedilir."""
+    base = _day_output_dir(sheet)
+    target = (base / str(rel or "")).resolve()
+    if base not in target.parents:
+        raise HTTPException(status_code=422, detail="Geçersiz dosya yolu.")
+    if target.suffix.lower() not in _OUTPUT_FILE_KINDS:
+        raise HTTPException(status_code=422, detail="Bu dosya türü açılamaz.")
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail="Dosya bulunamadı.")
+    return target
+
+
+@app.get("/api/outputs/files")
+def api_output_files(sheet: str = Query(...)) -> dict[str, Any]:
+    """Seçili günün çıktı klasöründeki dosyalar (manifestolar, şoför listeleri, ZIP)."""
+    base = _day_output_dir(sheet)
+    files: list[dict[str, Any]] = []
+    if base.is_dir():
+        for path in sorted(base.rglob("*")):
+            kind = _OUTPUT_FILE_KINDS.get(path.suffix.lower())
+            if not kind or not path.is_file() or path.name.startswith("~$"):
+                continue
+            st = path.stat()
+            rel = path.relative_to(base).as_posix()
+            files.append({
+                "path": rel,
+                "name": path.name,
+                "group": "Manifestolar" if rel.startswith("Manifestolar/") else
+                         "Şoför listeleri" if rel.startswith("Sofor_Listeleri/") else "Arşiv",
+                "kind": kind,
+                "size": st.st_size,
+                "modified": _dt.datetime.fromtimestamp(st.st_mtime).isoformat(timespec="minutes"),
+            })
+    return {"sheet": sheet, "dir": str(base), "files": files}
+
+
+def _cell_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, _dt.datetime):
+        return value.strftime("%d.%m.%Y %H:%M") if (value.hour or value.minute) else value.strftime("%d.%m.%Y")
+    if isinstance(value, _dt.date):
+        return value.strftime("%d.%m.%Y")
+    if isinstance(value, _dt.time):
+        return value.strftime("%H:%M")
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
+
+
+@app.get("/api/outputs/xlsx")
+def api_output_xlsx(sheet: str = Query(...), path: str = Query(...)) -> dict[str, Any]:
+    """Bir çıktı Excel'ini uygulama içinde göstermek için sayfa sayfa hücre değerleri."""
+    import openpyxl
+
+    target = _output_file(sheet, path)
+    if target.suffix.lower() != ".xlsx":
+        raise HTTPException(status_code=422, detail="Yalnız Excel dosyaları görüntülenebilir.")
+    max_rows, max_cols = 1000, 40
+    try:
+        wb = openpyxl.load_workbook(target, read_only=True, data_only=True)
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"Excel açılamadı: {e}")
+    sheets: list[dict[str, Any]] = []
+    try:
+        for ws in wb.worksheets:
+            ws.reset_dimensions()
+            rows: list[list[str]] = []
+            truncated = False
+            for i, values in enumerate(ws.iter_rows(values_only=True, max_col=max_cols)):
+                if i >= max_rows:
+                    truncated = True
+                    break
+                rows.append([_cell_text(v) for v in values])
+            while rows and not any(rows[-1]):
+                rows.pop()
+            width = max((max((j + 1 for j, v in enumerate(r) if v), default=0) for r in rows), default=0)
+            sheets.append({"name": ws.title, "rows": [r[:width] for r in rows], "truncated": truncated})
+    finally:
+        wb.close()
+    # Manifestoda asıl sayfa önce gelsin
+    sheets.sort(key=lambda sh: 0 if sh["name"] == config.MANIFEST_SHEET else 1)
+    return {"name": target.name, "path": path, "sheets": sheets}
+
+
+@app.post("/api/outputs/open-file")
+def api_output_open_file(body: dict) -> dict[str, Any]:
+    """Çıktı dosyasını varsayılan programla (Excel, PDF okuyucu) açar."""
+    target = _output_file(str(body.get("sheet", "")).strip(), str(body.get("path", "")))
     if os.name == "nt":
         os.startfile(str(target))  # noqa: S606 — yerel masaüstü uygulaması
     return {"path": str(target)}

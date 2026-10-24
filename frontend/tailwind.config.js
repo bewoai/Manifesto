@@ -1,105 +1,113 @@
 /** @type {import('tailwindcss').Config} */
+
+// ─── İrtifa renk sistemi ───────────────────────────────────────────────
+// Değerler style.css'teki CSS değişkenlerinden gelir (RGB kanalları), böylece iki tema
+// aynı sınıflarla çalışır: "Kısık Tüf" (varsayılan, :root) ve "Yumuşak Grafit"
+// ([data-theme="graphite"]). Token adları eski sayfalarla uyum için korunur.
+const v = (name) => `rgb(var(--${name}) / <alpha-value>)`;
+
 export default {
   content: [
     './index.html',
     './*.js',
     './pages/*.js',
   ],
-  darkMode: 'class',
+  darkMode: ['class', '[data-theme="graphite"]'],
   theme: {
     extend: {
       colors: {
-        // ─── İrtifa "Aetheria" — Kapadokya şafağı paleti ───
-        // Zemin: şafak öncesi gök (koyu indigo/lacivert yüzeyler). Metin ve ince kenarlıklar:
-        // peribacası tüfünün sıcak nötrleri (kum/bej). Birincil vurgu: gün doğumu amber/terakota;
-        // gök mavisi yalnız ikincil (bilgi/link). Token adları sabit — sayfa sınıfları değişmez.
-        'background': '#0b1020',
-        'surface': '#10162b',
-        'surface-dim': '#0b1020',
-        'surface-bright': '#222a45',
-        'surface-container-lowest': '#0b1020',
-        'surface-container-low': '#0e1428',
-        'surface-container': '#141a33',
-        'surface-container-high': '#1c2340',
-        'surface-container-highest': '#283050',
-        'surface-variant': '#1c2340',
-        'surface-tint': '#f2a65a',
-        'on-surface': '#ece2d0',          // tüf beji — saf beyaz yerine göz yormayan sıcak metin
-        'on-background': '#ece2d0',
-        'on-surface-variant': '#b3a893',  // ikincil metin (kil/kum)
-        'inverse-surface': '#ece2d0',
-        'inverse-on-surface': '#10162b',
-        'outline': '#7a705f',
-        'outline-variant': '#3b3a3f',
+        // Zemin ve yüzeyler (tüf taşı katmanları)
+        'background': v('ground'),
+        'surface': v('ground'),
+        'surface-dim': v('ground'),
+        'surface-bright': v('raised'),
+        'surface-container-lowest': v('rail'),
+        'surface-container-low': v('well'),
+        'surface-container': v('panel'),
+        'surface-container-high': v('raised'),
+        'surface-container-highest': v('rail'),
+        'surface-variant': v('well'),
+        'surface-light': v('raised'),
+        'surface-tint': v('primary'),
+        'rail': v('rail'),
+        'panel': v('panel'),
+        'raised': v('raised'),
+        'well': v('well'),
+        'line': v('line'),
 
-        // Primary — gün doğumu amberi / terakota (düğme, aktif öğe, odak halkası)
-        'primary': '#f2a65a',
-        'primary-fixed': '#fcdcb6',
-        'primary-fixed-dim': '#f6c08a',
-        'on-primary': '#2a1606',
-        'primary-container': '#ad5428',
-        'on-primary-container': '#fff7ee',
-        'on-primary-fixed': '#2a1606',
-        'on-primary-fixed-variant': '#a5521f',
-        'inverse-primary': '#a5521f',
+        // Metin
+        'on-surface': v('ink'),
+        'on-background': v('ink'),
+        'on-surface-variant': v('ink-2'),
+        'ink': v('ink'),
+        'ink-2': v('ink-2'),
+        'inverse-surface': v('ink'),
+        'inverse-on-surface': v('panel'),
+        'outline': v('outline'),
+        'outline-variant': v('line'),
 
-        // Secondary — gök mavisi (bilgi, link; ikincil vurgu)
-        'secondary': '#38bdf8',
-        'secondary-fixed': '#bae6fd',
-        'secondary-fixed-dim': '#7dd3fc',
-        'on-secondary': '#082f49',
-        'secondary-container': '#0369a1',
-        'on-secondary-container': '#e0f2fe',
-        'on-secondary-fixed': '#0c4a6e',
-        'on-secondary-fixed-variant': '#0284c7',
+        // Tek arayüz vurgusu: soluk lapis (Göreme kaya kiliseleri)
+        'primary': v('primary'),
+        'primary-fixed': v('primary-soft'),
+        'primary-fixed-dim': v('primary-hover'),
+        'on-primary': v('on-primary'),
+        'primary-container': v('primary-soft'),
+        'on-primary-container': v('primary-deep'),
+        'on-primary-fixed': v('primary-deep'),
+        'on-primary-fixed-variant': v('primary'),
+        'inverse-primary': v('primary-soft'),
 
-        // Tertiary — tüf taşı sıcak nötrleri (kart dolgusu/kenarlık: /8–/12 opaklıkta)
-        'tertiary': '#e9dcc7',
-        'tertiary-fixed': '#f5ede0',
-        'tertiary-fixed-dim': '#ddcdb3',
-        'on-tertiary': '#3b3226',
-        'tertiary-container': '#6b5d48',
-        'on-tertiary-container': '#f8f1e6',
-        'on-tertiary-fixed': '#241d14',
-        'on-tertiary-fixed-variant': '#4a3f30',
+        // İkincil = bilgi mavisi-gri
+        'secondary': v('info'),
+        'secondary-fixed': v('primary-soft'),
+        'secondary-fixed-dim': v('info'),
+        'on-secondary': v('on-primary'),
+        'secondary-container': v('primary-soft'),
+        'on-secondary-container': v('primary-deep'),
 
-        // Error — kırmızı korunur
-        'error': '#f87171',
-        'on-error': '#450a0a',
-        'error-container': '#991b1b',
-        'on-error-container': '#fef2f2',
+        // Tertiary = mürekkep; /5–/15 opaklıkla ince çizgi ve dolgu olarak kullanılır
+        'tertiary': v('ink'),
+        'on-tertiary': v('panel'),
 
-        // ─── Durum renkleri (kontrol kartları yeşil/sarı, rozetler, uyarılar) ───
-        // Semantik kalır; warning şafak amberiyle karışmasın diye sarıya (#facc15) çekildi.
-        'success': '#4ade80',
-        'on-success': '#052e16',
-        'warning': '#facc15',
-        'on-warning': '#422006',
-        'danger': '#f87171',
-        'on-danger': '#450a0a',
-        'info': '#38bdf8',
-        'on-info': '#082f49',
-        'surface-light': '#1c2340', // kart içi açık yüzey
+        // Durum renkleri (anlamlı: yeşil doğrulandı, sarı kontrol, kırmızı hata)
+        'success': v('success'),
+        'on-success': v('on-flag'),
+        'warning': v('warning'),
+        'on-warning': v('on-flag'),
+        'danger': v('danger'),
+        'on-danger': v('on-flag'),
+        'error': v('danger'),
+        'on-error': v('on-flag'),
+        'error-container': v('danger-soft'),
+        'on-error-container': v('danger-deep'),
+        'info': v('info'),
+        'on-info': v('on-flag'),
 
-        // ─── Balon vurgu paleti — yalnız balon rozetleri ve grafikler (az, dengeli) ───
-        'balloon-red': '#ff6b6b',
-        'balloon-orange': '#ff9f5a',
-        'balloon-amber': '#ffc24b',
-        'balloon-teal': '#36d6c3',
-        'balloon-sky': '#5ba8ff',
-        'balloon-magenta': '#f074c0',
-        'balloon-purple': '#b493ff',
-        'balloon-green': '#7bd88f',
-        'sunrise': '#f2a65a',
+        // Sabah uçuş bayrağı (düz bez blokları)
+        'flag-go': v('flag-go'),
+        'flag-hold': v('flag-hold'),
+        'flag-stop': v('flag-stop'),
+        'on-flag': v('on-flag'),
+
+        // Balon zarf mürekkepleri — yalnız balon kodu, zarf şeridi ve koltuk çubuğu
+        'env-1': v('env-1'),
+        'env-2': v('env-2'),
+        'env-3': v('env-3'),
+        'env-4': v('env-4'),
+        'env-5': v('env-5'),
+        'env-6': v('env-6'),
+        'env-7': v('env-7'),
+        'env-8': v('env-8'),
       },
       borderRadius: {
         DEFAULT: '0.25rem',
+        md: '0.375rem',
         lg: '0.5rem',
-        xl: '0.75rem',
-        '2xl': '1rem',
-        '3xl': '1.5rem',
-        '4xl': '2rem',
-        '5xl': '2.5rem',
+        xl: '0.625rem',
+        '2xl': '0.75rem',
+        '3xl': '0.875rem',
+        '4xl': '1rem',
+        '5xl': '1.25rem',
         full: '9999px',
       },
       spacing: {
@@ -110,32 +118,19 @@ export default {
         unit: '8px',
       },
       fontFamily: {
-        'headline': ['"Bricolage Grotesque"', 'Plus Jakarta Sans', 'sans-serif'],
-        'body': ['"Plus Jakarta Sans"', 'system-ui', 'sans-serif'],
-        'mono': ['JetBrains Mono', 'monospace'],
+        'headline': ['"Source Serif 4"', 'Georgia', 'serif'],
+        'body': ['"Source Sans 3"', '"Segoe UI"', 'system-ui', 'sans-serif'],
+        'sans': ['"Source Sans 3"', '"Segoe UI"', 'system-ui', 'sans-serif'],
+        'mono': ['"JetBrains Mono"', 'Consolas', 'monospace'],
       },
       fontSize: {
-        'headline-sm': ['24px', { lineHeight: '32px', fontWeight: '600' }],
+        'headline-sm': ['22px', { lineHeight: '28px', fontWeight: '600' }],
         'body-md': ['16px', { lineHeight: '24px', fontWeight: '400' }],
-        'headline-lg': ['40px', { lineHeight: '48px', fontWeight: '600' }],
+        'headline-lg': ['38px', { lineHeight: '44px', fontWeight: '600', letterSpacing: '-0.01em' }],
         'body-lg': ['18px', { lineHeight: '28px', fontWeight: '400' }],
-        'headline-md': ['32px', { lineHeight: '40px', fontWeight: '600' }],
-        'label-md': ['14px', { lineHeight: '20px', letterSpacing: '0.05em', fontWeight: '500' }],
-        'display-lg': ['64px', { lineHeight: '72px', letterSpacing: '-0.02em', fontWeight: '700' }],
-      },
-      animation: {
-        'morph': 'morph 20s ease-in-out infinite',
-        'dash': 'dash 20s linear infinite',
-      },
-      keyframes: {
-        morph: {
-          '0%': { borderRadius: '42% 58% 70% 30% / 45% 45% 55% 55%' },
-          '50%': { borderRadius: '70% 30% 46% 54% / 30% 29% 71% 70%' },
-          '100%': { borderRadius: '42% 58% 70% 30% / 45% 45% 55% 55%' },
-        },
-        dash: {
-          to: { strokeDashoffset: '-100' },
-        },
+        'headline-md': ['28px', { lineHeight: '34px', fontWeight: '600', letterSpacing: '-0.005em' }],
+        'label-md': ['12px', { lineHeight: '16px', letterSpacing: '0.08em', fontWeight: '600' }],
+        'display-lg': ['56px', { lineHeight: '60px', letterSpacing: '-0.02em', fontWeight: '600' }],
       },
     },
   },

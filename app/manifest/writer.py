@@ -150,6 +150,18 @@ def build_rows(planning_xlsx: Path, sheet: str, balloon: str) -> list[ManifestRo
 
 
 
+def passport_text(value) -> str:
+    """Pasaport/kimlik no'yu metne çevirir; Excel'in sayıya çevirdiği '1234567.0' → '1234567'."""
+    if value is None:
+        return ""
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    text = str(value).strip()
+    if re.fullmatch(r"\d+\.0", text):
+        text = text[:-2]
+    return text
+
+
 def write_manifest(rows: list[ManifestRow], out_path: Path,
                    template_path: Optional[Path] = None) -> Path:
     """ManifestRow'ları şablonun MANİFESTO sayfasına yazar (biçim + ULKELER korunur)."""
@@ -167,7 +179,13 @@ def write_manifest(rows: list[ManifestRow], out_path: Path,
         ws.cell(r, config.M_COL_NAME).value = row.name
         ws.cell(r, config.M_COL_SEX).value = row.sex
         ws.cell(r, config.M_COL_NATIONALITY).value = row.nationality
-        ws.cell(r, config.M_COL_PASSPORT).value = row.passport_no
+        ws.cell(r, config.M_COL_PASSPORT).value = passport_text(row.passport_no)
+
+    # SHGM sistemi pasaport sütununu METİN bekliyor: sayı biçimli hücreleri bazen reddediyor,
+    # Excel de rakamlı numaraların baştaki sıfırını siliyor. Veri satırlarının tamamı '@'.
+    last = max(ws.max_row, config.MANIFEST_FIRST_DATA_ROW + len(rows) - 1)
+    for r in range(config.MANIFEST_FIRST_DATA_ROW, last + 1):
+        ws.cell(r, config.M_COL_PASSPORT).number_format = "@"
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(out_path)

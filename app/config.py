@@ -60,9 +60,10 @@ OPERATION_FIELD_TO_COL = {
 
 BLOCK_WIDE_OPERATION_FIELDS = {"balloon", "pilot", "driver", "coming_place"}
 
-# Rezervasyon grubu boyunca dikey birleşik (tek değer gösterilen) lider kolonları —
-# planlama sayfasındaki görünümü korumak için create_reservation bunları yeniden birleştirir.
-LEAD_MERGE_COLS = (COL_PAX, COL_HOTEL, COL_PICKUP, COL_RESERVED_BY, COL_AGENCY, COL_NOTE)
+# Yeni rezervasyonda blok boyunca dikey birleştirilen lider kolonları (arkadaşın düzeni:
+# PAX, otel, pickup, rezerve yapan, acente). İrtibat/oda (E) ve not (M) yolcu başına yazılır,
+# birleştirilmez. Var olan blok taşınır/büyütülürken kendi birleşimleri korunur.
+LEAD_MERGE_COLS = (COL_PAX, COL_HOTEL, COL_PICKUP, COL_RESERVED_BY, COL_AGENCY)
 
 # Manifesto sayfası — brief §3
 MANIFEST_SHEET = "MANİFESTO"
@@ -79,6 +80,7 @@ SEX_TR = {"M": "Erkek", "F": "Kadın"}
 DEFAULT_BALLOON_CODES = []
 DEFAULT_BALLOON_CAPACITY = 28   # balon başına maksimum yolcu (Sayfa2 KAPASİTE 112 = ~4×28)
 MAX_PAX = 28                    # tek rezervasyonun en fazla yolcu sayısı
+MAX_BALLOON_CAPACITY = 60       # Ayarlar'da tek balona girilebilecek en büyük kapasite
 VEHICLE_CAPACITY = 16          # araç (ALIŞ ŞÖFÖR/kaptan) başına maksimum yolcu
 
 def get_resource_path(relative_path: str) -> Path:
